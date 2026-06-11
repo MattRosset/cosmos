@@ -1,0 +1,35 @@
+{
+  "packFormatVersion": 1,
+  "source": "hyg-v41",
+  "contentHashSha256": "c38e3d7547490eee91b9e48ff5ac5e25bd42ffc25fb4782fee2efe639ddc2cf7",
+  "count": 109399,
+  "binUrl": "stars.c38e3d75.bin",
+  "namesUrl": "names.json",
+  "originPc": [
+    0,
+    0,
+    0
+  ],
+  "buffers": {
+    "positionsPc": {
+      "byteOffset": 0,
+      "byteLength": 1312788
+    },
+    "absMag": {
+      "byteOffset": 1312788,
+      "byteLength": 437596
+    },
+    "colorIndexBV": {
+      "byteOffset": 1750384,
+      "byteLength": 437596
+    },
+    "catalogIds": {
+      "byteOffset": 2187980,
+      "byteLength": 437596
+    },
+    "hipIds": {
+      "byteOffset": 2625576,
+      "byteLength": 437596
+    }
+  }
+}
