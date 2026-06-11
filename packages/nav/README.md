@@ -15,8 +15,8 @@ package provides:
 - **Quaternion-only orientation** (no Euler accumulation / gimbal lock)
 - **Transparent rebasing** when `coords` fires a `RebaseEvent`
 
-v1 scope: free flight only. No go-to-target, orbit mode, picking, or context
-auto-switching (Phase 1–2).
+Phase 1 adds **go-to-target** animated flight (TASK-013). Orbit mode, picking,
+and context auto-switching remain Phase 2.
 
 ## API
 
@@ -35,6 +35,40 @@ flight.update(dtMs);
 // React / R3F (inside SceneHost Canvas tree):
 useFlightController({ origin, initial: { position, orientation } });
 ```
+
+### Go-to-target (Phase 1 — TASK-013)
+
+Double-click-a-star UX: exponential-decay flight that decelerates as it
+approaches, turns to face early, and never overshoots.
+
+```ts
+// Start an animated flight
+flight.goTo({
+  target: { context: 'galaxy', local: [-1.82, -1.9, -0.42] },
+  arrivalDistanceM: 1e13, // ~67 AU — star fills the view
+  durationMs: 6000,       // optional, default 6000, clamped [1000, 20000]
+});
+
+// Listen for completion (fires once; returns unsubscribe fn)
+const unsub = flight.onGoToEnd((completed) => {
+  if (completed) console.log('arrived');
+  else console.log('cancelled by user input');
+});
+
+// Abort manually
+flight.cancelGoTo();
+
+// Query
+console.log(flight.goToActive); // boolean
+```
+
+**Motion law:** distance decays as `d(t) = d0 × exp(−k × t)` where
+`k = ln(d0 / arrivalDistanceM) / durationMs` — constant *perceived* speed
+across orders of magnitude. Orientation slews to face the target with a time
+constant of `durationMs / 5`.
+
+**Cancellation:** any WASD/RF key or pointer drag beyond the 2 px deadzone
+cancels the flight automatically and resumes free flight that same frame.
 
 ### Input (v1)
 
