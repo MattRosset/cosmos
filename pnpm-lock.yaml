@@ -84,6 +84,12 @@ importers:
 
   packages/core-types: {}
 
+  packages/data:
+    dependencies:
+      '@cosmos/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+
   packages/nav:
     dependencies:
       '@cosmos/coords':
