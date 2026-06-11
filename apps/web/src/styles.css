@@ -52,3 +52,19 @@ body,
 .hud-panel .dim {
   color: #8a8fa3;
 }
+
+.hud-retry {
+  margin-top: 6px;
+  background: rgba(80, 100, 180, 0.4);
+  border: 1px solid rgba(100, 130, 220, 0.4);
+  border-radius: 4px;
+  color: #c8d0ff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.hud-retry:hover {
+  background: rgba(80, 100, 180, 0.65);
+  color: #ffffff;
+}

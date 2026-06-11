@@ -10,10 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@cosmos/app-state": "workspace:*",
     "@cosmos/coords": "workspace:*",
     "@cosmos/core-types": "workspace:*",
+    "@cosmos/data": "workspace:*",
     "@cosmos/nav": "workspace:*",
+    "@cosmos/render-stars": "workspace:*",
     "@cosmos/scene-host": "workspace:*",
+    "@cosmos/ui": "workspace:*",
     "@react-three/fiber": "^9.6.1",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

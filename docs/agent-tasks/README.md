@@ -58,7 +58,7 @@ sections — they are part of the spec.
 | [TASK-012](TASK-012-ui.md) | `ui` v1: search palette + info panel | TASK-011 | done | lane C (mocked adapter) |
 | [TASK-013](TASK-013-nav-goto.md) | `nav` v2: go-to-target animation | TASK-006 | done | lane D |
 | [TASK-014](TASK-014-e2e-harness.md) | E2E harness: Playwright + baselines + bundle gate | TASK-006 | done | lane E |
-| [TASK-015](TASK-015-m1-integration.md) | M1 integration: stars + picking + search + go-to | TASK-009, 010, 012, 013, 014 | in-progress | strongest agent; exclusive in `apps/web` |
+| [TASK-015](TASK-015-m1-integration.md) | M1 integration: stars + picking + search + go-to | TASK-009, 010, 012, 013, 014 | done | required render-stars vert fix (831161d); ui InfoPanel HIP/format defect reported |
 | [TASK-016](TASK-016-deploy.md) | Deploy to CDN + context-loss handling | TASK-014 | pending | lane E; human adds CF secrets |
 | [TASK-017](TASK-017-phase1-gate.md) | Phase 1 gate: rendered jitter + Lighthouse + M1 | TASK-015, 016 | pending | **GATE: closes Phase 1** |
 
