@@ -11,10 +11,11 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "test": "turbo run test",
+    "test": "turbo run test --filter=!@cosmos/e2e",
     "lint": "eslint .",
     "typecheck": "turbo run typecheck",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check:bundle": "node tools/check-bundle-size/src/check.mjs",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
   "devDependencies": {

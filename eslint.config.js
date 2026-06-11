@@ -17,6 +17,20 @@ export default tseslint.config(
     ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**'],
   },
   {
+    // Node.js scripts (plain .mjs files — no bundler, no DOM)
+    files: ['tools/**/*.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        Buffer: 'readonly',
+        __dirname: 'readonly',
+        __filename: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
+  {
     rules: {
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/consistent-type-imports': 'error',
