@@ -43,8 +43,8 @@ sections — they are part of the spec.
 | [TASK-002](TASK-002-core-types.md) | `core-types` v1: bodies, orbits, events | TASK-001 | done | reviewed + accepted 2026-06-10 |
 | [TASK-003](TASK-003-coords.md) | `coords`: frame tree + floating origin | TASK-002 | done | critical path (ADR-001) |
 | [TASK-004](TASK-004-scene-host.md) | `scene-host` extraction from `apps/web` | TASK-003 | done | |
-| [TASK-005](TASK-005-nav.md) | `nav` v1: log-scaled free flight | TASK-004 | pending | |
-| [TASK-006](TASK-006-phase0-gate.md) | Phase 0 gate: jitter test + 12-OOM flythrough | TASK-005 | pending | closes Phase 0 |
+| [TASK-005](TASK-005-nav.md) | `nav` v1: log-scaled free flight | TASK-004 | done | |
+| [TASK-006](TASK-006-phase0-gate.md) | Phase 0 gate: jitter test + 12-OOM flythrough | TASK-005 | done | closes Phase 0 |
 
 **GATE:** TASK-006 is the Phase 0 acceptance gate (architecture §6 Phase 0). No Phase 1
 task may be specced or started until TASK-006 is `done` — the `coords` public API freezes

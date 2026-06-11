@@ -4,7 +4,9 @@ import * as THREE from 'three';
 import { createPrng } from '@cosmos/core-types';
 
 const STAR_COUNT = 50_000;
-const FIELD_RADIUS = 400;
+/** Scene units; shared with nav distance query (Phase 0 placeholder). */
+export const STARFIELD_RADIUS = 400;
+const FIELD_RADIUS = STARFIELD_RADIUS;
 const SEED = 20260610;
 
 /**

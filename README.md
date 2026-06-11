@@ -6,7 +6,7 @@ Built web-first with React, TypeScript, Three.js (React Three Fiber), and Web Wo
 
 ## Status
 
-**Phase 0 (Foundation) in progress.** The full technical design lives in
+**Phase 0 complete — Phase 1 (MVP Stars) in progress.** The full technical design lives in
 [`docs/architecture.md`](docs/architecture.md). Execution is tracked task-by-task in
 [`docs/agent-tasks/README.md`](docs/agent-tasks/README.md) — agents: start there.
 
