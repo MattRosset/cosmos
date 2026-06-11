@@ -35,7 +35,7 @@ Pure-math ray pick. Ray origin and direction are tile-local parsecs (subtract `b
 
 ## Rendering contract (ADR-001 §5)
 
-The caller must compute `setRenderOffset` each frame as `originManager.toRenderSpace(batch.originPc)`. The vertex shader treats `position + uRenderOffset` as view-space parsecs and applies the camera projection matrix directly — **no model/view transform is applied by the shader**. Place the `THREE.Points` at scene origin and don't add any position/rotation.
+The caller must compute `setRenderOffset` each frame as `originManager.toRenderSpace(batch.originPc)`. The vertex shader treats `position + uRenderOffset` as the star's camera-relative position in world axes (parsecs), applies the rotational part of the camera view matrix, then the projection matrix. The camera's render-space position is identically zero under the floating origin (ADR-001), so **no view translation is applied — only rotation**. Place the `THREE.Points` at scene origin and don't add any position/rotation.
 
 ## Shader spec (§5.9)
 

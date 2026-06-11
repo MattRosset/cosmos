@@ -76,6 +76,10 @@ describe('shader strings', () => {
     expect(VERT).toContain('uRenderOffset');
   });
 
+  it('vertex shader applies the camera rotation (viewMatrix) to camera-relative positions', () => {
+    expect(VERT).toContain('mat3(viewMatrix) * (position + uRenderOffset)');
+  });
+
   it('vertex shader contains the -0.2 size exponent', () => {
     expect(VERT).toContain('-0.2');
   });
