@@ -1,0 +1,135 @@
+/* @cosmos/ui — HUD overlay styles.
+ * The app must wrap these panels in a container with pointer-events: none.
+ * Each panel opts back in with pointer-events: auto (see README). */
+
+.cosmos-ui-palette {
+  pointer-events: auto;
+  position: fixed;
+  top: 20%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(480px, 90vw);
+  background: rgba(16, 16, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  z-index: 100;
+}
+
+.cosmos-ui-palette input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e8e8f0;
+  font-size: 1rem;
+  padding: 8px 4px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.cosmos-ui-palette ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.cosmos-ui-palette-item {
+  padding: 8px 12px;
+  border-radius: 4px;
+  color: #c8c8d8;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.cosmos-ui-palette-item--highlighted,
+.cosmos-ui-palette-item:hover {
+  background: rgba(100, 120, 200, 0.25);
+  color: #ffffff;
+}
+
+.cosmos-ui-palette-no-matches {
+  padding: 8px 12px;
+  color: rgba(200, 200, 216, 0.5);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* --- Info panel --- */
+
+.cosmos-ui-info {
+  pointer-events: auto;
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: min(280px, 90vw);
+  background: rgba(16, 16, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  color: #c8c8d8;
+}
+
+.cosmos-ui-info-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  background: none;
+  border: none;
+  color: rgba(200, 200, 216, 0.6);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 4px;
+}
+
+.cosmos-ui-info-close:hover {
+  color: #ffffff;
+}
+
+.cosmos-ui-info-name {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+  color: #ffffff;
+  padding-right: 24px;
+}
+
+.cosmos-ui-info-data {
+  margin: 0 0 12px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  font-size: 0.82rem;
+}
+
+.cosmos-ui-info-data dt {
+  color: rgba(200, 200, 216, 0.6);
+}
+
+.cosmos-ui-info-data dd {
+  margin: 0;
+  color: #e8e8f0;
+}
+
+.cosmos-ui-info-goto {
+  display: block;
+  width: 100%;
+  background: rgba(80, 100, 180, 0.4);
+  border: 1px solid rgba(100, 130, 220, 0.4);
+  border-radius: 4px;
+  color: #c8d0ff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 6px;
+  text-align: center;
+}
+
+.cosmos-ui-info-goto:hover {
+  background: rgba(80, 100, 180, 0.65);
+  color: #ffffff;
+}
