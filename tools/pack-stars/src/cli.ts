@@ -1,8 +1,5 @@
 import { parseArgs } from 'node:util';
-import { readFileSync } from 'node:fs';
-import { parse } from 'csv-parse/sync';
-import { processRow } from './convert';
-import { writePack } from './write-pack';
+import { packFromCsv } from './pack-from-csv';
 
 // pnpm forwards '--' literally when called as: pnpm run build -- --input ...
 const rawArgs = process.argv.slice(2);
@@ -25,29 +22,8 @@ if (!values.input || !values.out) {
   process.exit(0);
 }
 
-const csvData = readFileSync(values.input, 'utf8');
-const rows = parse(csvData, {
-  columns: true,
-  skip_empty_lines: true,
-  trim: false,
-}) as Record<string, string>[];
-
-const stars = [];
-let dropped = 0;
-for (const row of rows) {
-  const star = processRow(row);
-  if (star === null) {
-    dropped++;
-  } else {
-    stars.push(star);
-  }
-}
-
-stars.sort((a, b) => a.id - b.id);
-
-const result = writePack(stars, values.out);
+const result = packFromCsv(values.input, values.out);
 
 console.log(`Stars written : ${result.count}`);
-console.log(`Rows dropped  : ${dropped}`);
 console.log(`Output file   : ${result.binFilename}`);
 console.log(`SHA-256       : ${result.contentHashSha256}`);

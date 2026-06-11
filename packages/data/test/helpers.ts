@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { packFromCsv } from '../../../tools/pack-stars/src/pack-from-csv.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
@@ -11,23 +11,13 @@ export const FIXTURE_CSV = join(
   'tools/pack-stars/test/fixtures/hyg-mini.csv',
 );
 
-const CLI_TS = join(REPO_ROOT, 'tools/pack-stars/src/cli.ts');
-
-// tsx binary — use .CMD on Windows so the shell finds it
-const TSX_BIN =
-  process.platform === 'win32'
-    ? join(REPO_ROOT, 'node_modules/.bin/tsx.CMD')
-    : join(REPO_ROOT, 'node_modules/.bin/tsx');
-
-/** Run the pack-stars CLI on the fixture CSV and return the output directory. */
+/** Build a star pack from the fixture CSV and return the output directory. */
 export function buildFixturePack(): string {
   const dir = join(
     tmpdir(),
     `cosmos-data-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
-  execFileSync(TSX_BIN, [CLI_TS, '--input', FIXTURE_CSV, '--out', dir], {
-    shell: process.platform === 'win32',
-  });
+  packFromCsv(FIXTURE_CSV, dir);
   return dir;
 }
 
