@@ -76,6 +76,22 @@ importers:
         specifier: ^8.0.16
         version: 8.0.16(@types/node@22.19.21)(esbuild@0.28.0)(tsx@4.22.4)
 
+  packages/app-state:
+    dependencies:
+      '@cosmos/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+      zustand:
+        specifier: 5.0.14
+        version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
+    devDependencies:
+      '@types/react':
+        specifier: ^19.2.17
+        version: 19.2.17
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+
   packages/coords:
     dependencies:
       '@cosmos/core-types':

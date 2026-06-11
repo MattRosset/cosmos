@@ -51,10 +51,10 @@ sections — they are part of the spec.
 | [TASK-005](TASK-005-nav.md) | `nav` v1: log-scaled free flight | TASK-004 | done | |
 | [TASK-006](TASK-006-phase0-gate.md) | Phase 0 gate: jitter test + 12-OOM flythrough | TASK-005 | done | closes Phase 0 |
 | [TASK-007](TASK-007-core-types-thaw.md) | `core-types` thaw: pack manifest + `StarBatch` | TASK-006 | done | unblocks lanes A–C |
-| [TASK-008](TASK-008-pack-stars.md) | `tools/pack-stars`: HYG v4.1 → `stars.bin` | TASK-007 | pending | lane A |
-| [TASK-009](TASK-009-data.md) | `data` v1: loader, search, region/nearest queries | TASK-008 | pending | lane A |
-| [TASK-010](TASK-010-render-stars.md) | `render-stars` v1: point sprites + pick helper | TASK-007 | pending | lane B |
-| [TASK-011](TASK-011-app-state.md) | `app-state` v1: selection/settings stores | TASK-007 | pending | lane C |
+| [TASK-008](TASK-008-pack-stars.md) | `tools/pack-stars`: HYG v4.1 → `stars.bin` | TASK-007 | done | lane A |
+| [TASK-009](TASK-009-data.md) | `data` v1: loader, search, region/nearest queries | TASK-008 | done | lane A |
+| [TASK-010](TASK-010-render-stars.md) | `render-stars` v1: point sprites + pick helper | TASK-007 | done | lane B |
+| [TASK-011](TASK-011-app-state.md) | `app-state` v1: selection/settings stores | TASK-007 | done | lane C |
 | [TASK-012](TASK-012-ui.md) | `ui` v1: search palette + info panel | TASK-011 | pending | lane C (mocked adapter) |
 | [TASK-013](TASK-013-nav-goto.md) | `nav` v2: go-to-target animation | TASK-006 | pending | lane D |
 | [TASK-014](TASK-014-e2e-harness.md) | E2E harness: Playwright + baselines + bundle gate | TASK-006 | pending | lane E |

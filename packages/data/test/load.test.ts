@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { StarPackManifest } from '@cosmos/core-types';
-import { STAR_PACK_FORMAT_VERSION } from '@cosmos/core-types';
+import type { STAR_PACK_FORMAT_VERSION } from '@cosmos/core-types';
 import { loadStarPack, PackFormatError } from '../src/index.js';
 import { buildFixturePack, makeFileFetch } from './helpers.js';
 

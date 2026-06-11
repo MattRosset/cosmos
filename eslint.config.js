@@ -95,4 +95,21 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    files: ['packages/app-state/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [{ name: 'three', message: 'app-state must not import Three.js.' }],
+          patterns: [
+            {
+              group: ['@cosmos/*/src/*'],
+              message: 'Deep imports banned: use the package public API (index.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
