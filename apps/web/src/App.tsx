@@ -10,10 +10,15 @@ import { StarScene } from './scene/StarScene';
 import { Hud } from './hud/Hud';
 import { DebugHud } from './scene/DebugHud';
 import { DebugMarkers } from './scene/DebugMarkers';
+import { JitterProbe } from './scene/JitterProbe';
 
 /** TASK-006 debug flythrough scene, behind the query flag only. */
 const DEBUG_MARKERS =
   new URLSearchParams(window.location.search).get('debug') === 'markers';
+
+/** TASK-017 rendered jitter gate (`?debug=jitter`): no pack, no HUD. */
+const DEBUG_JITTER =
+  new URLSearchParams(window.location.search).get('debug') === 'jitter';
 
 /** Camera-to-target distance at which a goTo flight stops: 10^13 m ≈ 67 AU. */
 const ARRIVAL_DISTANCE_M = 1e13;
@@ -47,7 +52,22 @@ type PackState =
   | { readonly status: 'ready'; readonly source: StarDataSource };
 
 export function App() {
+  if (DEBUG_JITTER) return <JitterApp />;
   return DEBUG_MARKERS ? <DebugApp /> : <StarApp />;
+}
+
+/**
+ * TASK-017 rendered jitter gate: a single bright marker 8 kpc out, the camera
+ * scripted to orbit it at 1 AU. No pack load, no HUD — isolates the coordinate +
+ * render pipeline. Results land on `window.__jitterResult`.
+ */
+function JitterApp() {
+  return (
+    <SceneHost>
+      <color attach="background" args={['#02030a']} />
+      <JitterProbe />
+    </SceneHost>
+  );
 }
 
 function ContextLostOverlay(): React.JSX.Element {

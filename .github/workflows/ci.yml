@@ -65,6 +65,12 @@ jobs:
       - name: Build web
         run: pnpm --filter @cosmos/web build
 
+      # Phase 1 acceptance (TASK-017, §6): performance >= 0.85 and Time-to-Interactive
+      # <= 4000 ms (the "cable connection" cold-load budget, modeled by Lighthouse's
+      # desktop throttling profile). Runs against the built dist, never the dev server.
+      - name: Lighthouse (performance + cold-load budget)
+        run: pnpm lighthouse
+
       - name: Run E2E tests
         run: pnpm --filter @cosmos/e2e test
 

@@ -60,7 +60,7 @@ sections — they are part of the spec.
 | [TASK-014](TASK-014-e2e-harness.md) | E2E harness: Playwright + baselines + bundle gate | TASK-006 | done | lane E |
 | [TASK-015](TASK-015-m1-integration.md) | M1 integration: stars + picking + search + go-to | TASK-009, 010, 012, 013, 014 | done | required render-stars vert fix (831161d); ui InfoPanel HIP/format defect reported |
 | [TASK-016](TASK-016-deploy.md) | Deploy to CDN + context-loss handling | TASK-014 | done | CF secrets added manually; deploy.yml skips cleanly when absent |
-| [TASK-017](TASK-017-phase1-gate.md) | Phase 1 gate: rendered jitter + Lighthouse + M1 | TASK-015, 016 | pending | **GATE: closes Phase 1** |
+| [TASK-017](TASK-017-phase1-gate.md) | Phase 1 gate: rendered jitter + Lighthouse + M1 | TASK-015, 016 | done | **GATE: Phase 1 closed**; jitter 1.3e-5 px, Lighthouse perf 0.88 / TTI 2.4 s |
 
 **GATE:** TASK-017 is the Phase 1 acceptance gate (architecture §6 Phase 1 / M1). No
 Phase 2 task may be specced or started until TASK-017 is `done` — at that point the
