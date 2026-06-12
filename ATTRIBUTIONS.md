@@ -31,6 +31,26 @@ Table 1 element values (valid 1800 AD–2050 AD) are transcribed verbatim into
 
 ---
 
+## NASA Exoplanet Archive — Planetary Systems Composite Parameters (pscomppars)
+
+**Source:** NASA Exoplanet Archive, operated by the California Institute of Technology
+(Caltech/IPAC) under contract with NASA as part of the Exoplanet Exploration Program  
+**URL:** https://exoplanetarchive.ipac.caltech.edu/  
+**Table:** `pscomppars` — one row per planet, composite best-value parameters  
+**License:** Public domain (NASA government work; see archive data use policy)  
+**Attribution:** NASA Exoplanet Archive, Caltech/IPAC
+
+The query used to generate the data pack covers systems within 50 pc with at least
+one measurable orbital parameter. The raw CSV (`pscomppars.csv`) is **not** committed.
+The derived pack `apps/web/public/packs/systems-exo.json` is committed and is itself
+public domain by virtue of its source data. To regenerate, see
+`tools/pack-exoplanets/README.md`.
+
+Missing orbital and physical parameters are filled deterministically using a
+seeded PRNG keyed by host slug (see `tools/pack-exoplanets/src/synthesize.ts`).
+
+---
+
 ## Solar System Scope Textures (2k)
 
 **Source:** https://www.solarsystemscope.com/textures/  
