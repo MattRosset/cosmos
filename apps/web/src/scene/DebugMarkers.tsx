@@ -100,7 +100,8 @@ function createLabelSprite(text: string, color: string, cubeEdgeUnits: number): 
   canvas.height = 64;
   const ctx2d = canvas.getContext('2d');
   if (ctx2d) {
-    ctx2d.font = 'bold 38px system-ui, sans-serif';
+    // Monospace for cross-platform canvas-texture determinism (E2E SwiftShader baselines).
+    ctx2d.font = 'bold 38px monospace, sans-serif';
     ctx2d.textAlign = 'center';
     ctx2d.textBaseline = 'middle';
     ctx2d.fillStyle = color;
