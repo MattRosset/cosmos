@@ -12,11 +12,13 @@ sections — they are part of the spec.
 1. Pick the **lowest-numbered** task whose **Status is `pending`** and whose **Blocked-by
    tasks are all `done`** (see the table below), skipping tasks marked `in-progress`.
    Set your task to `in-progress` (Status cell only) as your first action in the run.
-   Phase 0 was strictly sequential; **Phase 1 runs parallel lanes** (architecture §8.3)
-   — multiple tasks may be unblocked at once, and that is intentional. Each lane
+   Phase 0 was strictly sequential; **Phases 1 and 2 run parallel lanes** (architecture
+   §8.3) — multiple tasks may be unblocked at once, and that is intentional. Each lane
    touches disjoint packages, so never start a task whose target package overlaps an
-   `in-progress` task. TASK-015 (integration) and TASK-017 (gate) are single-lane:
-   nothing else runs in `apps/web`/`e2e` while they are in progress.
+   `in-progress` task. TASK-015/TASK-029 (integration) and TASK-017/TASK-030 (gates)
+   are single-lane: nothing else runs in `apps/web`/`e2e` while they are in progress.
+   TASK-021 → TASK-022 are serialized (both write `apps/web/public/packs/` and
+   `ATTRIBUTIONS.md`).
 2. Read your task file plus its listed **Context Files**. The task file is self-contained
    for everything else. Create/modify **only** the files listed under its "Deliverables"
    heading (plus its test files).
@@ -61,10 +63,27 @@ sections — they are part of the spec.
 | [TASK-015](TASK-015-m1-integration.md) | M1 integration: stars + picking + search + go-to | TASK-009, 010, 012, 013, 014 | done | required render-stars vert fix (831161d); ui InfoPanel HIP/format defect reported |
 | [TASK-016](TASK-016-deploy.md) | Deploy to CDN + context-loss handling | TASK-014 | done | CF secrets added manually; deploy.yml skips cleanly when absent |
 | [TASK-017](TASK-017-phase1-gate.md) | Phase 1 gate: rendered jitter + Lighthouse + M1 | TASK-015, 016 | done | **GATE: Phase 1 closed**; jitter 1.3e-5 px, Lighthouse perf 0.88 / TTI 2.4 s |
+| [TASK-018](TASK-018-core-types-phase2-thaw.md) | `core-types` Phase-2 thaw: systems, bookmarks, frames | TASK-017 | pending | unblocks all Phase 2 lanes |
+| [TASK-019](TASK-019-sim-time.md) | `sim-time` v1: epoch clock + acceleration | TASK-018 | pending | lane F |
+| [TASK-020](TASK-020-orbits.md) | `orbits` v1: Kepler solver, batch, polylines | TASK-018 | pending | lane G |
+| [TASK-021](TASK-021-pack-solar.md) | `tools/pack-solar`: JPL table → `systems-sol.json` + KTX2 | TASK-018, 020 | pending | lane H; hosts the 8-planet Horizons ephemeris gate |
+| [TASK-022](TASK-022-pack-exoplanets.md) | `tools/pack-exoplanets`: NASA archive + procedural fill | TASK-018, 021 | pending | lane H (after 021) |
+| [TASK-023](TASK-023-data-v2.md) | `data` v2: systems loader + combined source | TASK-018 | pending | lane I (fixture-driven) |
+| [TASK-024](TASK-024-render-planets.md) | `render-planets` v1: spheres, terminator, rings, orbit lines | TASK-018 | pending | lane J |
+| [TASK-025](TASK-025-app-state-v2.md) | `app-state` v2: time store + bookmarks/history persistence | TASK-018 | pending | lane K |
+| [TASK-026](TASK-026-ui-v2.md) | `ui` v2: time controls + bookmarks panel + planet info | TASK-025 | pending | lane K |
+| [TASK-027](TASK-027-nav-context-switch.md) | `nav` v3: automatic galaxy⇄system context switch | TASK-018 | pending | lane L; strongest agent (§8.3) |
+| [TASK-028](TASK-028-scene-host-epoch.md) | `scene-host` v1.1: pluggable epoch provider | TASK-018 | pending | lane M |
+| [TASK-029](TASK-029-m2-integration.md) | M2 integration: Sol + exoplanet systems in `apps/web` | TASK-019–028 (all) | pending | exclusive in `apps/web`/`e2e` |
+| [TASK-030](TASK-030-phase2-gate.md) | Phase 2 gate: invisible context switches + M2 | TASK-029 | pending | **GATE: closes Phase 2** |
 
-**GATE:** TASK-017 is the Phase 1 acceptance gate (architecture §6 Phase 1 / M1). No
-Phase 2 task may be specced or started until TASK-017 is `done` — at that point the
-public APIs of `data`, `render-stars`, `app-state`, `ui`, and `nav` v2 freeze.
+**GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
+`app-state`, `ui`, and `nav` v2 froze there. Phase 2 task files above are the
+sanctioned thaw approvals for the specific API additions they list — nothing else
+may change. TASK-030 is the Phase 2 acceptance gate (architecture §6 Phase 2 / M2).
+No Phase 3 task may be specced or started until TASK-030 is `done` — at that point
+the APIs of `sim-time`, `orbits`, `render-planets`, and the v2/v3 surfaces of
+`data`, `app-state`, `ui`, `nav`, and `scene-host` freeze.
 
 ## Dependency graph
 
@@ -81,7 +100,21 @@ TASK-006 ─→ lane D: TASK-013 nav go-to
 TASK-006 ─→ lane E: TASK-014 e2e harness ─→ TASK-016 deploy + context-loss
 
 TASK-009 + 010 + 012 + 013 + 014 ─→ TASK-015 M1 integration (exclusive)
-TASK-015 + 016 ─────────────────→ TASK-017 (GATE: closes Phase 1)
+TASK-015 + 016 ─────────────────→ TASK-017 (GATE: closes Phase 1, done)
+
+Phase 2 (parallel lanes per §8.3 — disjoint packages):
+TASK-017 ─→ TASK-018 (core-types Phase-2 thaw, S)
+              ├─ lane F: TASK-019 sim-time
+              ├─ lane G: TASK-020 orbits ──┐
+              ├─ lane H: TASK-021 pack-solar (also needs 020) ─→ TASK-022 pack-exoplanets
+              ├─ lane I: TASK-023 data v2 (fixtures)
+              ├─ lane J: TASK-024 render-planets
+              ├─ lane K: TASK-025 app-state v2 ─→ TASK-026 ui v2
+              ├─ lane L: TASK-027 nav v3 context switch (strongest agent)
+              └─ lane M: TASK-028 scene-host epoch provider
+
+TASK-019…028 (all) ─→ TASK-029 M2 integration (exclusive)
+TASK-029 ──────────→ TASK-030 (GATE: closes Phase 2)
 ```
 
 ## Status values
