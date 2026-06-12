@@ -1,0 +1,38 @@
+{
+  "packFormatVersion": 1,
+  "source": "test-fixture",
+  "generatedAtIso": "2026-01-01T00:00:00.000Z",
+  "systems": [
+    {
+      "id": "sol",
+      "name": "Sol",
+      "star": {
+        "id": "hyg:0",
+        "kind": "star",
+        "name": "Sol",
+        "positionPc": [0, 0, 0],
+        "absMag": 4.83,
+        "colorIndexBV": 0.65
+      },
+      "bodies": [
+        {
+          "id": "sol:earth",
+          "kind": "planet",
+          "name": "Earth",
+          "parentId": "hyg:0",
+          "radiusKm": 6371,
+          "elements": {
+            "semiMajorAxisAu": 1.0,
+            "eccentricity": 0.017,
+            "inclinationRad": 0.0,
+            "ascendingNodeLongitudeRad": 0.0,
+            "argumentOfPeriapsisRad": 1.796,
+            "meanAnomalyAtEpochRad": 6.24,
+            "epochJD": 2451545.0,
+            "muKm3S2": 1.32712440018e11
+          }
+        }
+      ]
+    }
+  ]
+}

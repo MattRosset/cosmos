@@ -1,0 +1,168 @@
+{
+  "packFormatVersion": 1,
+  "source": "test-fixture",
+  "generatedAtIso": "2026-01-01T00:00:00.000Z",
+  "systems": [
+    {
+      "id": "exo:sirius",
+      "name": "Sirius",
+      "star": {
+        "id": "exo:sirius",
+        "kind": "star",
+        "name": "Sirius",
+        "positionPc": [-1.9395, -0.4595, -0.7532],
+        "absMag": 1.43,
+        "colorIndexBV": 0.009
+      },
+      "bodies": [
+        {
+          "id": "exo:sirius:b",
+          "kind": "planet",
+          "name": "Sirius b",
+          "parentId": "exo:sirius",
+          "radiusKm": 5800,
+          "elements": {
+            "semiMajorAxisAu": 7.5,
+            "eccentricity": 0.59,
+            "inclinationRad": 0.96,
+            "ascendingNodeLongitudeRad": 2.38,
+            "argumentOfPeriapsisRad": 1.47,
+            "meanAnomalyAtEpochRad": 0.0,
+            "epochJD": 2451545.0,
+            "muKm3S2": 2.737e11
+          }
+        },
+        {
+          "id": "exo:sirius:alpha-beta",
+          "kind": "planet",
+          "name": "Alpha Beta",
+          "parentId": "exo:sirius",
+          "radiusKm": 7000,
+          "elements": {
+            "semiMajorAxisAu": 15.0,
+            "eccentricity": 0.3,
+            "inclinationRad": 0.5,
+            "ascendingNodeLongitudeRad": 1.0,
+            "argumentOfPeriapsisRad": 2.0,
+            "meanAnomalyAtEpochRad": 1.0,
+            "epochJD": 2451545.0,
+            "muKm3S2": 2.737e11
+          }
+        }
+      ]
+    },
+    {
+      "id": "exo:trappist-1",
+      "name": "TRAPPIST-1",
+      "star": {
+        "id": "exo:trappist-1",
+        "kind": "star",
+        "name": "TRAPPIST-1",
+        "positionPc": [10.0, 0.0, 0.0],
+        "absMag": 14.0,
+        "colorIndexBV": 1.8
+      },
+      "bodies": [
+        {
+          "id": "exo:trappist-1:b",
+          "kind": "planet",
+          "name": "TRAPPIST-1 b",
+          "parentId": "exo:trappist-1",
+          "radiusKm": 7153.3,
+          "elements": {
+            "semiMajorAxisAu": 0.01154,
+            "eccentricity": 0.0,
+            "inclinationRad": 1.5707963,
+            "ascendingNodeLongitudeRad": 0.0,
+            "argumentOfPeriapsisRad": 0.0,
+            "meanAnomalyAtEpochRad": 0.0,
+            "epochJD": 2451545.0,
+            "muKm3S2": 1.168e10
+          }
+        },
+        {
+          "id": "exo:trappist-1:e",
+          "kind": "planet",
+          "name": "TRAPPIST-1 e",
+          "parentId": "exo:trappist-1",
+          "radiusKm": 5797.7,
+          "elements": {
+            "semiMajorAxisAu": 0.02925,
+            "eccentricity": 0.0,
+            "inclinationRad": 1.5707963,
+            "ascendingNodeLongitudeRad": 0.0,
+            "argumentOfPeriapsisRad": 0.0,
+            "meanAnomalyAtEpochRad": 1.0,
+            "epochJD": 2451545.0,
+            "muKm3S2": 1.168e10
+          }
+        },
+        {
+          "id": "exo:trappist-1:x-alpha-y",
+          "kind": "planet",
+          "name": "X Alpha Y",
+          "parentId": "exo:trappist-1",
+          "radiusKm": 6000,
+          "elements": {
+            "semiMajorAxisAu": 0.05,
+            "eccentricity": 0.01,
+            "inclinationRad": 1.5,
+            "ascendingNodeLongitudeRad": 0.5,
+            "argumentOfPeriapsisRad": 0.5,
+            "meanAnomalyAtEpochRad": 0.5,
+            "epochJD": 2451545.0,
+            "muKm3S2": 1.168e10
+          }
+        }
+      ]
+    },
+    {
+      "id": "exo:kepler-442",
+      "name": "Kepler-442",
+      "star": {
+        "id": "exo:kepler-442",
+        "kind": "star",
+        "name": "Kepler-442",
+        "positionPc": [30.0, 0.0, 0.0],
+        "absMag": 7.5,
+        "colorIndexBV": 0.9
+      },
+      "bodies": [
+        {
+          "id": "exo:kepler-442:b",
+          "kind": "planet",
+          "name": "Kepler-442 b",
+          "parentId": "exo:kepler-442",
+          "radiusKm": 9557,
+          "elements": {
+            "semiMajorAxisAu": 0.409,
+            "eccentricity": 0.04,
+            "inclinationRad": 1.55,
+            "ascendingNodeLongitudeRad": 2.1,
+            "argumentOfPeriapsisRad": 1.2,
+            "meanAnomalyAtEpochRad": 3.0,
+            "epochJD": 2451545.0,
+            "muKm3S2": 8.095e10
+          }
+        },
+        {
+          "id": "exo:kepler-442:alpha",
+          "kind": "planet",
+          "name": "Alpha",
+          "parentId": "exo:kepler-442",
+          "radiusKm": 5000,
+          "elements": {
+            "semiMajorAxisAu": 1.0,
+            "eccentricity": 0.1,
+            "inclinationRad": 1.0,
+            "ascendingNodeLongitudeRad": 0.0,
+            "argumentOfPeriapsisRad": 0.0,
+            "meanAnomalyAtEpochRad": 0.0,
+            "epochJD": 2451545.0,
+            "muKm3S2": 8.095e10
+          }
+        }
+      ]
+    }
+  ]
+}

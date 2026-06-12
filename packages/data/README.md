@@ -54,6 +54,39 @@ A uniform grid hash with 25 pc cell size (`Map<number, Uint32Array>`), built onc
 `queryRegion` walks overlapping cells; `nearestStarIndex` searches expanding cell rings with
 an early-out once the best distance is smaller than the nearest ring's minimum distance.
 
+## Systems packs (Phase 2)
+
+### `loadSystemsPack(manifestUrl, opts?): Promise<SystemsSource>`
+
+Fetches and validates a `SystemsPackManifest` JSON file. Throws `SystemsPackFormatError` when:
+- `manifest.packFormatVersion` differs from `SYSTEMS_PACK_FORMAT_VERSION` (§11)
+- A planet body has `elements.eccentricity ≥ 1` (non-bound orbit)
+
+### `SystemsSource`
+
+| Member | Notes |
+|---|---|
+| `systems` | All `StarSystemRecord` objects in the pack |
+| `getSystem(id)` | By system id (`"sol"`, `"exo:trappist-1"`) |
+| `getBody(id)` | Host star (by star id) or planet (by body id) |
+| `systemOfBody(id)` | System for any host or planet id |
+
+### `createCombinedSource(stars, systems): CombinedSource`
+
+Merges a HYG `StarDataSource` with one or more `SystemsSource` arrays into a single body
+namespace. Performs host deduplication: a pack host whose name case-insensitively matches a
+named HYG star resolves to that HYG record (the HYG position is authoritative).
+
+| Member | Notes |
+|---|---|
+| `getBody(id)` | Star, host, or planet — one namespace; `"exoidx:i"` resolves via batch |
+| `search(query, max?)` | Ranked: exact → prefix → substring; stars by absMag, planets alpha |
+| `extraHostBatch` | `StarBatch` (`idPrefix "exoidx"`) of unresolved hosts; `null` if all resolved |
+| `hostIdByIndex` | Maps `extraHostBatch` index → pack host `BodyId` |
+| `canonicalId(id)` | `"exoidx:i"` or pack host id → canonical record id |
+| `nearestHostSystem(x,y,z)` | Nearest host by galaxy-frame parsecs; ≤ 10 Hz, allocates |
+| `hostPositionPc(systemId)` | HYG position if deduped, pack position otherwise |
+
 ## Phase 1 simplification
 
 Decoding happens on the **main thread at load time** (one HYG pack, < 100 ms).
