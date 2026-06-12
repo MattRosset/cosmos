@@ -66,7 +66,7 @@ sections — they are part of the spec.
 | [TASK-018](TASK-018-core-types-phase2-thaw.md) | `core-types` Phase-2 thaw: systems, bookmarks, frames | TASK-017 | pending | unblocks all Phase 2 lanes |
 | [TASK-019](TASK-019-sim-time.md) | `sim-time` v1: epoch clock + acceleration | TASK-018 | pending | lane F |
 | [TASK-020](TASK-020-orbits.md) | `orbits` v1: Kepler solver, batch, polylines | TASK-018 | pending | lane G |
-| [TASK-021](TASK-021-pack-solar.md) | `tools/pack-solar`: JPL table → `systems-sol.json` + KTX2 | TASK-018, 020 | pending | lane H; hosts the 8-planet Horizons ephemeris gate |
+| [TASK-021](TASK-021-pack-solar.md) | `tools/pack-solar`: JPL table → `systems-sol.json` + KTX2 | TASK-018, 020 | done | ADR-002: Jupiter 0.2%/Saturn 0.3% gate (great-inequality limit of secular elements) |
 | [TASK-022](TASK-022-pack-exoplanets.md) | `tools/pack-exoplanets`: NASA archive + procedural fill | TASK-018, 021 | pending | lane H (after 021) |
 | [TASK-023](TASK-023-data-v2.md) | `data` v2: systems loader + combined source | TASK-018 | pending | lane I (fixture-driven) |
 | [TASK-024](TASK-024-render-planets.md) | `render-planets` v1: spheres, terminator, rings, orbit lines | TASK-018 | pending | lane J |

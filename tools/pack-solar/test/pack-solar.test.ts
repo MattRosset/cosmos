@@ -141,8 +141,6 @@ describe('determinism', () => {
 });
 
 describe('moon orbital period sanity', () => {
-  const AU_KM = 1.495978707e8;
-
   function periodDays(aKm: number, muKm3S2: number): number {
     const n = Math.sqrt(muKm3S2 / (aKm * aKm * aKm));
     return (2 * Math.PI / n) / 86400;

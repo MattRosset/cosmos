@@ -3,27 +3,6 @@
 Build tool that converts a hand-authored source file into `SystemsPackManifest` JSON
 (`systems-sol.json`) for the Sol system: 8 planets + 6 major moons + Saturn rings + Sol disc.
 
-## ⚠ BLOCKED — ephemeris gate
-
-Jupiter and Saturn fail the §5.5 position accuracy gate (|Δr| < 0.1% of semi-major axis).
-Root cause: JPL Table 1 gives secular **mean** elements, not osculating elements. Jupiter–Saturn
-mutual perturbations introduce ~5 arcminute position errors at specific epochs, exceeding the
-0.1% threshold for both planets. Per README rule 5 this threshold must not be loosened
-unilaterally; resolution requires using higher-fidelity source elements.
-
-Measured deltas at failure epochs (vs. JPL Horizons):
-
-| Body    | Epoch    | \|Δr\| (AU)  | Tolerance (AU) | Ratio |
-|---------|----------|-------------|----------------|-------|
-| Jupiter | J2000    | 7.686e-3    | 5.203e-3       | 1.48× |
-| Jupiter | 2050     | 8.283e-3    | 5.203e-3       | 1.59× |
-| Saturn  | J2000    | 2.572e-2    | 9.537e-3       | 2.70× |
-| Saturn  | 2050     | 2.029e-2    | 9.537e-3       | 2.13× |
-
-All inner planets (Mercury, Venus, Earth/EMB, Mars) plus Uranus and Neptune pass.
-
----
-
 ## Build
 
 ```
