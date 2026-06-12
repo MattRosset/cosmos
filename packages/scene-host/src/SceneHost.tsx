@@ -1,5 +1,5 @@
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import type * as THREE from 'three';
 import {
@@ -15,6 +15,9 @@ export interface SceneHostProps {
   children?: ReactNode;
   /** Escape hatch for the app shell; runs at PRIORITY_RENDER. */
   onFrame?: FrameCallback;
+  /** Fired when the WebGL context is lost (event already preventDefault()ed so the
+   *  browser allows restoration). The app decides UX; scene-host stays UI-free. */
+  onContextLost?: () => void;
 }
 
 function FrameContextUpdater(): null {
@@ -56,10 +59,35 @@ export function useFrameContext(cb: FrameCallback, priority: number = PRIORITY_R
   }, priority);
 }
 
+/**
+ * Attaches a webglcontextlost listener to a canvas element.
+ * Returns a cleanup function. Exported for unit testing.
+ */
+export function attachContextLossListener(
+  canvas: HTMLCanvasElement,
+  onContextLost: () => void,
+): () => void {
+  const handler = (e: Event) => {
+    e.preventDefault();
+    onContextLost();
+  };
+  canvas.addEventListener('webglcontextlost', handler);
+  return () => canvas.removeEventListener('webglcontextlost', handler);
+}
+
 /** Owns the only `<Canvas>`. Renderer config is THIS package's responsibility. */
-export function SceneHost({ children, onFrame }: SceneHostProps): React.JSX.Element {
+export function SceneHost({ children, onFrame, onContextLost }: SceneHostProps): React.JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !onContextLost) return;
+    return attachContextLossListener(canvas, onContextLost);
+  }, [onContextLost]);
+
   return (
     <Canvas
+      ref={canvasRef}
       gl={{ logarithmicDepthBuffer: true, antialias: false }}
       camera={{ position: [0, 0, 50], near: 0.1, far: 1e9, fov: 60 }}
     >

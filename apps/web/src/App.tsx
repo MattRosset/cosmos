@@ -50,6 +50,17 @@ export function App() {
   return DEBUG_MARKERS ? <DebugApp /> : <StarApp />;
 }
 
+function ContextLostOverlay(): React.JSX.Element {
+  return (
+    <div className="context-lost-overlay">
+      <div className="context-lost-box">
+        <p>Graphics context lost — reload to continue</p>
+        <button onClick={() => window.location.reload()}>Reload</button>
+      </div>
+    </div>
+  );
+}
+
 /** TASK-006 debug scene, unchanged: the no-pack fallback and CI flythrough target. */
 function DebugApp() {
   return (
@@ -79,6 +90,8 @@ function DebugApp() {
 function StarApp() {
   const [pack, setPack] = useState<PackState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
+  const [contextLost, setContextLost] = useState(false);
+  const handleContextLost = useCallback(() => setContextLost(true), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -140,8 +153,9 @@ function StarApp() {
 
   return (
     <>
+      {contextLost ? <ContextLostOverlay /> : null}
       {pack.status === 'ready' ? (
-        <SceneHost>
+        <SceneHost onContextLost={handleContextLost}>
           <color attach="background" args={['#02030a']} />
           <NavDriver
             origin={origin}

@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # Skip cleanly when CF secrets are absent (forks, local PRs without secrets).
+    if: >
+      vars.CLOUDFLARE_ACCOUNT_ID != '' ||
+      secrets.CLOUDFLARE_API_TOKEN != ''
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # TODO (architecture §12): add Sentry release + source-maps upload here once
+      # SENTRY_ORG / SENTRY_PROJECT account decisions are made.
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: cosmos
+          directory: apps/web/dist
+          # PR deployments get a preview URL automatically; main → production.
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
