@@ -170,6 +170,12 @@ importers:
         specifier: ^26.1.0
         version: 26.1.0
 
+  packages/orbits:
+    dependencies:
+      '@cosmos/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+
   packages/render-stars:
     dependencies:
       '@cosmos/core-types':
@@ -219,6 +225,12 @@ importers:
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0
+
+  packages/sim-time:
+    dependencies:
+      '@cosmos/core-types':
+        specifier: workspace:*
+        version: link:../core-types
 
   packages/ui:
     dependencies:
