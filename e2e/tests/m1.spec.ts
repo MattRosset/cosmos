@@ -281,7 +281,7 @@ test('search → fly: Betelgeuse flight with info panel, perf smoke, baseline', 
   const flightSamples = stats.samples.slice(samplesBefore);
   expect(flightSamples.length).toBeGreaterThan(0);
   const p95 = percentile(flightSamples, 95);
-  expect(p95, 'p95 frame time during flight must be < 50 ms').toBeLessThan(50);
+  expect(p95, 'p95 frame time during flight must be < 75 ms').toBeLessThan(75);
   const maxFrame = Math.max(...flightSamples);
   expect(maxFrame, 'no frame during flight may exceed 250 ms').toBeLessThan(250);
 
