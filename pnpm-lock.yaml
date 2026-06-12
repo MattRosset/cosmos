@@ -176,6 +176,22 @@ importers:
         specifier: workspace:*
         version: link:../core-types
 
+  packages/render-planets:
+    dependencies:
+      '@cosmos/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+      three:
+        specifier: ^0.184.0
+        version: 0.184.0
+    devDependencies:
+      '@types/three':
+        specifier: ^0.184.1
+        version: 0.184.1
+      jsdom:
+        specifier: ^26.1.0
+        version: 26.1.0
+
   packages/render-stars:
     dependencies:
       '@cosmos/core-types':
