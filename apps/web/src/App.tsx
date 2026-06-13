@@ -1,16 +1,27 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BodyId } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
-import { loadStarPack, type StarDataSource } from '@cosmos/data';
-import type { FlightController } from '@cosmos/nav';
+import {
+  loadStarPack,
+  loadSystemsPack,
+  createCombinedSource,
+  type StarDataSource,
+  type SystemsSource,
+  type CombinedSource,
+} from '@cosmos/data';
+import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { SceneHost } from '@cosmos/scene-host';
-import { useSelectionStore } from '@cosmos/app-state';
+import { useSelectionStore, useHistoryStore } from '@cosmos/app-state';
 import { INITIAL_CAMERA, NavDriver } from './scene/NavDriver';
 import { StarScene } from './scene/StarScene';
+import { SystemScene } from './scene/SystemScene';
 import { Hud } from './hud/Hud';
 import { DebugHud } from './scene/DebugHud';
 import { DebugMarkers } from './scene/DebugMarkers';
 import { JitterProbe } from './scene/JitterProbe';
+import { clock, epochProvider, installTimeGlue, syncClockToNow } from './glue/time';
+import { createGoToCoordinator } from './glue/goto';
+import { testHook, controllerHolder, mirrorControllerState } from './glue/test-hook';
 
 /** TASK-006 debug flythrough scene, behind the query flag only. */
 const DEBUG_MARKERS =
@@ -20,36 +31,21 @@ const DEBUG_MARKERS =
 const DEBUG_JITTER =
   new URLSearchParams(window.location.search).get('debug') === 'jitter';
 
-/** Camera-to-target distance at which a goTo flight stops: 10^13 m ≈ 67 AU. */
-const ARRIVAL_DISTANCE_M = 1e13;
+const HYG_MANIFEST_URL = '/packs/manifest.json';
+const SOL_PACK_URL = '/packs/systems-sol.json';
+const EXO_PACK_URL = '/packs/systems-exo.json';
 
-/**
- * E2E/dev test hook (TASK-015): event-driven mirrors of app state — written
- * only from store subscriptions and goTo lifecycle events, never from a frame
- * callback. Read by e2e/tests/m1.spec.ts; harmless in production.
- */
-interface CosmosTestHook {
-  ready: boolean;
-  goToActive: boolean;
-  selectedId: string | null;
+interface Sources {
+  readonly stars: StarDataSource;
+  readonly sol: SystemsSource;
+  readonly exo: SystemsSource;
+  readonly combined: CombinedSource;
 }
-
-declare global {
-  interface Window {
-    __cosmos?: CosmosTestHook;
-  }
-}
-
-const testHook: CosmosTestHook = { ready: false, goToActive: false, selectedId: null };
-window.__cosmos = testHook;
-useSelectionStore.subscribe((s) => {
-  testHook.selectedId = s.selectedId;
-});
 
 type PackState =
   | { readonly status: 'loading' }
   | { readonly status: 'error'; readonly message: string }
-  | { readonly status: 'ready'; readonly source: StarDataSource };
+  | { readonly status: 'ready'; readonly sources: Sources };
 
 export function App() {
   if (DEBUG_JITTER) return <JitterApp />;
@@ -103,22 +99,36 @@ function DebugApp() {
 }
 
 /**
- * M1 composition (TASK-015): load the HYG pack, render it through
- * render-stars, wire picking/search/go-to. React owns structure only —
- * offsets and distances flow imperatively through the frame loop (§2.2).
+ * M2 composition (TASK-029): load the HYG pack + Sol/exo systems packs in
+ * parallel, merge into a combined source, and wire the full explorer — star
+ * field, automatic galaxy⇄system descent, simulation time, picking, search,
+ * bookmarks. React owns structure only; offsets/positions flow imperatively (§2.2).
  */
 function StarApp() {
   const [pack, setPack] = useState<PackState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [contextLost, setContextLost] = useState(false);
+  /** System mounted in the Canvas while `contextId === 'system'` (rare React state). */
+  const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
   const handleContextLost = useCallback(() => setContextLost(true), []);
+
+  // Install the time glue and start the clock once.
+  useEffect(() => {
+    installTimeGlue();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setPack({ status: 'loading' });
-    loadStarPack('/packs/manifest.json').then(
-      (source) => {
-        if (!cancelled) setPack({ status: 'ready', source });
+    Promise.all([
+      loadStarPack(HYG_MANIFEST_URL),
+      loadSystemsPack(SOL_PACK_URL),
+      loadSystemsPack(EXO_PACK_URL),
+    ]).then(
+      ([stars, sol, exo]) => {
+        if (cancelled) return;
+        const combined = createCombinedSource(stars, [sol, exo]);
+        setPack({ status: 'ready', sources: { stars, sol, exo, combined } });
       },
       (err: unknown) => {
         if (!cancelled) {
@@ -138,55 +148,95 @@ function StarApp() {
     testHook.ready = pack.status === 'ready';
   }, [pack]);
 
-  // The origin manager outlives the Canvas: HUD goTo targets and the star
-  // render offset both resolve through it.
-  const origin = useMemo(
-    () => createOriginManager(createScaleFrameTree(), INITIAL_CAMERA),
-    [],
-  );
+  // Selection → test hook + exploration history (every successful selection).
+  useEffect(() => {
+    const apply = (id: BodyId | null): void => {
+      testHook.selectedId = id;
+      if (id !== null) useHistoryStore.getState().push(id, new Date().toISOString());
+    };
+    apply(useSelectionStore.getState().selectedId);
+    return useSelectionStore.subscribe((s) => apply(s.selectedId));
+  }, []);
+
+  // The frame tree + origin manager outlive the Canvas: the anchor scan, goTo
+  // targets, and the star render offset all resolve through them.
+  const tree = useMemo(() => createScaleFrameTree(), []);
+  const origin = useMemo(() => createOriginManager(tree, INITIAL_CAMERA), [tree]);
 
   // The flight controller is created inside the Canvas (it needs the R3F frame
-  // loop); the HUD reaches it through this ref at event time only.
-  const controllerRef = useRef<FlightController | null>(null);
+  // loop); the HUD and glue reach it through the shared holder at event time only.
   const handleController = useCallback((controller: FlightController) => {
-    controllerRef.current = controller;
+    controllerHolder.current = controller;
+    mirrorControllerState();
   }, []);
+
+  const handleContextSwitch = useCallback((e: ContextSwitchEvent) => {
+    setMountedSystemId(e.to === 'system' ? e.anchorId : null);
+    mirrorControllerState();
+  }, []);
+
+  // The goto coordinator (two-leg planet chaining + bookmark restore) needs the
+  // combined source; rebuild it when the packs (re)load.
+  const sources = pack.status === 'ready' ? pack.sources : null;
+  const goto = useMemo(
+    () =>
+      sources
+        ? createGoToCoordinator({
+            controllerRef: controllerHolder,
+            tree,
+            combined: sources.combined,
+            sources: [sources.sol, sources.exo],
+            clock,
+          })
+        : null,
+    [sources, tree],
+  );
+  useEffect(() => goto?.start(), [goto]);
 
   const handleGoTo = useCallback(
     (id: BodyId) => {
-      if (pack.status !== 'ready') return;
       useSelectionStore.getState().select(id);
-      const star = pack.source.getBody(id);
-      const controller = controllerRef.current;
-      if (!star || !controller) return;
-      controller.goTo({
-        target: { context: 'galaxy', local: star.positionPc },
-        arrivalDistanceM: ARRIVAL_DISTANCE_M,
-      });
-      testHook.goToActive = controller.goToActive;
-      controller.onGoToEnd(() => {
-        testHook.goToActive = false;
-      });
+      goto?.goTo(id);
     },
-    [pack],
+    [goto],
   );
+
+  const mountedSystem = useMemo(() => {
+    if (sources === null || mountedSystemId === null) return null;
+    const system = sources.sol.getSystem(mountedSystemId) ?? sources.exo.getSystem(mountedSystemId);
+    if (system === undefined) return null;
+    const packUrl = sources.sol.getSystem(mountedSystemId) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+    return { system, packUrl };
+  }, [sources, mountedSystemId]);
 
   return (
     <>
       {contextLost ? <ContextLostOverlay /> : null}
       {pack.status === 'ready' ? (
-        <SceneHost onContextLost={handleContextLost}>
+        <SceneHost onContextLost={handleContextLost} epochProvider={epochProvider}>
           <color attach="background" args={['#02030a']} />
           <NavDriver
             origin={origin}
-            source={pack.source}
+            tree={tree}
+            stars={pack.sources.stars}
+            combined={pack.sources.combined}
             onController={handleController}
+            onContextSwitch={handleContextSwitch}
           />
           <StarScene
-            source={pack.source}
+            stars={pack.sources.stars}
+            combined={pack.sources.combined}
             origin={origin}
-            controllerRef={controllerRef}
+            controllerRef={controllerHolder}
           />
+          {mountedSystem ? (
+            <SystemScene
+              system={mountedSystem.system}
+              origin={origin}
+              packUrl={mountedSystem.packUrl}
+              controllerRef={controllerHolder}
+            />
+          ) : null}
         </SceneHost>
       ) : null}
 
@@ -210,17 +260,23 @@ function StarApp() {
           {pack.status === 'ready' ? (
             <>
               <div className="dim">
-                M1 — the real night sky ({pack.source.batch.count.toLocaleString('en-US')}{' '}
-                stars, HYG)
+                M2 — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) ·
+                Sol + {pack.sources.exo.systems.length} exoplanet systems
               </div>
               <div className="dim">
-                WASD move · drag to look · Ctrl+K search · click a star
+                WASD move · drag to look · Ctrl+K search · click a body
               </div>
             </>
           ) : null}
         </div>
-        {pack.status === 'ready' ? (
-          <Hud source={pack.source} onGoTo={handleGoTo} />
+        {pack.status === 'ready' && goto ? (
+          <Hud
+            source={pack.sources.combined}
+            onGoTo={handleGoTo}
+            onSyncToNow={syncClockToNow}
+            onCapture={goto.capture}
+            onGoToBookmark={goto.goToBookmark}
+          />
         ) : null}
       </div>
     </>

@@ -56,12 +56,21 @@ importers:
       '@cosmos/nav':
         specifier: workspace:*
         version: link:../../packages/nav
+      '@cosmos/orbits':
+        specifier: workspace:*
+        version: link:../../packages/orbits
+      '@cosmos/render-planets':
+        specifier: workspace:*
+        version: link:../../packages/render-planets
       '@cosmos/render-stars':
         specifier: workspace:*
         version: link:../../packages/render-stars
       '@cosmos/scene-host':
         specifier: workspace:*
         version: link:../../packages/scene-host
+      '@cosmos/sim-time':
+        specifier: workspace:*
+        version: link:../../packages/sim-time
       '@cosmos/ui':
         specifier: workspace:*
         version: link:../../packages/ui

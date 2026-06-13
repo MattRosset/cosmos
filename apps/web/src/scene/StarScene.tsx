@@ -1,13 +1,15 @@
 import { useEffect, useMemo, type RefObject } from 'react';
 import { useThree } from '@react-three/fiber';
-import type { PerspectiveCamera } from 'three';
-import type { UniversePosition } from '@cosmos/core-types';
+import * as THREE from 'three';
+import type { Object3D, PerspectiveCamera } from 'three';
+import type { BodyId, StarBatch, UniversePosition } from '@cosmos/core-types';
 import type { OriginManager } from '@cosmos/coords';
-import type { StarDataSource } from '@cosmos/data';
+import type { StarDataSource, CombinedSource } from '@cosmos/data';
 import type { FlightController } from '@cosmos/nav';
 import { useSelectionStore, useSettingsStore } from '@cosmos/app-state';
-import { createStarPoints, pickStar } from '@cosmos/render-stars';
+import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
+import { systemPickGroup } from '../glue/system-feed';
 
 /** Angular pick threshold, radians (TASK-015 fixed wiring). */
 const PICK_MAX_ANGLE_RAD = 0.02;
@@ -17,14 +19,16 @@ const CLICK_MAX_DRAG_PX = 4;
 /**
  * Star-scale clip planes (scene units = pc): goTo arrival is ~3e-4 pc from
  * the target, the farthest HYG entries sit ~1e5 pc out; the logarithmic depth
- * buffer covers the span.
+ * buffer covers the span (and the AU-scale system scene inside it).
  */
 const CAMERA_NEAR_PC = 1e-6;
 const CAMERA_FAR_PC = 1e6;
 
 // Module-scoped scratch — no allocations inside frame callbacks (§9).
-const batchOriginLocal: [number, number, number] = [0, 0, 0];
-const BATCH_ORIGIN: UniversePosition = { context: 'galaxy', local: batchOriginLocal };
+const hygOriginLocal: [number, number, number] = [0, 0, 0];
+const HYG_ORIGIN: UniversePosition = { context: 'galaxy', local: hygOriginLocal };
+const exoOriginLocal: [number, number, number] = [0, 0, 0];
+const EXO_ORIGIN: UniversePosition = { context: 'galaxy', local: exoOriginLocal };
 const renderOffsetScratch: [number, number, number] = [0, 0, 0];
 
 /** Rotate v by quaternion q (click-time only — may allocate). */
@@ -44,32 +48,58 @@ function rotateByQuat(
   ];
 }
 
+/** Walk up an intersected object's parents to its bodyId, if any. */
+function bodyIdOf(obj: Object3D | null): BodyId | null {
+  for (let o = obj; o !== null; o = o.parent) {
+    const id = o.userData['bodyId'];
+    if (typeof id === 'string') return id;
+  }
+  return null;
+}
+
 interface StarSceneProps {
-  readonly source: StarDataSource;
+  readonly stars: StarDataSource;
+  readonly combined: CombinedSource;
   readonly origin: OriginManager;
   readonly controllerRef: RefObject<FlightController | null>;
 }
 
 /**
- * Mounts the HYG batch as one render-stars draw call, feeds it the per-frame
- * camera-relative offset, and implements click-picking (§5.12: picking lives
- * with the scene and dispatches to the selection store).
+ * Mounts the HYG batch and the unresolved-exo-host batch as render-stars draw
+ * calls, feeds each its per-frame camera-relative offset, and implements
+ * click-picking: planets first (raycast the mounted system group), then the
+ * star batches (§5.12).
  */
-export function StarScene({ source, origin, controllerRef }: StarSceneProps) {
-  const batch = source.batch;
+export function StarScene({ stars, combined, origin, controllerRef }: StarSceneProps) {
+  const hygBatch = stars.batch;
+  const exoBatch = combined.extraHostBatch;
 
-  const starPoints = useMemo(() => {
-    batchOriginLocal[0] = batch.originPc[0];
-    batchOriginLocal[1] = batch.originPc[1];
-    batchOriginLocal[2] = batch.originPc[2];
-    const points = createStarPoints({ batch });
-    // Stars are positioned by the per-frame offset uniform, so the static
-    // tile-local bounding sphere is meaningless for culling.
+  const hygPoints = useMemo(() => {
+    hygOriginLocal[0] = hygBatch.originPc[0];
+    hygOriginLocal[1] = hygBatch.originPc[1];
+    hygOriginLocal[2] = hygBatch.originPc[2];
+    const points = createStarPoints({ batch: hygBatch });
     points.object.frustumCulled = false;
     return points;
-  }, [batch]);
+  }, [hygBatch]);
 
-  useEffect(() => () => starPoints.dispose(), [starPoints]);
+  const exoPoints = useMemo<StarPoints | null>(() => {
+    if (exoBatch === null) return null;
+    exoOriginLocal[0] = exoBatch.originPc[0];
+    exoOriginLocal[1] = exoBatch.originPc[1];
+    exoOriginLocal[2] = exoBatch.originPc[2];
+    const points = createStarPoints({ batch: exoBatch });
+    points.object.frustumCulled = false;
+    return points;
+  }, [exoBatch]);
+
+  useEffect(
+    () => () => {
+      hygPoints.dispose();
+      exoPoints?.dispose();
+    },
+    [hygPoints, exoPoints],
+  );
 
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
@@ -83,25 +113,33 @@ export function StarScene({ source, origin, controllerRef }: StarSceneProps) {
   }, [camera]);
 
   useEffect(() => {
-    starPoints.setViewportHeight(size.height * dpr);
-  }, [starPoints, size.height, dpr]);
+    const h = size.height * dpr;
+    hygPoints.setViewportHeight(h);
+    exoPoints?.setViewportHeight(h);
+  }, [hygPoints, exoPoints, size.height, dpr]);
 
   // Exposure: transient store subscription — no React re-render per change.
   useEffect(() => {
-    starPoints.setExposure(useSettingsStore.getState().exposure);
-    return useSettingsStore.subscribe((s) => starPoints.setExposure(s.exposure));
-  }, [starPoints]);
+    const apply = (exposure: number): void => {
+      hygPoints.setExposure(exposure);
+      exoPoints?.setExposure(exposure);
+    };
+    apply(useSettingsStore.getState().exposure);
+    return useSettingsStore.subscribe((s) => apply(s.exposure));
+  }, [hygPoints, exoPoints]);
 
   useFrameContext(() => {
-    starPoints.setRenderOffset(origin.toRenderSpace(BATCH_ORIGIN, renderOffsetScratch));
+    hygPoints.setRenderOffset(origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch));
+    exoPoints?.setRenderOffset(origin.toRenderSpace(EXO_ORIGIN, renderOffsetScratch));
   }, PRIORITY_RENDER);
 
-  // Picking. The ray must NOT use the Three camera's position — the camera
-  // object holds camera-relative coordinates (≈ 0). Absolute position and
-  // orientation come from the flight controller; only fov/aspect are read
-  // from the camera.
+  // Picking. The star ray must NOT use the Three camera's position — the camera
+  // object holds camera-relative coordinates (≈ 0); absolute position comes from
+  // the flight controller. The planet raycast, by contrast, IS taken from the
+  // Three camera precisely because the scene is camera-relative.
   useEffect(() => {
     const el = gl.domElement;
+    const raycaster = new THREE.Raycaster();
     let tracking = false;
     let dragPx = 0;
     let lastX = 0;
@@ -133,31 +171,32 @@ export function StarScene({ source, origin, controllerRef }: StarSceneProps) {
       const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       const ndcY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
 
+      // Planets first — raycast the mounted system group (camera-relative scene).
+      const grp = systemPickGroup.current;
+      if (grp !== null) {
+        raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera as PerspectiveCamera);
+        const hits = raycaster.intersectObject(grp, true);
+        for (const hit of hits) {
+          const id = bodyIdOf(hit.object);
+          if (id !== null) {
+            useSelectionStore.getState().select(id);
+            return;
+          }
+        }
+      }
+
+      // Star pick — manual ray from the controller (absolute) state.
       const persp = camera as PerspectiveCamera;
       const tanY = Math.tan((persp.fov * Math.PI) / 360);
       const tanX = tanY * persp.aspect;
-      const dir = rotateByQuat(controller.state.orientation, [
-        ndcX * tanX,
-        ndcY * tanY,
-        -1,
-      ]);
+      const dir = rotateByQuat(controller.state.orientation, [ndcX * tanX, ndcY * tanY, -1]);
       const len = Math.hypot(dir[0], dir[1], dir[2]);
       dir[0] /= len;
       dir[1] /= len;
       dir[2] /= len;
 
-      // Ray origin in tile-local pc: absolute camera position − batch origin.
       const p = controller.state.position.local;
-      const o: readonly [number, number, number] = [
-        p[0] - batch.originPc[0],
-        p[1] - batch.originPc[1],
-        p[2] - batch.originPc[2],
-      ];
-
-      const hit = pickStar(batch, o, dir, PICK_MAX_ANGLE_RAD);
-      useSelectionStore
-        .getState()
-        .select(hit ? `${batch.idPrefix}:${batch.catalogIds[hit.index]!}` : null);
+      useSelectionStore.getState().select(pickNearestStar(hygBatch, exoBatch, combined, p, dir));
     };
 
     el.addEventListener('pointerdown', onPointerDown);
@@ -168,7 +207,47 @@ export function StarScene({ source, origin, controllerRef }: StarSceneProps) {
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
     };
-  }, [gl, camera, batch, controllerRef]);
+  }, [gl, camera, hygBatch, exoBatch, combined, controllerRef]);
 
-  return <primitive object={starPoints.object} />;
+  return (
+    <>
+      <primitive object={hygPoints.object} />
+      {exoPoints ? <primitive object={exoPoints.object} /> : null}
+    </>
+  );
+}
+
+/** Pick the angularly-nearest star across both batches; smaller angle wins. */
+function pickNearestStar(
+  hygBatch: StarBatch,
+  exoBatch: StarBatch | null,
+  combined: CombinedSource,
+  cameraLocalPc: readonly [number, number, number],
+  dir: readonly [number, number, number],
+): BodyId | null {
+  const hygOrigin: readonly [number, number, number] = [
+    cameraLocalPc[0] - hygBatch.originPc[0],
+    cameraLocalPc[1] - hygBatch.originPc[1],
+    cameraLocalPc[2] - hygBatch.originPc[2],
+  ];
+  const hygHit = pickStar(hygBatch, hygOrigin, dir, PICK_MAX_ANGLE_RAD);
+
+  let exoHit: StarPickHit | null = null;
+  if (exoBatch !== null) {
+    const exoOrigin: readonly [number, number, number] = [
+      cameraLocalPc[0] - exoBatch.originPc[0],
+      cameraLocalPc[1] - exoBatch.originPc[1],
+      cameraLocalPc[2] - exoBatch.originPc[2],
+    ];
+    exoHit = pickStar(exoBatch, exoOrigin, dir, PICK_MAX_ANGLE_RAD);
+  }
+
+  const exoWins = exoHit !== null && (hygHit === null || exoHit.angleRad < hygHit.angleRad);
+  if (exoWins && exoBatch !== null && exoHit !== null) {
+    return combined.canonicalId(`${exoBatch.idPrefix}:${exoBatch.catalogIds[exoHit.index]!}`);
+  }
+  if (hygHit !== null) {
+    return `${hygBatch.idPrefix}:${hygBatch.catalogIds[hygHit.index]!}`;
+  }
+  return null;
 }

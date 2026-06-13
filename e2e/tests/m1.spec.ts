@@ -21,9 +21,11 @@ import { injectFrameStats, readFrameStats, percentile } from './helpers/frame-st
 // ── Wiring constants (must match the app / frozen specs) ────────────────────
 
 const GALAXY_UNIT_M = 3.0857e16; // CONTEXT_UNIT_METERS.galaxy (1 pc)
-const ARRIVAL_DISTANCE_M = 1e13;
+// TASK-029: star/host goTo arrival is 5e14 m (inside the system-enter threshold);
+// the app now boots in the galaxy star field 0.06 pc from Sol (NavDriver.INITIAL_CAMERA).
+const ARRIVAL_DISTANCE_M = 5e14;
 const ARRIVAL_PC = ARRIVAL_DISTANCE_M / GALAXY_UNIT_M;
-const CAM_START: Vec3 = [0, 0, 1e-5];
+const CAM_START: Vec3 = [0, 0, 0.06];
 const SLERP_RESIDUAL = Math.exp(-5); // 6000 ms flight, slerp T = 1200 ms
 const PICK_MAX_ANGLE_RAD = 0.02;
 
@@ -237,7 +239,16 @@ async function waitFlightDone(page: Page): Promise<void> {
 
 declare global {
   interface Window {
-    __cosmos?: { ready: boolean; goToActive: boolean; selectedId: string | null };
+    // Widened in TASK-029 for the M2 hook; M1 reads only the first three fields.
+    __cosmos?: {
+      ready: boolean;
+      goToActive: boolean;
+      selectedId: string | null;
+      contextId: string;
+      anchorSystemId: string | null;
+      epochJD: number;
+      cameraPosition: { context: string; local: [number, number, number] };
+    };
   }
 }
 
