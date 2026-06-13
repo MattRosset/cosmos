@@ -82,6 +82,42 @@ cancels the flight automatically and resumes free flight that same frame.
 
 Touch: deferred — see architecture §5.3.
 
+### Context switching (v3 — TASK-027)
+
+Seamless galaxy⇄system zoom (architecture §5.3, ADR-001 §3–§4). When the camera
+nears an anchored star system the controller flips the active scale context
+`galaxy → system` (and back on leaving), with hysteresis, rescaling velocity to
+the new unit, **with zero positional discontinuity** — the camera's absolute
+point in space is identical before and after.
+
+```ts
+// PRECONDITION — the glue sets the tree anchor FIRST; nav never touches the tree:
+tree.setAnchor('system', star.positionPc);          // host star → system origin
+flight.setSystemAnchor({ id: 'sol', positionPc: star.positionPc });
+
+flight.contextId;                                    // mirrors origin.context
+const unsub = flight.onContextSwitch((e) => {        // fires AFTER a switch
+  console.log(e.from, '→', e.to, e.anchorId);        // same frame
+});
+flight.setSystemAnchor(null);                        // clears → exits next update
+```
+
+**Glue contract:**
+
+- The controller **never** calls `tree.setAnchor` — the glue owns the tree and
+  must set `'system'` to `positionPc` *before* the camera enters. A dev-only
+  guard throws if the host star is not at the system origin after a switch
+  (skipped in production builds).
+- While `contextId === 'system'`, `setSystemAnchor` with a **different** id is
+  ignored — wait for exit before re-anchoring. `null` always clears.
+- Hysteresis: `enterSystemAtM` default `7.5e14` (≈5,000 AU), `exitSystemAtM`
+  default `1.5e15`. The constructor throws `RangeError` unless
+  `exitSystemAtM ≥ 1.5 × enterSystemAtM` (§5.8 anti-flapping).
+- Velocity rescales by the unit ratio so physical speed is unchanged; speed
+  **caps** stay as configured (context-agnostic units/s — documented asymmetry).
+- Orientation is **untouched** by a switch (axes are identical across contexts;
+  only the unit changes). An in-flight `goTo` survives the switch unchanged.
+
 ## Frame loop
 
 Subscribe via `useFlightController` at `PRIORITY_NAV` (-200). The host must call

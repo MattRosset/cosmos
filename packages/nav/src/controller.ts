@@ -1,7 +1,20 @@
-import { CONTEXT_UNIT_METERS, type UniversePosition } from '@cosmos/core-types';
+import {
+  CONTEXT_UNIT_METERS,
+  type BodyId,
+  type ContextId,
+  type UniversePosition,
+} from '@cosmos/core-types';
 import type { OriginManager, RebaseEvent } from '@cosmos/coords';
 import { createInputHandler, type InputHandler } from './input.js';
 import { computeGoToK } from './goto.js';
+import {
+  resolveContextSwitchPolicy,
+  shouldEnterSystem,
+  shouldExitSystem,
+  type ContextSwitchEvent,
+  type ContextSwitchPolicy,
+  type SystemAnchor,
+} from './context-switch.js';
 
 export interface FlightState {
   readonly position: UniversePosition;
@@ -16,6 +29,8 @@ export interface FlightControllerOptions {
   readonly minSpeedUnitsPerS?: number;
   readonly maxSpeedUnitsPerS?: number;
   readonly dampingHalfLifeMs?: number;
+  /** Hysteresis thresholds for auto galaxy⇄system switching (TASK-027). */
+  readonly contextSwitchPolicy?: Partial<ContextSwitchPolicy>;
 }
 
 export interface GoToOptions {
@@ -40,6 +55,21 @@ export interface FlightController {
   readonly goToActive: boolean;
   /** Fires with true on arrival, false on cancel. Returns an unsubscribe fn. */
   onGoToEnd(cb: (completed: boolean) => void): () => void;
+
+  // ── Context switching (TASK-027) ───────────────────────────────────────────
+  /**
+   * Set/replace the candidate system anchor. PRECONDITION (documented, asserted
+   * in dev): the caller has ALREADY set the frame tree's 'system' anchor to
+   * positionPc (tree.setAnchor) — the controller never touches the tree.
+   * While context === 'system', a call with a DIFFERENT anchor id is IGNORED
+   * (the glue must wait for exit). null clears.
+   */
+  setSystemAnchor(anchor: SystemAnchor | null): void;
+  readonly systemAnchor: SystemAnchor | null;
+  /** Mirrors origin.context. */
+  readonly contextId: ContextId;
+  /** Fires AFTER a completed switch, same frame. Returns unsubscribe. */
+  onContextSwitch(cb: (e: ContextSwitchEvent) => void): () => void;
 }
 
 // ── Internal state ──────────────────────────────────────────────────────────
@@ -82,6 +112,18 @@ const gotoQTempScratch: [number, number, number, number] = [0, 0, 0, 1];
 /** Local forward direction in camera space — used as a readonly constant. */
 const FORWARD_LOCAL: readonly [number, number, number] = [0, 0, -1];
 
+// ── Module-scoped scratch (context-switch measurement — no allocations) ──────
+// The anchor is always expressed in the galaxy frame; toRenderSpace converts it
+// into whatever context the origin is currently in (the only sanctioned
+// cross-context measurement, ADR-001). `anchorMeasure` is a stable wrapper so
+// no UniversePosition object is allocated per frame.
+const anchorLocalScratch: [number, number, number] = [0, 0, 0];
+const anchorMeasureScratch: UniversePosition = {
+  context: 'galaxy',
+  local: anchorLocalScratch,
+};
+const ctxRenderScratch: [number, number, number] = [0, 0, 0];
+
 /** Test hook: module-scoped scratch used by update() — same identity every frame. */
 export const UPDATE_SCRATCH = {
   pos: posScratch,
@@ -89,7 +131,16 @@ export const UPDATE_SCRATCH = {
   wish: wishScratch,
   gotoRender: gotoRenderScratch,
   gotoAxis: gotoAxisScratch,
+  ctxAnchor: anchorLocalScratch,
+  ctxRender: ctxRenderScratch,
 } as const;
+
+// Dev-only precondition guard (architecture §5.3). Bundlers set
+// `process.env.NODE_ENV === 'production'` for release builds; vitest leaves it
+// 'test', so the guard runs (and is covered) under test.
+const NAV_DEV =
+  (globalThis as { process?: { env?: { NODE_ENV?: string } } }).process?.env?.NODE_ENV !==
+  'production';
 
 // ── Math helpers ─────────────────────────────────────────────────────────────
 
@@ -254,6 +305,11 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
   let distanceToNearestSurface = 1;
   let speedUnitsPerS = 0;
   let activeGoTo: GoToState | null = null;
+
+  // Context switching (TASK-027)
+  const policy = resolveContextSwitchPolicy(opts.contextSwitchPolicy);
+  let systemAnchor: SystemAnchor | null = null;
+  const contextSwitchCallbacks: Array<(e: ContextSwitchEvent) => void> = [];
 
   const input: InputHandler = createInputHandler();
 
@@ -444,6 +500,135 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     }
   }
 
+  // ── Context switching (TASK-027) ───────────────────────────────────────────
+
+  function setSystemAnchor(anchor: SystemAnchor | null): void {
+    if (anchor === null) {
+      systemAnchor = null;
+      return;
+    }
+    // While inside a system, ignore a DIFFERENT anchor: the glue owns the tree
+    // and must wait for exit before re-anchoring. Same id is allowed (refresh).
+    if (
+      origin.context === 'system' &&
+      systemAnchor !== null &&
+      anchor.id !== systemAnchor.id
+    ) {
+      return;
+    }
+    systemAnchor = anchor;
+  }
+
+  function onContextSwitch(cb: (e: ContextSwitchEvent) => void): () => void {
+    contextSwitchCallbacks.push(cb);
+    return () => {
+      const idx = contextSwitchCallbacks.indexOf(cb);
+      if (idx !== -1) contextSwitchCallbacks.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Perform a context switch. `preDM` is the camera↔anchor distance in meters
+   * measured in the OLD context (NaN when exiting on a cleared anchor, where
+   * there is nothing to re-measure). Allocations on this path — the
+   * `cameraUniverse` read and the event payload — are sanctioned: switches are
+   * rare by construction (the hysteresis gap, §5.8).
+   */
+  function doSwitch(
+    from: ContextId,
+    to: ContextId,
+    anchorId: BodyId | null,
+    preDM: number,
+  ): void {
+    origin.switchContext(to);
+
+    // f64 position is re-read from the reconverted origin (now `to`-units).
+    const cam = origin.cameraUniverse;
+    posScratch[0] = cam.local[0];
+    posScratch[1] = cam.local[1];
+    posScratch[2] = cam.local[2];
+
+    // Velocity & reported speed rescale by the unit ratio so PHYSICAL speed is
+    // unchanged (ADR-001 §3). Speed CAPS are NOT rescaled — they are
+    // context-agnostic limits in units/s by design (documented asymmetry).
+    const ratio = CONTEXT_UNIT_METERS[from] / CONTEXT_UNIT_METERS[to];
+    velScratch[0] *= ratio;
+    velScratch[1] *= ratio;
+    velScratch[2] *= ratio;
+    speedUnitsPerS *= ratio;
+
+    // Dev precondition guard (skipped in production builds): switchContext is a
+    // pure coordinate reconversion, so it never moves the camera's ABSOLUTE
+    // point — but it is only MEANINGFUL if the glue set the tree's 'system'
+    // anchor to positionPc, which places the host star at the system origin.
+    // Cheap check on enter: the anchor's absolute system coordinate must be ≈ 0.
+    // (preDM is referenced so the param is meaningful to callers; NaN on a
+    // cleared-anchor exit, where there is no anchor to verify.)
+    if (NAV_DEV && to === 'system' && systemAnchor !== null && Number.isFinite(preDM)) {
+      anchorLocalScratch[0] = systemAnchor.positionPc[0];
+      anchorLocalScratch[1] = systemAnchor.positionPc[1];
+      anchorLocalScratch[2] = systemAnchor.positionPc[2];
+      origin.toRenderSpace(anchorMeasureScratch, ctxRenderScratch);
+      // anchor_absolute = camera_absolute + (anchor − camera)
+      const ax = cam.local[0] + ctxRenderScratch[0];
+      const ay = cam.local[1] + ctxRenderScratch[1];
+      const az = cam.local[2] + ctxRenderScratch[2];
+      const offsetM = Math.hypot(ax, ay, az) * CONTEXT_UNIT_METERS.system;
+      if (offsetM > policy.enterSystemAtM) {
+        throw new Error(
+          'nav: context switch broke positional continuity — the host star is not ' +
+            'at the system origin. The glue must call ' +
+            "tree.setAnchor('system', anchor.positionPc) before the camera enters " +
+            '(TASK-027 precondition).',
+        );
+      }
+    }
+
+    if (contextSwitchCallbacks.length > 0) {
+      const event: ContextSwitchEvent = { from, to, anchorId };
+      const cbs = contextSwitchCallbacks.slice();
+      for (const cb of cbs) cb(event);
+    }
+  }
+
+  /**
+   * Switch law (TASK-027). Runs at the END of update(), after the camera's new
+   * position is final for the frame. At most ONE switch per call — the
+   * hysteresis gap guarantees enter and exit cannot both fire.
+   */
+  /** Camera↔anchor distance in meters: the only sanctioned cross-context
+   *  measurement (toRenderSpace of the galaxy-frame anchor, ADR-001). */
+  function measureAnchorDM(anchor: SystemAnchor): number {
+    anchorLocalScratch[0] = anchor.positionPc[0];
+    anchorLocalScratch[1] = anchor.positionPc[1];
+    anchorLocalScratch[2] = anchor.positionPc[2];
+    origin.toRenderSpace(anchorMeasureScratch, ctxRenderScratch);
+    return (
+      Math.hypot(ctxRenderScratch[0], ctxRenderScratch[1], ctxRenderScratch[2]) *
+      CONTEXT_UNIT_METERS[origin.context]
+    );
+  }
+
+  function maybeSwitchContext(): void {
+    const anchor = systemAnchor;
+    const ctx = origin.context;
+
+    if (ctx === 'galaxy') {
+      if (anchor === null) return; // Phase-1 behavior, bit-identical.
+      const dM = measureAnchorDM(anchor);
+      if (shouldEnterSystem(dM, policy)) doSwitch('galaxy', 'system', anchor.id, dM);
+      return;
+    }
+
+    if (ctx === 'system') {
+      const cleared = anchor === null;
+      const dM = cleared ? Number.NaN : measureAnchorDM(anchor!);
+      if (shouldExitSystem(cleared ? 0 : dM, cleared, policy)) {
+        doSwitch('system', 'galaxy', cleared ? null : anchor!.id, dM);
+      }
+    }
+  }
+
   function update(dtMs: number): void {
     const dt = dtMs / 1000;
     const inputState = input.state;
@@ -469,6 +654,7 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     if (activeGoTo !== null) {
       updateGoToFrame(dtMs, dt);
       input.consumeLookDelta();
+      maybeSwitchContext();
       return;
     }
 
@@ -545,6 +731,8 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     };
     const rebase = origin.setCameraPosition(universePos);
     if (rebase) applyRebase(rebase);
+
+    maybeSwitchContext();
   }
 
   return {
@@ -561,5 +749,13 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
       return activeGoTo !== null;
     },
     onGoToEnd,
+    setSystemAnchor,
+    get systemAnchor() {
+      return systemAnchor;
+    },
+    get contextId() {
+      return origin.context;
+    },
+    onContextSwitch,
   };
 }

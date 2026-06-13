@@ -72,7 +72,7 @@ sections — they are part of the spec.
 | [TASK-024](TASK-024-render-planets.md) | `render-planets` v1: spheres, terminator, rings, orbit lines | TASK-018 | pending | lane J |
 | [TASK-025](TASK-025-app-state-v2.md) | `app-state` v2: time store + bookmarks/history persistence | TASK-018 | pending | lane K |
 | [TASK-026](TASK-026-ui-v2.md) | `ui` v2: time controls + bookmarks panel + planet info | TASK-025 | pending | lane K |
-| [TASK-027](TASK-027-nav-context-switch.md) | `nav` v3: automatic galaxy⇄system context switch | TASK-018 | pending | lane L; strongest agent (§8.3) |
+| [TASK-027](TASK-027-nav-context-switch.md) | `nav` v3: automatic galaxy⇄system context switch | TASK-018 | done | lane L; strongest agent (§8.3) |
 | [TASK-028](TASK-028-scene-host-epoch.md) | `scene-host` v1.1: pluggable epoch provider | TASK-018 | pending | lane M |
 | [TASK-029](TASK-029-m2-integration.md) | M2 integration: Sol + exoplanet systems in `apps/web` | TASK-019–028 (all) | pending | exclusive in `apps/web`/`e2e` |
 | [TASK-030](TASK-030-phase2-gate.md) | Phase 2 gate: invisible context switches + M2 | TASK-029 | pending | **GATE: closes Phase 2** |
