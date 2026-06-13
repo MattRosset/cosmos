@@ -5,6 +5,7 @@ export {
   PRIORITY_NAV,
   PRIORITY_RENDER,
   PRIORITY_STREAMING,
+  type EpochProvider,
   type FrameCallback,
   type FrameContext,
 } from './frame-loop.js';

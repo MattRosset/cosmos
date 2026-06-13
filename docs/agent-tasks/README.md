@@ -63,7 +63,7 @@ sections — they are part of the spec.
 | [TASK-015](TASK-015-m1-integration.md) | M1 integration: stars + picking + search + go-to | TASK-009, 010, 012, 013, 014 | done | required render-stars vert fix (831161d); ui InfoPanel HIP/format defect reported |
 | [TASK-016](TASK-016-deploy.md) | Deploy to CDN + context-loss handling | TASK-014 | done | CF secrets added manually; deploy.yml skips cleanly when absent |
 | [TASK-017](TASK-017-phase1-gate.md) | Phase 1 gate: rendered jitter + Lighthouse + M1 | TASK-015, 016 | done | **GATE: Phase 1 closed**; jitter 1.3e-5 px, Lighthouse perf 0.88 / TTI 2.4 s |
-| [TASK-018](TASK-018-core-types-phase2-thaw.md) | `core-types` Phase-2 thaw: systems, bookmarks, frames | TASK-017 | pending | unblocks all Phase 2 lanes |
+| [TASK-018](TASK-018-core-types-phase2-thaw.md) | `core-types` Phase-2 thaw: systems, bookmarks, frames | TASK-017 | done | all 29 tests pass; reviewed 2026-06-13 |
 | [TASK-019](TASK-019-sim-time.md) | `sim-time` v1: epoch clock + acceleration | TASK-018 | pending | lane F |
 | [TASK-020](TASK-020-orbits.md) | `orbits` v1: Kepler solver, batch, polylines | TASK-018 | pending | lane G |
 | [TASK-021](TASK-021-pack-solar.md) | `tools/pack-solar`: JPL table → `systems-sol.json` + KTX2 | TASK-018, 020 | done | ADR-002: Jupiter 0.2%/Saturn 0.3% gate (great-inequality limit of secular elements) |

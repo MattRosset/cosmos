@@ -7,6 +7,7 @@ import {
   PRIORITY_RENDER,
   sharedFrameContext,
   updateSharedFrameContext,
+  type EpochProvider,
   type FrameCallback,
 } from './frame-loop.js';
 
@@ -18,12 +19,27 @@ export interface SceneHostProps {
   /** Fired when the WebGL context is lost (event already preventDefault()ed so the
    *  browser allows restoration). The app decides UX; scene-host stays UI-free. */
   onContextLost?: () => void;
+  /** Epoch source for FrameContext.epochJD. Absent ⇒ J2000 stub (Phase 0/1
+   *  behavior, bit-identical). MUST be referentially stable or wrapped by the
+   *  caller — changing it does not remount the canvas. */
+  readonly epochProvider?: EpochProvider | undefined;
 }
 
-function FrameContextUpdater(): null {
+function FrameContextUpdater({
+  epochProvider,
+}: {
+  epochProvider?: EpochProvider | undefined;
+}): null {
   const { camera } = useThree();
+  const epochProviderRef = useRef(epochProvider);
+  epochProviderRef.current = epochProvider;
+
   useFrame((_, deltaSec) => {
-    updateSharedFrameContext(camera as THREE.PerspectiveCamera, deltaSec);
+    updateSharedFrameContext(
+      camera as THREE.PerspectiveCamera,
+      deltaSec,
+      epochProviderRef.current,
+    );
   }, PRIORITY_FRAME_CONTEXT);
   return null;
 }
@@ -32,10 +48,11 @@ function FrameContextUpdater(): null {
 export function FrameLoopRoot({
   children,
   onFrame,
+  epochProvider,
 }: SceneHostProps): React.JSX.Element {
   return (
     <>
-      <FrameContextUpdater />
+      <FrameContextUpdater epochProvider={epochProvider} />
       {onFrame ? <OnFrameBridge onFrame={onFrame} /> : null}
       {/* Extension point: coords rebase root-group shifts (TASK-005+), streaming
           visible-set hooks, quality-tier post chain — mount as frame subscribers. */}
@@ -86,14 +103,24 @@ function ContextLossWatcher({ onContextLost }: { onContextLost: () => void }): n
 }
 
 /** Owns the only `<Canvas>`. Renderer config is THIS package's responsibility. */
-export function SceneHost({ children, onFrame, onContextLost }: SceneHostProps): React.JSX.Element {
+export function SceneHost({
+  children,
+  onFrame,
+  onContextLost,
+  epochProvider,
+}: SceneHostProps): React.JSX.Element {
   return (
     <Canvas
       gl={{ logarithmicDepthBuffer: true, antialias: false }}
       camera={{ position: [0, 0, 50], near: 0.1, far: 1e9, fov: 60 }}
     >
       {onContextLost ? <ContextLossWatcher onContextLost={onContextLost} /> : null}
-      <FrameLoopRoot {...(onFrame !== undefined ? { onFrame } : {})}>{children}</FrameLoopRoot>
+      <FrameLoopRoot
+        {...(onFrame !== undefined ? { onFrame } : {})}
+        {...(epochProvider !== undefined ? { epochProvider } : {})}
+      >
+        {children}
+      </FrameLoopRoot>
     </Canvas>
   );
 }

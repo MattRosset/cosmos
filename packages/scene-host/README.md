@@ -20,6 +20,7 @@ instead of each owning canvas setup. Phase 0 delivers:
 import {
   SceneHost,
   useFrameContext,
+  type EpochProvider,
   PRIORITY_NAV,
   PRIORITY_COORDS,
   PRIORITY_STREAMING,
@@ -27,8 +28,15 @@ import {
 } from '@cosmos/scene-host';
 
 function App() {
+  const epochProvider: EpochProvider = (dtMs) => {
+    // Example: advance a simulation clock and return the epoch
+    // clock.advance(dtMs);
+    // return clock.epochJD;
+    return 2451545.0; // J2000
+  };
+
   return (
-    <SceneHost onFrame={(ctx) => { /* app-level render hook */ }}>
+    <SceneHost onFrame={(ctx) => { /* app-level render hook */ }} epochProvider={epochProvider}>
       <Starfield />
     </SceneHost>
   );
@@ -37,7 +45,7 @@ function App() {
 // Inside the Canvas tree (e.g. packages/nav, packages/coords adapter):
 function NavDriver() {
   useFrameContext((ctx) => {
-    // ctx.camera, ctx.dtMs (clamped to 100 ms), ctx.epochJD (J2000 stub)
+    // ctx.camera, ctx.dtMs (clamped to 100 ms), ctx.epochJD (from provider or J2000)
   }, PRIORITY_NAV);
   return null;
 }
@@ -68,7 +76,39 @@ Lower numbers run earlier within a frame.
 - Streaming: subscribe at `PRIORITY_STREAMING` for tile visibility.
 - Post chain / quality tiers: mount inside `SceneHost` after scene content.
 
+## EpochProvider
+
+`SceneHost` accepts an optional `epochProvider` prop that supplies the simulation
+epoch (`FrameContext.epochJD`) each frame:
+
+```typescript
+export type EpochProvider = (dtMs: number) => number;
+
+interface SceneHostProps {
+  readonly epochProvider?: EpochProvider;
+  // ... other props
+}
+```
+
+- **Timing:** Called once per frame at `PRIORITY_FRAME_CONTEXT` (before all
+  subscribers) with the clamped wall delta (≤ 100 ms).
+- **Return value:** Becomes `FrameContext.epochJD` for all subscribers in that
+  frame if finite. Non-finite values (NaN, Infinity) retain the previous epoch
+  and log a console warning once per session.
+- **Default:** Absent provider → epoch is constant `J2000_EPOCH_JD` (2451545.0).
+- **Stability:** The function must be referentially stable or wrapped by the
+  caller — changing the provider identity does not remount the `<Canvas>`.
+
+Typical usage for a simulation clock:
+
+```typescript
+const epochProvider: EpochProvider = (dtMs) => {
+  clock.advance(dtMs);
+  return clock.epochJD;
+};
+```
+
 ## Testing
 
 `pnpm --filter @cosmos/scene-host test` — priority ordering, dt clamp, epoch
-stub, unmount cleanup (@react-three/test-renderer + Vitest).
+stub, epoch provider, unmount cleanup (@react-three/test-renderer + Vitest).

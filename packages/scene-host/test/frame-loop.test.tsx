@@ -1,5 +1,6 @@
 import { create } from '@react-three/test-renderer';
-import { describe, expect, it } from 'vitest';
+import type * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
 import {
   J2000_EPOCH_JD,
   MAX_DT_MS,
@@ -9,6 +10,7 @@ import {
   PRIORITY_STREAMING,
   useFrameContext,
 } from '../src/index';
+import { sharedFrameContext, updateSharedFrameContext } from '../src/frame-loop';
 import { FrameLoopRoot } from '../src/SceneHost';
 
 function PriorityProbe({
@@ -136,4 +138,110 @@ describe('frame loop', () => {
       expect(callCount).toBe(countAfterFrame);
     }
   });
+
+  it('provider receives clamped dt (5s gap → 100ms)', async () => {
+    const calls: number[] = [];
+    const provider = (dtMs: number) => {
+      calls.push(dtMs);
+      return 2_460_000;
+    };
+
+    function ProbeWithProvider(): null {
+      useFrameContext(() => {}, PRIORITY_RENDER);
+      return null;
+    }
+
+    const renderer = await create(
+      <FrameLoopRoot epochProvider={provider}>
+        <ProbeWithProvider />
+      </FrameLoopRoot>,
+    );
+
+    await renderer.advanceFrames(1, 5);
+
+    expect(calls[0]).toBe(MAX_DT_MS);
+
+    await renderer.unmount();
+  });
+
+  it('epochJD equals provider return for all subscribers in same frame', async () => {
+    const epochs: number[] = [];
+    const providerValue = 2_460_000;
+    const provider = () => providerValue;
+
+    function EpochAtPriority({
+      priority,
+    }: {
+      priority: number;
+    }): null {
+      useFrameContext((ctx) => {
+        epochs.push(ctx.epochJD);
+      }, priority);
+      return null;
+    }
+
+    const renderer = await create(
+      <FrameLoopRoot epochProvider={provider}>
+        <EpochAtPriority priority={PRIORITY_NAV} />
+        <EpochAtPriority priority={PRIORITY_RENDER} />
+      </FrameLoopRoot>,
+    );
+
+    await renderer.advanceFrames(1, 1 / 60);
+
+    expect(epochs).toEqual([providerValue, providerValue]);
+
+    await renderer.unmount();
+  });
+
+  it('provider called exactly once per frame', async () => {
+    let callCount = 0;
+    const provider = () => {
+      callCount += 1;
+      return 2_460_000;
+    };
+
+    function Probe(): null {
+      useFrameContext(() => {}, PRIORITY_RENDER);
+      return null;
+    }
+
+    const renderer = await create(
+      <FrameLoopRoot epochProvider={provider}>
+        <Probe />
+      </FrameLoopRoot>,
+    );
+
+    await renderer.advanceFrames(3, 1 / 60);
+
+    expect(callCount).toBe(3);
+
+    await renderer.unmount();
+  });
+
+  it('non-finite return retains previous epoch and warns once', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const cam = null as unknown as THREE.PerspectiveCamera;
+
+    // Establish a known epoch
+    updateSharedFrameContext(cam, 0.016, () => 2_460_001);
+    expect(sharedFrameContext.epochJD).toBe(2_460_001);
+
+    // NaN return → previous epoch retained
+    updateSharedFrameContext(cam, 0.016, () => NaN);
+    expect(sharedFrameContext.epochJD).toBe(2_460_001);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    // Finite again → updates normally
+    updateSharedFrameContext(cam, 0.016, () => 2_460_003);
+    expect(sharedFrameContext.epochJD).toBe(2_460_003);
+
+    // Second NaN → still only one warn (once per session)
+    updateSharedFrameContext(cam, 0.016, () => NaN);
+    expect(sharedFrameContext.epochJD).toBe(2_460_003);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+
 });
