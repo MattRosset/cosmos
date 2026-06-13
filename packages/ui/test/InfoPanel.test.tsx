@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useSelectionStore } from '@cosmos/app-state';
 import { InfoPanel } from '../src/InfoPanel';
 import type { BodyLookupAdapter } from '../src/types';
-import type { StarRecord } from '@cosmos/core-types';
+import type { PlanetRecord, GalaxyRecord, StarRecord } from '@cosmos/core-types';
 
 const SIRIUS: StarRecord = {
   id: 'hyg:32263',
@@ -128,5 +128,119 @@ describe('InfoPanel — fallback for unknown id', () => {
     render(<InfoPanel adapter={adapter} onGoTo={vi.fn()} />);
     await user.click(screen.getByRole('button', { name: /close/i }));
     expect(useSelectionStore.getState().selectedId).toBeNull();
+  });
+});
+
+// ── TASK-026 additions ────────────────────────────────────────────────────────
+
+const SATURN: PlanetRecord = {
+  id: 'sol:saturn',
+  kind: 'planet',
+  name: 'Saturn',
+  parentId: 'sol:sol',
+  radiusKm: 58232,
+  elements: {
+    semiMajorAxisAu: 9.5826,
+    eccentricity: 0.0565,
+    inclinationRad: 0.04336,
+    ascendingNodeLongitudeRad: 1.9837,
+    argumentOfPeriapsisRad: 1.6227,
+    meanAnomalyAtEpochRad: 5.5323,
+    epochJD: 2451545.0,
+    muKm3S2: 1.32712440018e11,
+  },
+  seed: 6,
+};
+
+const SATURN_NO_ELEMENTS: PlanetRecord = {
+  id: 'sol:saturn-bare',
+  kind: 'planet',
+  name: 'Saturn',
+  parentId: 'sol:sol',
+  radiusKm: 58232,
+};
+
+const MILKY_WAY: GalaxyRecord = {
+  id: 'gal:milkyway',
+  kind: 'galaxy',
+  name: 'Milky Way',
+  positionMpc: [0, 0, 0],
+  radiusKpc: 15,
+  seed: 0,
+};
+
+function makePlanetAdapter(
+  planet: PlanetRecord,
+  parentName?: string,
+): BodyLookupAdapter {
+  return {
+    search: vi.fn().mockReturnValue([]),
+    getBody: vi.fn().mockImplementation((id: string) => {
+      if (id === planet.id) return planet;
+      if (id === planet.parentId && parentName !== undefined) {
+        return {
+          id: planet.parentId,
+          kind: 'star',
+          name: parentName,
+          positionPc: [0, 0, 0] as [number, number, number],
+          absMag: -26.7,
+          colorIndexBV: 0.65,
+        };
+      }
+      return undefined;
+    }),
+  };
+}
+
+describe('InfoPanel — planet display', () => {
+  it('Saturn fixture: shows name, Planet tag, radius, parent, a, e, period', () => {
+    useSelectionStore.setState({ selectedId: 'sol:saturn' });
+    render(
+      <InfoPanel adapter={makePlanetAdapter(SATURN, 'Sol')} onGoTo={vi.fn()} />,
+    );
+
+    expect(screen.getByText('Saturn')).not.toBeNull();
+    expect(screen.getByText('Planet')).not.toBeNull();
+
+    // Radius: 58232 → "58 232 km"
+    expect(screen.getByText(/58.232 km/)).not.toBeNull();
+
+    // Parent
+    expect(screen.getByText('Sol')).not.toBeNull();
+
+    // Semi-major axis ≈ 9.58 AU (3 sig figs)
+    expect(screen.getByText(/9\.58 AU/)).not.toBeNull();
+
+    // Eccentricity 0.0565 → "0.06"
+    expect(screen.getByText('0.06')).not.toBeNull();
+
+    // Period in years (> 1000 days)
+    expect(screen.getByText(/yr$/)).not.toBeNull();
+  });
+
+  it('planet without elements omits the orbit block', () => {
+    useSelectionStore.setState({ selectedId: 'sol:saturn-bare' });
+    render(
+      <InfoPanel
+        adapter={makePlanetAdapter(SATURN_NO_ELEMENTS, 'Sol')}
+        onGoTo={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/AU$/)).toBeNull();
+    expect(screen.queryByText(/yr$|d$/)).toBeNull();
+  });
+});
+
+describe('InfoPanel — galaxy display', () => {
+  it('shows name and Galaxy tag only', () => {
+    useSelectionStore.setState({ selectedId: 'gal:milkyway' });
+    const adapter: BodyLookupAdapter = {
+      search: vi.fn().mockReturnValue([]),
+      getBody: vi.fn().mockReturnValue(MILKY_WAY),
+    };
+    render(<InfoPanel adapter={adapter} onGoTo={vi.fn()} />);
+    expect(screen.getByText('Milky Way')).not.toBeNull();
+    expect(screen.getByText('Galaxy')).not.toBeNull();
+    expect(screen.queryByText(/km/)).toBeNull();
   });
 });

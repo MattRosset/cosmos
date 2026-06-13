@@ -1,9 +1,9 @@
-import type { BodyId, StarRecord } from '@cosmos/core-types';
+import type { BodyId, BodyRecord, BookmarkRecord } from '@cosmos/core-types';
 
-/** Injected by the app (TASK-015 passes the real @cosmos/data source). */
+/** Injected by the app. Adapter type widened in TASK-026 to cover all body kinds. */
 export interface BodyLookupAdapter {
-  search(query: string, maxResults?: number): readonly StarRecord[];
-  getBody(id: BodyId): StarRecord | null;
+  getBody(id: BodyId): BodyRecord | undefined;
+  search(query: string, max?: number): BodyRecord[];
 }
 
 export interface SearchPaletteProps {
@@ -15,4 +15,19 @@ export interface SearchPaletteProps {
 export interface InfoPanelProps {
   readonly adapter: BodyLookupAdapter;
   onGoTo(id: BodyId): void;
+}
+
+export interface TimeControlsProps {
+  /** Optional: "sync to now" button handler. Hidden when absent. */
+  readonly onSyncToNow?: () => void;
+}
+
+export interface BookmarksPanelProps {
+  /** Returns a complete BookmarkRecord for the current view, or null when
+   *  capture is impossible. The panel adds it to useBookmarkStore. */
+  readonly onCapture: (name: string) => BookmarkRecord | null;
+  readonly onGoToBookmark: (bookmark: BookmarkRecord) => void;
+  /** History tab row click. */
+  readonly onGoToBody: (id: BodyId) => void;
+  readonly adapter: BodyLookupAdapter;
 }

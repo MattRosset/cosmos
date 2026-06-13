@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
-import type { StarRecord } from '@cosmos/core-types';
+import type { BodyRecord } from '@cosmos/core-types';
 import type { SearchPaletteProps } from './types';
 
 /**
@@ -9,7 +9,7 @@ import type { SearchPaletteProps } from './types';
 export function SearchPalette({ adapter, onGoTo }: SearchPaletteProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<readonly StarRecord[]>([]);
+  const [results, setResults] = useState<readonly BodyRecord[]>([]);
   const [highlighted, setHighlighted] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 

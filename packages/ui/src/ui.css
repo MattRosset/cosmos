@@ -133,3 +133,243 @@
   background: rgba(80, 100, 180, 0.65);
   color: #ffffff;
 }
+
+/* --- Time controls --- */
+
+.cosmos-ui-time {
+  pointer-events: auto;
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(16, 16, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  color: #c8c8d8;
+  font-size: 0.85rem;
+}
+
+.cosmos-ui-time button {
+  background: none;
+  border: none;
+  color: #c8c8d8;
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.cosmos-ui-time button:hover {
+  background: rgba(100, 120, 200, 0.25);
+  color: #ffffff;
+}
+
+.cosmos-ui-time-readout {
+  margin-left: 8px;
+  color: #e8e8f0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* --- Bookmarks panel --- */
+
+.cosmos-ui-bookmarks-toggle {
+  pointer-events: auto;
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  background: rgba(16, 16, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  color: #c8c8d8;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 8px 10px;
+  z-index: 90;
+}
+
+.cosmos-ui-bookmarks-toggle:hover {
+  background: rgba(40, 40, 60, 0.95);
+  color: #ffffff;
+}
+
+.cosmos-ui-bookmarks {
+  pointer-events: auto;
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: min(300px, 92vw);
+  max-height: 70vh;
+  overflow-y: auto;
+  background: rgba(16, 16, 24, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  z-index: 90;
+  color: #c8c8d8;
+  font-size: 0.85rem;
+}
+
+.cosmos-ui-bookmarks-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.cosmos-ui-bookmarks-tab {
+  flex: 1;
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: #c8c8d8;
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 4px;
+}
+
+.cosmos-ui-bookmarks-tab[aria-pressed='true'] {
+  background: rgba(80, 100, 180, 0.4);
+  color: #ffffff;
+}
+
+.cosmos-ui-bookmarks-close {
+  background: none;
+  border: none;
+  color: rgba(200, 200, 216, 0.6);
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 4px 6px;
+}
+
+.cosmos-ui-bookmarks-close:hover {
+  color: #ffffff;
+}
+
+.cosmos-ui-bookmarks-capture {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.cosmos-ui-bookmarks-capture input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #e8e8f0;
+  font-size: 0.82rem;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.cosmos-ui-bookmarks-capture button {
+  background: rgba(80, 100, 180, 0.4);
+  border: 1px solid rgba(100, 130, 220, 0.4);
+  border-radius: 4px;
+  color: #c8d0ff;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.cosmos-ui-bookmarks-capture button:hover {
+  background: rgba(80, 100, 180, 0.65);
+  color: #ffffff;
+}
+
+.cosmos-ui-bookmarks-error {
+  color: #ff7070;
+  font-size: 0.8rem;
+  margin: 0 0 8px;
+}
+
+.cosmos-ui-bookmarks-list,
+.cosmos-ui-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cosmos-ui-bookmarks-row,
+.cosmos-ui-history-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.82rem;
+}
+
+.cosmos-ui-bookmarks-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #e8e8f0;
+}
+
+.cosmos-ui-bookmarks-date {
+  color: rgba(200, 200, 216, 0.5);
+  font-size: 0.78rem;
+}
+
+.cosmos-ui-bookmarks-row button,
+.cosmos-ui-history-row button {
+  background: none;
+  border: none;
+  color: #c8c8d8;
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.cosmos-ui-bookmarks-row button:hover,
+.cosmos-ui-history-row button:hover {
+  background: rgba(100, 120, 200, 0.2);
+  color: #ffffff;
+}
+
+.cosmos-ui-bookmarks-row input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  color: #e8e8f0;
+  font-size: 0.82rem;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.cosmos-ui-history-clear {
+  background: none;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  color: #c8c8d8;
+  cursor: pointer;
+  font-size: 0.8rem;
+  margin-bottom: 8px;
+  padding: 3px 8px;
+}
+
+.cosmos-ui-history-clear:hover {
+  background: rgba(200, 60, 60, 0.3);
+  color: #ffffff;
+}
+
+.cosmos-ui-history-row button {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
