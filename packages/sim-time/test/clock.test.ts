@@ -89,28 +89,30 @@ describe('advance()', () => {
     expect(changes).toHaveLength(0);
   });
 
-  it('precision test: 1e6× accel for ~100 years < 1% relative error', () => {
+  it('precision (§5.4 gate): 1e6× accel for ≥100 simulated years, error < 1 ms total', () => {
     const clock = createSimClock({ initialAccel: 1e6 });
     const start = clock.epochJD;
     const frameDtMs = 16.667;
-    // Wall-clock time needed to simulate 100 years at 1e6x: 3.15576e6 ms
-    // Wall-clock frames needed
-    const wallClockMsFor100Years = 100 * 365.25 * 86_400_000 / 1e6;
+    // Wall-clock ms needed to simulate 100 years at 1e6×, then frames at 16.667 ms.
+    const wallClockMsFor100Years = (100 * 365.25 * 86_400_000) / 1e6;
     const numFrames = Math.ceil(wallClockMsFor100Years / frameDtMs);
 
-    let exactMs = 0;
+    // Exact reference: sum of per-frame simulated ms (dt × accel), accumulated
+    // with Kahan compensation so the reference itself carries no summation drift.
+    let exactSimMs = 0;
+    let refComp = 0;
     for (let i = 0; i < numFrames; i++) {
       clock.advance(frameDtMs);
-      exactMs += frameDtMs;
+      const inc = frameDtMs * 1e6; // simulated ms this frame (dt unclamped < MAX_DT_MS)
+      const y = inc - refComp;
+      const t = exactSimMs + y;
+      refComp = t - exactSimMs - y;
+      exactSimMs = t;
     }
 
-    // Reconstructed simulated elapsed milliseconds from JD difference
+    // Reconstruct elapsed simulated ms from the clock's epoch and compare.
     const actualSimMs = (clock.epochJD - start) * 86_400_000;
-    // Expected simulated ms: wall-clock time * acceleration
-    const expectedSimMs = exactMs * 1e6;
-    // Relative error should be very small (accumulated floating-point error)
-    const relativeError = Math.abs(actualSimMs - expectedSimMs) / expectedSimMs;
-    expect(relativeError).toBeLessThan(2e-10);
+    expect(Math.abs(actualSimMs - exactSimMs)).toBeLessThan(1);
   });
 
   it('is allocation-free (does not trigger onChange)', () => {

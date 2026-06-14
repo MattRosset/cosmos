@@ -44,6 +44,13 @@ export function createSimClock(opts?: SimClockOptions): SimClock {
   let epochJD = opts?.initialEpochJD ?? J2000_EPOCH_JD;
   let accel = opts?.initialAccel ?? 1;
   let paused = false;
+  // Kahan/Neumaier compensation term for advance(): carries the low-order bits
+  // lost when a small per-frame increment (~0.19 days at 1e6×) is added to a
+  // large absolute JD (~2.45e6). Naive accumulation drifts ~316 ms over a
+  // simulated century at 1e6×; compensated summation keeps epochJD correctly
+  // rounded to ~1 ulp (~7.5 µs), satisfying the §5.4 millisecond-precision gate.
+  // Reset to 0 on every absolute jump (setEpochJD / syncToNow).
+  let comp = 0;
 
   const listeners = new Set<(state: SimClockState) => void>();
 
@@ -76,7 +83,13 @@ export function createSimClock(opts?: SimClockOptions): SimClock {
     advance(dtMs: number): void {
       if (paused) return;
       const clampedDtMs = Math.max(0, Math.min(dtMs, MAX_DT_MS));
-      epochJD += (clampedDtMs / 1000) * accel / 86_400;
+      // Increment in Julian days as f64 (§5.4 advance law), added with Kahan
+      // compensation so the low bits aren't rounded away frame-to-frame.
+      const inc = (clampedDtMs / 1000) * accel / 86_400;
+      const y = inc - comp;
+      const t = epochJD + y;
+      comp = t - epochJD - y;
+      epochJD = t;
     },
 
     setAccel(newAccel: number): void {
@@ -99,6 +112,7 @@ export function createSimClock(opts?: SimClockOptions): SimClock {
       if (!Number.isFinite(newEpochJD)) return;
       if (newEpochJD !== epochJD) {
         epochJD = newEpochJD;
+        comp = 0; // discard stale compensation: this is an absolute jump
         emitChange();
       }
     },
@@ -107,6 +121,7 @@ export function createSimClock(opts?: SimClockOptions): SimClock {
       const newEpochJD = unixMsToEpochJD(nowUnixMs);
       if (newEpochJD !== epochJD) {
         epochJD = newEpochJD;
+        comp = 0; // discard stale compensation: this is an absolute jump
         emitChange();
       }
     },

@@ -31,7 +31,7 @@ clock.onChange((state) => {
 
 ## Key Properties
 
-- **Precision:** Accumulates in Julian Days as f64, retaining ~microsecond precision even at 1e6× acceleration over centuries.
+- **Precision:** Accumulates in Julian Days as f64 with Kahan-compensated summation in `advance()`, keeping `epochJD` correctly rounded to ~1 ulp (~microseconds). Verified by the §5.4 gate: < 1 ms total error over a simulated century at 1e6×. (Naive f64 accumulation drifts ~316 ms here, because a ~0.19-day per-frame increment loses its low bits against the ~2.45e6 absolute JD magnitude; the compensation term carries those bits forward.)
 - **Pause/Resume:** Bit-exact — pausing, advancing any number of times, and resuming leaves `epochJD` unchanged.
 - **Frame path (advance):** Zero allocations, no events, no I/O.
 - **Time control:** All via `setAccel`, `setPaused`, `setEpochJD`, `syncToNow`, which fire `onChange` only if state actually changes.
