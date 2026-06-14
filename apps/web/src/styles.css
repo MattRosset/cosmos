@@ -110,3 +110,23 @@ body,
   background: rgba(80, 100, 180, 0.65);
   color: #ffffff;
 }
+
+/*
+ * TASK-029 HUD layout fix. @cosmos/ui pins the InfoPanel (.cosmos-ui-info) AND
+ * the bookmarks toggle/panel at the same top-right slot (top:80px/right:20px),
+ * so when a body is selected the 🔖 toggle sits over the InfoPanel's close
+ * button and intercepts its clicks. HUD placement is the app's responsibility
+ * (ui README), so move the bookmarks UI to the bottom-right — clear of the
+ * InfoPanel (top-right) and the TimeControls (bottom-center). Scoped under .hud
+ * to win specificity over the library rule regardless of stylesheet order.
+ */
+.hud .cosmos-ui-bookmarks-toggle,
+.hud .cosmos-ui-bookmarks {
+  top: auto;
+  bottom: 24px;
+  right: 20px;
+}
+
+.hud .cosmos-ui-bookmarks {
+  bottom: 72px;
+}
