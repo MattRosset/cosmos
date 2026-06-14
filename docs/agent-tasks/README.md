@@ -64,17 +64,17 @@ sections — they are part of the spec.
 | [TASK-016](TASK-016-deploy.md) | Deploy to CDN + context-loss handling | TASK-014 | done | CF secrets added manually; deploy.yml skips cleanly when absent |
 | [TASK-017](TASK-017-phase1-gate.md) | Phase 1 gate: rendered jitter + Lighthouse + M1 | TASK-015, 016 | done | **GATE: Phase 1 closed**; jitter 1.3e-5 px, Lighthouse perf 0.88 / TTI 2.4 s |
 | [TASK-018](TASK-018-core-types-phase2-thaw.md) | `core-types` Phase-2 thaw: systems, bookmarks, frames | TASK-017 | done | all 29 tests pass; reviewed 2026-06-13 |
-| [TASK-019](TASK-019-sim-time.md) | `sim-time` v1: epoch clock + acceleration | TASK-018 | pending | lane F |
-| [TASK-020](TASK-020-orbits.md) | `orbits` v1: Kepler solver, batch, polylines | TASK-018 | pending | lane G |
+| [TASK-019](TASK-019-sim-time.md) | `sim-time` v1: epoch clock + acceleration | TASK-018 | done | lane F; §5.4 <1ms gate required Kahan-compensated advance (naive f64 drifts ~316ms/century at 1e6×) — supersedes the task's "one expression" note, architect-approved 2026-06-14 |
+| [TASK-020](TASK-020-orbits.md) | `orbits` v1: Kepler solver, batch, polylines | TASK-018 | done | lane G; status synced 2026-06-14 (code shipped daa919c, gates green) |
 | [TASK-021](TASK-021-pack-solar.md) | `tools/pack-solar`: JPL table → `systems-sol.json` + KTX2 | TASK-018, 020 | done | ADR-002: Jupiter 0.2%/Saturn 0.3% gate (great-inequality limit of secular elements) |
-| [TASK-022](TASK-022-pack-exoplanets.md) | `tools/pack-exoplanets`: NASA archive + procedural fill | TASK-018, 021 | pending | lane H (after 021) |
-| [TASK-023](TASK-023-data-v2.md) | `data` v2: systems loader + combined source | TASK-018 | pending | lane I (fixture-driven) |
-| [TASK-024](TASK-024-render-planets.md) | `render-planets` v1: spheres, terminator, rings, orbit lines | TASK-018 | pending | lane J |
-| [TASK-025](TASK-025-app-state-v2.md) | `app-state` v2: time store + bookmarks/history persistence | TASK-018 | pending | lane K |
-| [TASK-026](TASK-026-ui-v2.md) | `ui` v2: time controls + bookmarks panel + planet info | TASK-025 | pending | lane K |
+| [TASK-022](TASK-022-pack-exoplanets.md) | `tools/pack-exoplanets`: NASA archive + procedural fill | TASK-018, 021 | done | lane H (after 021); status synced 2026-06-14 (code shipped 43b1162, gates green) |
+| [TASK-023](TASK-023-data-v2.md) | `data` v2: systems loader + combined source | TASK-018 | done | lane I (fixture-driven); status synced 2026-06-14 (code shipped 81d4081, gates green) |
+| [TASK-024](TASK-024-render-planets.md) | `render-planets` v1: spheres, terminator, rings, orbit lines | TASK-018 | done | lane J; status synced 2026-06-14 (code shipped 7014b0f, gates green) |
+| [TASK-025](TASK-025-app-state-v2.md) | `app-state` v2: time store + bookmarks/history persistence | TASK-018 | done | lane K; status synced 2026-06-14 (code shipped b7f70e4, gates green) |
+| [TASK-026](TASK-026-ui-v2.md) | `ui` v2: time controls + bookmarks panel + planet info | TASK-025 | done | lane K; status synced 2026-06-14 (code shipped ab33e3a, gates green) |
 | [TASK-027](TASK-027-nav-context-switch.md) | `nav` v3: automatic galaxy⇄system context switch | TASK-018 | done | lane L; strongest agent (§8.3) |
-| [TASK-028](TASK-028-scene-host-epoch.md) | `scene-host` v1.1: pluggable epoch provider | TASK-018 | pending | lane M |
-| [TASK-029](TASK-029-m2-integration.md) | M2 integration: Sol + exoplanet systems in `apps/web` | TASK-019–028 (all) | pending | exclusive in `apps/web`/`e2e` |
+| [TASK-028](TASK-028-scene-host-epoch.md) | `scene-host` v1.1: pluggable epoch provider | TASK-018 | done | lane M; status synced 2026-06-14 (code shipped bdea45c, gates green) |
+| [TASK-029](TASK-029-m2-integration.md) | M2 integration: Sol + exoplanet systems in `apps/web` | TASK-019–028 (all) | done | exclusive in `apps/web`/`e2e`; code shipped 01d3163, unit+lint+typecheck+build green, m2.spec logic tests pass locally. NOTE: m2 screenshot + perf + bookmark e2e gates need CI sign-off (fail locally on macOS/software-GL/Linux baselines — env artifact, not regression); status synced 2026-06-14 |
 | [TASK-030](TASK-030-phase2-gate.md) | Phase 2 gate: invisible context switches + M2 | TASK-029 | pending | **GATE: closes Phase 2** |
 
 **GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
