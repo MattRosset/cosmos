@@ -303,42 +303,73 @@ test('search → fly: Betelgeuse flight with info panel, perf smoke, baseline', 
   expect(pageErrors, 'no uncaught errors during flight').toHaveLength(0);
 });
 
-test('click-pick: select Sirius at its projected position, empty-sky click deselects', async ({
+/**
+ * Among well-known bright stars present in the pack, choose the one most
+ * angularly isolated at its own goTo arrival vantage — so clicking its projected
+ * centre selects it unambiguously despite the camera-model error. The M2 arrival
+ * distance (5e14 m, TASK-029) stops farther from the target than M1's old 1e13 m,
+ * making the field denser, so a hard-coded Sirius is no longer guaranteed safe;
+ * this auto-adapts to the pack and the arrival distance.
+ */
+function pickIsolatedTarget(
+  pack: Pack,
+  candidateNames: readonly string[],
+): { star: NamedStar; name: string; cam: CameraModel } {
+  let best:
+    | { star: NamedStar; name: string; cam: CameraModel; secondAngle: number }
+    | null = null;
+  for (const name of candidateNames) {
+    if (!Object.values(pack.names).includes(name)) continue;
+    const star = findStarByName(pack, name);
+    const cam = cameraAfterGoTo(star.posPc);
+    const near = nearestTwoAngles(pack, cam.camPos, cam.targetDir);
+    // The flown-to star must be the nearest to its own flight ray, within the
+    // model error; keep the most isolated runner-up across candidates.
+    if (near.index !== star.index || near.angle >= 2e-3) continue;
+    if (best === null || near.secondAngle > best.secondAngle) {
+      best = { star, name, cam, secondAngle: near.secondAngle };
+    }
+  }
+  expect(best, 'at least one candidate bright star must be in the pack').not.toBeNull();
+  expect(
+    best!.secondAngle,
+    'chosen target must clear the camera-model error (runner-up well outside it)',
+  ).toBeGreaterThan(5e-3);
+  return { star: best!.star, name: best!.name, cam: best!.cam };
+}
+
+test('click-pick: select a bright star at its projected position, empty-sky click deselects', async ({
   page,
   request,
   baseURL,
 }) => {
   const pack = await fetchPack(request, baseURL!);
-  const sirius = findStarByName(pack, 'Sirius');
   const betelgeuse = findStarByName(pack, 'Betelgeuse');
+  const target = pickIsolatedTarget(pack, [
+    'Vega', 'Arcturus', 'Capella', 'Procyon', 'Altair', 'Aldebaran',
+    'Pollux', 'Fomalhaut', 'Regulus', 'Spica', 'Antares', 'Deneb',
+    'Castor', 'Rigel', 'Sirius', 'Canopus', 'Achernar',
+  ]);
 
   await page.goto('/');
   await waitReady(page);
 
-  // Face Sirius via the search flow, then clear the selection it made so the
+  // Face the target via the search flow, then clear the selection it made so the
   // click is what selects.
-  await searchAndGo(page, 'sirius', 'Sirius');
+  await searchAndGo(page, target.name.toLowerCase(), target.name);
   await waitFlightDone(page);
   await page.locator('.cosmos-ui-info-close').click();
   await page.waitForFunction(() => window.__cosmos?.selectedId === null);
 
-  // Click Sirius's projected position (its direction from the camera IS the
-  // flight direction — the camera traveled along it). Guard the geometry so a
-  // regenerated pack fails loudly here instead of flaking on the click.
-  const camS = cameraAfterGoTo(sirius.posPc);
-  const near = nearestTwoAngles(pack, camS.camPos, camS.targetDir);
-  expect(near.index, 'nearest star to the click ray must be Sirius').toBe(sirius.index);
-  expect(near.angle).toBeLessThan(2e-3);
-  expect(near.secondAngle, 'runner-up must be well outside the model error').toBeGreaterThan(
-    5e-3,
-  );
-  const siriusPx = projectToPx(camS, camS.targetDir);
-  await page.mouse.click(siriusPx.x, siriusPx.y);
+  // Click the target's projected position (its direction from the camera IS the
+  // flight direction — the camera traveled along it).
+  const targetPx = projectToPx(target.cam, target.cam.targetDir);
+  await page.mouse.click(targetPx.x, targetPx.y);
   await page.waitForFunction(
     (id) => window.__cosmos?.selectedId === id,
-    sirius.id,
+    target.star.id,
   );
-  await expect(page.locator('.cosmos-ui-info-name')).toHaveText('Sirius');
+  await expect(page.locator('.cosmos-ui-info-name')).toHaveText(target.name);
 
   // Near Sol the catalog leaves no direction empty within the 0.02 rad pick
   // cone (≈ 11 stars per cone on average) — fly to Betelgeuse, where looking
