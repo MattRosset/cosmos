@@ -12,13 +12,18 @@ sections — they are part of the spec.
 1. Pick the **lowest-numbered** task whose **Status is `pending`** and whose **Blocked-by
    tasks are all `done`** (see the table below), skipping tasks marked `in-progress`.
    Set your task to `in-progress` (Status cell only) as your first action in the run.
-   Phase 0 was strictly sequential; **Phases 1 and 2 run parallel lanes** (architecture
-   §8.3) — multiple tasks may be unblocked at once, and that is intentional. Each lane
-   touches disjoint packages, so never start a task whose target package overlaps an
-   `in-progress` task. TASK-015/TASK-029 (integration) and TASK-017/TASK-030 (gates)
-   are single-lane: nothing else runs in `apps/web`/`e2e` while they are in progress.
-   TASK-021 → TASK-022 are serialized (both write `apps/web/public/packs/` and
-   `ATTRIBUTIONS.md`).
+   Phase 0 was strictly sequential; **Phases 1, 2, and 3 run parallel lanes**
+   (architecture §8.3) — multiple tasks may be unblocked at once, and that is
+   intentional. Each lane touches disjoint packages, so never start a task whose
+   target package overlaps an `in-progress` task. TASK-015/TASK-029/TASK-040
+   (integration) and TASK-017/TASK-030/TASK-041 (gates) are single-lane: nothing
+   else runs in `apps/web`/`e2e` while they are in progress. **TASK-038
+   (`streaming`) is also single-lane** — per architecture §7 it integrates two chunk
+   producers + the loader and is assigned to the strongest agent/human pair; do not
+   run other Phase 3 lanes concurrently with it (it is the §8.3 "streaming +
+   context-switching, never parallelized" task). TASK-021 → TASK-022 are serialized
+   (both write `apps/web/public/packs/` and `ATTRIBUTIONS.md`); TASK-034 writes
+   `apps/web/public/packs/octree/` (disjoint from 021/022 — no serialization needed).
 2. Read your task file plus its listed **Context Files**. The task file is self-contained
    for everything else. Create/modify **only** the files listed under its "Deliverables"
    heading (plus its test files).
@@ -76,14 +81,31 @@ sections — they are part of the spec.
 | [TASK-028](TASK-028-scene-host-epoch.md) | `scene-host` v1.1: pluggable epoch provider | TASK-018 | done | lane M; status synced 2026-06-14 (code shipped bdea45c, gates green) |
 | [TASK-029](TASK-029-m2-integration.md) | M2 integration: Sol + exoplanet systems in `apps/web` | TASK-019–028 (all) | done | exclusive in `apps/web`/`e2e`; code shipped 01d3163, unit+lint+typecheck+build green, m2.spec logic tests pass locally. NOTE: m2 screenshot + perf + bookmark e2e gates need CI sign-off (fail locally on macOS/software-GL/Linux baselines — env artifact, not regression); status synced 2026-06-14 |
 | [TASK-030](TASK-030-phase2-gate.md) | Phase 2 gate: invisible context switches + M2 | TASK-029 | in-progress | **GATE: closes Phase 2.** Probe (`?debug=ctxswitch`) + `ctxswitch.spec.ts` + CI gate-listing shipped; verify+lint+typecheck+build green; 2 switches fire, gate passes locally (enter 0.11/exit 0.72 ≤ max-flight 2.42, maxFrameMs ~175<250). PASS yardstick refined from `3×median` → `≤ max flight delta` (median≈0 on the mostly-empty descent — approved deviation, see task file). CI sign-off pending: keyframe baselines (CI/SwiftShader + human review), Lighthouse, 250 ms on software-GL, reference-machine 60 fps, demo recording. Do NOT flip to `done` / freeze APIs until CI green. |
+| [TASK-031](TASK-031-core-types-phase3-thaw.md) | `core-types` Phase-3 thaw: galaxy procgen, octree, chunk lifecycle, quality, worker RPC | TASK-030 | pending | the ONE Phase 2→3 thaw; unblocks all Phase 3 lanes. May not start until TASK-030 `done`. ADR-003/ADR-004 |
+| [TASK-032](TASK-032-workers.md) | `workers` v1: pool + Comlink contracts + cancellation + transfer discipline | TASK-031 | pending | new package; prerequisite for procgen/octree-in-worker (allowed dep: `comlink`) |
+| [TASK-033](TASK-033-procgen-galaxy.md) | `procgen` v1: deterministic density-wave galaxy generator | TASK-031 | pending | lane; pure; chunk producer #1 (ADR-004) |
+| [TASK-034](TASK-034-pack-octree.md) | `tools/pack-octree`: catalog → Morton-keyed octree tiles + manifest | TASK-031 | pending | lane (data tool); chunk producer #2 (ADR-003); commits sample octree pack |
+| [TASK-035](TASK-035-data-v3.md) | `data` v3: octree manifest + on-demand tile loader (worker decode) | TASK-031, TASK-032 | pending | lane (data runtime); thaw of `data` API |
+| [TASK-036](TASK-036-render-galaxy.md) | `render-galaxy` v1: particle clouds + dust lanes + far-LOD impostor | TASK-031 | pending | lane (render); new package |
+| [TASK-037](TASK-037-universe-context.md) | `nav` v4: universe⇄galaxy switch + local group of procedural galaxies | TASK-031 | pending | lane (nav/coords); thaw of `nav` API; mirrors TASK-027 one level up |
+| [TASK-038](TASK-038-streaming.md) | `streaming` v1: LOD policy + octree fetch/evict + procgen chunks + budgets | TASK-031, 033, 034, 035 | pending | **single-lane, strongest agent (§7/§8.3)**; needs both chunk producers + loader |
+| [TASK-039](TASK-039-quality-tiers.md) | `scene-host` v1.2: PerformanceMonitor-driven adaptive quality tiers | TASK-031 | pending | lane (scene-host); thaw of `scene-host` API (allowed dep: drei) |
+| [TASK-040](TASK-040-m3-integration.md) | M3 integration: continuous Milky Way → Sol → Earth zoom, no loading screens | TASK-032–039 (all) | pending | exclusive in `apps/web`/`e2e`; composition only |
+| [TASK-041](TASK-041-phase3-gate.md) | Phase 3 gate: recorded-flythrough perf + memory soak + WebKit/Firefox + M3 | TASK-040 | pending | **GATE: closes Phase 3.** Freezes Phase 3 APIs on completion |
 
 **GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
 `app-state`, `ui`, and `nav` v2 froze there. Phase 2 task files above are the
 sanctioned thaw approvals for the specific API additions they list — nothing else
 may change. TASK-030 is the Phase 2 acceptance gate (architecture §6 Phase 2 / M2).
-No Phase 3 task may be specced or started until TASK-030 is `done` — at that point
+No Phase 3 task may be **started** until TASK-030 is `done` — at that point
 the APIs of `sim-time`, `orbits`, `render-planets`, and the v2/v3 surfaces of
-`data`, `app-state`, `ui`, `nav`, and `scene-host` freeze.
+`data`, `app-state`, `ui`, `nav`, and `scene-host` freeze. (The Phase 3 task
+files TASK-031…041 are authored, but TASK-031 — the sole Phase 2→3 thaw — is
+blocked on TASK-030 and every later Phase 3 task is blocked transitively on it.)
+TASK-041 is the Phase 3 acceptance gate (architecture §6 Phase 3 / M3); when it is
+`done` the APIs of `workers`, `procgen`, `streaming`, `render-galaxy`, the octree
+surface of `data` v3, the v4 surface of `nav`, and the v1.2 surface of `scene-host`
+freeze, and Phase 4 specs may be written.
 
 ## Dependency graph
 
@@ -115,6 +137,20 @@ TASK-017 ─→ TASK-018 (core-types Phase-2 thaw, S)
 
 TASK-019…028 (all) ─→ TASK-029 M2 integration (exclusive)
 TASK-029 ──────────→ TASK-030 (GATE: closes Phase 2)
+
+Phase 3 (parallel lanes per §8.3 — disjoint packages; streaming is single-lane per §7):
+TASK-030 ─→ TASK-031 (core-types Phase-3 thaw, S; ADR-003/004)
+              ├─ lane: TASK-032 workers ──────────────────────┐
+              ├─ lane: TASK-033 procgen galaxy (producer #1)   │
+              ├─ lane: TASK-034 pack-octree  (producer #2)     │
+              ├─ lane: TASK-035 data v3 (needs 032) ←──────────┘
+              ├─ lane: TASK-036 render-galaxy
+              ├─ lane: TASK-037 nav v4 (universe⇄galaxy + local group)
+              ├─ lane: TASK-039 scene-host v1.2 quality tiers
+              └─ single-lane: TASK-038 streaming (needs 033 + 034 + 035; §7)
+
+TASK-032…039 (all) ─→ TASK-040 M3 integration (exclusive)
+TASK-040 ──────────→ TASK-041 (GATE: closes Phase 3)
 ```
 
 ## Status values
