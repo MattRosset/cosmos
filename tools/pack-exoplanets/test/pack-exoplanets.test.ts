@@ -52,6 +52,14 @@ function loadFixture() {
 const fixtureRows = loadFixture();
 const pack = buildPack(fixtureRows, GENERATED_AT);
 
+/** Orbiting planets only (excludes the NAV-A host-star disc body, which has no elements). */
+const planetsOf = (systemId: string) =>
+  pack.systems.find((s) => s.id === systemId)!.bodies.filter((b) => b.elements !== undefined);
+
+/** The host-star disc body emitted by NAV-A (id `<systemId>:star`). */
+const starBodyOf = (systemId: string) =>
+  pack.systems.find((s) => s.id === systemId)!.bodies.find((b) => b.id === `${systemId}:star`);
+
 // ---------------------------------------------------------------------------
 // Schema validation
 // ---------------------------------------------------------------------------
@@ -85,8 +93,9 @@ describe('TRAPPIST-1 system', () => {
     expect(trappist).toBeDefined();
   });
 
-  it('has exactly 7 planets', () => {
-    expect(trappist.bodies).toHaveLength(7);
+  it('has exactly 7 orbiting planets (plus the host-star disc body)', () => {
+    expect(planetsOf('exo:trappist-1')).toHaveLength(7);
+    expect(trappist.bodies).toHaveLength(8); // 7 planets + host-star disc
   });
 
   it('planet ids are exo:trappist-1:b … :h', () => {
@@ -94,6 +103,17 @@ describe('TRAPPIST-1 system', () => {
     for (const letter of ['b', 'c', 'd', 'e', 'f', 'g', 'h']) {
       expect(ids).toContain(`exo:trappist-1:${letter}`);
     }
+  });
+
+  it('emits a host-star disc body (NAV-A): unlit, positive radius, colored, no orbit', () => {
+    const starBody = starBodyOf('exo:trappist-1')!;
+    expect(starBody).toBeDefined();
+    expect(starBody.kind).toBe('planet');
+    expect(starBody.unlit).toBe(true);
+    expect(starBody.elements).toBeUndefined();
+    expect(starBody.parentId).toBe('exo:trappist-1');
+    expect(starBody.radiusKm).toBeGreaterThan(0);
+    expect(starBody.surfaceColorLinear).toHaveLength(3);
   });
 
   it('host |positionPc| ≈ 12.4 ± 0.4 pc', () => {
@@ -104,7 +124,7 @@ describe('TRAPPIST-1 system', () => {
   });
 
   it('all 7 planets share the same inclinationRad and ascendingNodeLongitudeRad', () => {
-    const [first, ...rest] = trappist.bodies;
+    const [first, ...rest] = planetsOf('exo:trappist-1');
     for (const body of rest) {
       expect(body.elements!.inclinationRad).toBe(first!.elements!.inclinationRad);
       expect(body.elements!.ascendingNodeLongitudeRad).toBe(
@@ -114,7 +134,7 @@ describe('TRAPPIST-1 system', () => {
   });
 
   it('all elements are finite', () => {
-    for (const body of trappist.bodies) {
+    for (const body of planetsOf('exo:trappist-1')) {
       const el = body.elements!;
       expect(isFinite(el.semiMajorAxisAu)).toBe(true);
       expect(isFinite(el.eccentricity)).toBe(true);
@@ -227,7 +247,7 @@ describe('radius fallbacks (GJ 876)', () => {
   });
 
   it('all GJ 876 planets share the same system plane', () => {
-    const [first, ...rest] = gj876.bodies;
+    const [first, ...rest] = planetsOf('exo:gj-876');
     for (const body of rest) {
       expect(body.elements!.inclinationRad).toBe(first!.elements!.inclinationRad);
       expect(body.elements!.ascendingNodeLongitudeRad).toBe(
@@ -243,10 +263,8 @@ describe('radius fallbacks (GJ 876)', () => {
 
 describe('system plane isolation', () => {
   it('TRAPPIST-1 and GJ 876 have different inclinationRad', () => {
-    const trappist = pack.systems.find((s) => s.id === 'exo:trappist-1')!;
-    const gj876 = pack.systems.find((s) => s.id === 'exo:gj-876')!;
-    expect(trappist.bodies[0]!.elements!.inclinationRad).not.toBe(
-      gj876.bodies[0]!.elements!.inclinationRad,
+    expect(planetsOf('exo:trappist-1')[0]!.elements!.inclinationRad).not.toBe(
+      planetsOf('exo:gj-876')[0]!.elements!.inclinationRad,
     );
   });
 });

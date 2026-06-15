@@ -165,7 +165,13 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
           albedoTexture: tex?.albedo ?? null,
           ringTexture: tex?.ring ?? null,
         });
-        mesh.object.userData.bodyId = body.id;
+        // The host-star disc (unlit, element-less, parented to the host) is a
+        // `kind:"planet"` body for rendering only — it IS the star. Make a click
+        // select the host StarRecord so the InfoPanel shows stellar info, not
+        // "Planet" (NAV-B). Applies to Sol's sun and every exoplanet host disc.
+        const isHostStarDisc =
+          body.parentId === hostId && body.elements === undefined && body.unlit === true;
+        mesh.object.userData.bodyId = isHostStarDisc ? hostId : body.id;
         rootGroup.add(mesh.object);
 
         let line: OrbitLine | null = null;

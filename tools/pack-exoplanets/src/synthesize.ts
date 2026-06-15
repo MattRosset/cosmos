@@ -94,6 +94,45 @@ export function absMagFromApparent(syVmag: number, syDistPc: number): number {
   return syVmag - 5 * Math.log10(syDistPc / 10);
 }
 
+/** IAU nominal solar radius, km. */
+const SUN_RADIUS_KM = 695700;
+
+/**
+ * Host-star disc radius in km. The archive gives `st_rad` in solar radii; when
+ * absent we assume 1 R_sun. This drives a rendered disc only (NAV-A) — it is not
+ * used for any physics.
+ */
+export function resolveStarRadiusKm(stRadSolar: number | null): number {
+  return (stRadSolar ?? 1) * SUN_RADIUS_KM;
+}
+
+/** Ballesteros (2012): B-V → effective temperature, Kelvin (forward formula). */
+function bvToTemperature(bv: number): number {
+  return 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62));
+}
+
+/**
+ * Linear-RGB star tint from B-V color index. Mirrors `@cosmos/render-stars`
+ * blackbody.ts (Ballesteros 2012 T(B-V) + Tanner Helland blackbody approximation
+ * + sRGB→linear) so the rendered host disc matches the galaxy-context star sprite.
+ * Duplicated here on purpose: tools must not depend on render packages (Three.js,
+ * dependency-boundary lint, §4). B-V is expected clamped to [-0.4, 2.0].
+ */
+export function bvToStarColorLinear(bv: number): readonly [number, number, number] {
+  const t = bvToTemperature(bv) / 100;
+  const r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+  const g =
+    t <= 66
+      ? 99.4708025861 * Math.log(t) - 161.1195681661
+      : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+  const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  const toLinear = (c: number): number => {
+    const s = Math.max(0, Math.min(1, c / 255));
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return [toLinear(r), toLinear(g), toLinear(b)];
+}
+
 // ---------------------------------------------------------------------------
 // Orbital element synthesis
 // ---------------------------------------------------------------------------

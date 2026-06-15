@@ -14,6 +14,7 @@ import {
   AU_KM,
   absMagFromApparent,
   ballesterosInvert,
+  bvToStarColorLinear,
   drawPlanetAngles,
   drawSystemPlane,
   equilibriumTemp,
@@ -23,6 +24,7 @@ import {
   planetSuffix,
   resolveEccentricity,
   resolveRadius,
+  resolveStarRadiusKm,
   surfaceColorFromTeq,
   semiMajorFromPeriod,
 } from './synthesize.js';
@@ -106,6 +108,33 @@ function buildPlanet(
   };
 }
 
+/**
+ * Renderable host-star disc (NAV-A). Exoplanet hosts were previously kept only as
+ * `system.star` (data), so `SystemScene` — which renders `system.bodies` — drew
+ * nothing at the origin and planets orbited empty space. Emit a body for the host,
+ * mirroring Sol's `sol:sun` (`kind:"planet"`, `unlit:true`, no `elements` ⇒ placed
+ * at the system origin), with a real stellar radius (`st_rad`) and a B-V tint.
+ *
+ * Intentionally NAMELESS: the host star is already searchable as `system.star`, so
+ * a named disc would duplicate it in search results. A click still selects the disc
+ * (picking), and `SystemScene` remaps that to the host StarRecord for the info panel.
+ */
+function buildHostStarBody(
+  systemId: string,
+  stRadSolar: number | null,
+  colorIndexBV: number,
+): PlanetRecord {
+  const [r, g, b] = bvToStarColorLinear(colorIndexBV);
+  return {
+    id: `${systemId}:star`,
+    kind: 'planet',
+    parentId: systemId,
+    radiusKm: resolveStarRadiusKm(stRadSolar),
+    unlit: true,
+    surfaceColorLinear: [r, g, b],
+  };
+}
+
 function buildSystem(hostname: string, rows: CsvRow[]): StarSystemRecord {
   // Use the first row for host-star fields (all rows share the same host).
   const first = rows[0]!;
@@ -138,7 +167,7 @@ function buildSystem(hostname: string, rows: CsvRow[]): StarSystemRecord {
   // System-plane draws (calls 1 & 2 — must precede all per-planet draws).
   const systemPlane = drawSystemPlane(prng);
 
-  const bodies: PlanetRecord[] = sorted.map((row) => {
+  const planets: PlanetRecord[] = sorted.map((row) => {
     const suffix = planetSuffix(row.pl_name, hostname);
     const planetAngles = drawPlanetAngles(prng, row.pl_orblper);
     return buildPlanet(
@@ -152,7 +181,11 @@ function buildSystem(hostname: string, rows: CsvRow[]): StarSystemRecord {
     );
   });
 
-  return { id: systemId, name: hostname, star, bodies };
+  // Host-star disc first, then planets (NAV-A). The PRNG stream is untouched —
+  // the star body consumes no draws, so existing planet synthesis is unchanged.
+  const starBody = buildHostStarBody(systemId, first.st_rad, colorIndexBV);
+
+  return { id: systemId, name: hostname, star, bodies: [starBody, ...planets] };
 }
 
 // ---------------------------------------------------------------------------
