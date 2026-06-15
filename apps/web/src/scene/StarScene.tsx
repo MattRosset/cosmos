@@ -62,6 +62,8 @@ interface StarSceneProps {
   readonly combined: CombinedSource;
   readonly origin: OriginManager;
   readonly controllerRef: RefObject<FlightController | null>;
+  /** Double-click on a body: select AND fly (host stars descend into the system). */
+  readonly onActivate?: (id: BodyId) => void;
 }
 
 /**
@@ -70,7 +72,13 @@ interface StarSceneProps {
  * click-picking: planets first (raycast the mounted system group), then the
  * star batches (§5.12).
  */
-export function StarScene({ stars, combined, origin, controllerRef }: StarSceneProps) {
+export function StarScene({
+  stars,
+  combined,
+  origin,
+  controllerRef,
+  onActivate,
+}: StarSceneProps) {
   const hygBatch = stars.batch;
   const exoBatch = combined.extraHostBatch;
 
@@ -145,6 +153,40 @@ export function StarScene({ stars, combined, origin, controllerRef }: StarSceneP
     let lastX = 0;
     let lastY = 0;
 
+    /** Body under (clientX, clientY): planets first, then the star batches. */
+    const pickAt = (clientX: number, clientY: number): BodyId | null => {
+      const controller = controllerRef.current;
+      if (!controller) return null;
+
+      const rect = el.getBoundingClientRect();
+      const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+      const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+      // Planets first — raycast the mounted system group (camera-relative scene).
+      const grp = systemPickGroup.current;
+      if (grp !== null) {
+        raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera as PerspectiveCamera);
+        const hits = raycaster.intersectObject(grp, true);
+        for (const hit of hits) {
+          const id = bodyIdOf(hit.object);
+          if (id !== null) return id;
+        }
+      }
+
+      // Star pick — manual ray from the controller (absolute) state.
+      const persp = camera as PerspectiveCamera;
+      const tanY = Math.tan((persp.fov * Math.PI) / 360);
+      const tanX = tanY * persp.aspect;
+      const dir = rotateByQuat(controller.state.orientation, [ndcX * tanX, ndcY * tanY, -1]);
+      const len = Math.hypot(dir[0], dir[1], dir[2]);
+      dir[0] /= len;
+      dir[1] /= len;
+      dir[2] /= len;
+
+      const p = controller.state.position.local;
+      return pickNearestStar(hygBatch, exoBatch, combined, p, dir);
+    };
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       tracking = true;
@@ -164,50 +206,26 @@ export function StarScene({ stars, combined, origin, controllerRef }: StarSceneP
       if (!tracking || e.button !== 0) return;
       tracking = false;
       if (dragPx >= CLICK_MAX_DRAG_PX) return;
-      const controller = controllerRef.current;
-      if (!controller) return;
+      useSelectionStore.getState().select(pickAt(e.clientX, e.clientY));
+    };
 
-      const rect = el.getBoundingClientRect();
-      const ndcX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      const ndcY = -(((e.clientY - rect.top) / rect.height) * 2 - 1);
-
-      // Planets first — raycast the mounted system group (camera-relative scene).
-      const grp = systemPickGroup.current;
-      if (grp !== null) {
-        raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera as PerspectiveCamera);
-        const hits = raycaster.intersectObject(grp, true);
-        for (const hit of hits) {
-          const id = bodyIdOf(hit.object);
-          if (id !== null) {
-            useSelectionStore.getState().select(id);
-            return;
-          }
-        }
-      }
-
-      // Star pick — manual ray from the controller (absolute) state.
-      const persp = camera as PerspectiveCamera;
-      const tanY = Math.tan((persp.fov * Math.PI) / 360);
-      const tanX = tanY * persp.aspect;
-      const dir = rotateByQuat(controller.state.orientation, [ndcX * tanX, ndcY * tanY, -1]);
-      const len = Math.hypot(dir[0], dir[1], dir[2]);
-      dir[0] /= len;
-      dir[1] /= len;
-      dir[2] /= len;
-
-      const p = controller.state.position.local;
-      useSelectionStore.getState().select(pickNearestStar(hygBatch, exoBatch, combined, p, dir));
+    const onDoubleClick = (e: MouseEvent) => {
+      if (onActivate === undefined) return;
+      const id = pickAt(e.clientX, e.clientY);
+      if (id !== null) onActivate(id);
     };
 
     el.addEventListener('pointerdown', onPointerDown);
     el.addEventListener('pointermove', onPointerMove);
     el.addEventListener('pointerup', onPointerUp);
+    el.addEventListener('dblclick', onDoubleClick);
     return () => {
       el.removeEventListener('pointerdown', onPointerDown);
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
+      el.removeEventListener('dblclick', onDoubleClick);
     };
-  }, [gl, camera, hygBatch, exoBatch, combined, controllerRef]);
+  }, [gl, camera, hygBatch, exoBatch, combined, controllerRef, onActivate]);
 
   return (
     <>

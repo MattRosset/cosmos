@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BodyId } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
 import {
@@ -11,7 +11,8 @@ import {
 } from '@cosmos/data';
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { SceneHost } from '@cosmos/scene-host';
-import { useSelectionStore, useHistoryStore } from '@cosmos/app-state';
+import { useSelectionStore, useHistoryStore, useHudStore } from '@cosmos/app-state';
+import { Icon } from '@cosmos/ui';
 import { INITIAL_CAMERA, NavDriver } from './scene/NavDriver';
 import { StarScene } from './scene/StarScene';
 import { SystemScene } from './scene/SystemScene';
@@ -171,6 +172,131 @@ function CtxSwitchApp() {
   );
 }
 
+/**
+ * Persistent aiming reticle — small and dim so it anchors "what am I pointing
+ * at" without competing with the field. Part of the always-on HUD layer: stays
+ * visible in clean view (it's the reference point for click/double-click-to-enter).
+ */
+function Crosshair(): React.JSX.Element {
+  return (
+    <div className="hud-crosshair" aria-hidden="true">
+      <span className="hud-crosshair-h" />
+      <span className="hud-crosshair-v" />
+      <span className="hud-crosshair-dot" />
+    </div>
+  );
+}
+
+/**
+ * Persistent location breadcrumb: `Galaxy › <System> › <Body>`. Always visible
+ * (stays in clean view) so the user knows where they are and can pop back up a
+ * level. The "Galaxy" segment is the simple, discoverable exit while inside a
+ * system; it mirrors the Esc key. Subscribes to the selection store directly so
+ * it never re-renders the Canvas.
+ */
+function Breadcrumb({
+  systemName,
+  combined,
+  onExit,
+}: {
+  systemName: string | null;
+  combined: CombinedSource;
+  onExit(): void;
+}): React.JSX.Element {
+  const selectedId = useSelectionStore((s) => s.selectedId);
+  const inSystem = systemName !== null;
+  const selectedName =
+    selectedId !== null ? combined.getBody(selectedId)?.name ?? selectedId : null;
+  const bodyCrumb =
+    selectedName !== null && selectedName !== systemName ? selectedName : null;
+
+  const segs: ReadonlyArray<{ key: string; label: string; onClick?: () => void }> = [
+    { key: 'galaxy', label: 'Galaxy', ...(inSystem ? { onClick: onExit } : {}) },
+    ...(inSystem ? [{ key: 'system', label: systemName }] : []),
+    ...(bodyCrumb !== null ? [{ key: 'body', label: bodyCrumb }] : []),
+  ];
+
+  return (
+    <nav className="hud-breadcrumb" aria-label="Location">
+      {segs.map((seg, i) => (
+        <Fragment key={seg.key}>
+          {i > 0 ? (
+            <span className="hud-breadcrumb-sep" aria-hidden="true">
+              ›
+            </span>
+          ) : null}
+          {seg.onClick ? (
+            <button
+              className="hud-breadcrumb-seg hud-breadcrumb-exit"
+              onClick={seg.onClick}
+              title="Exit to galaxy (Esc)"
+            >
+              ◂ {seg.label}
+            </button>
+          ) : (
+            <span
+              className={`hud-breadcrumb-seg${
+                i === segs.length - 1 ? ' hud-breadcrumb-current' : ''
+              }`}
+            >
+              {seg.label}
+            </span>
+          )}
+        </Fragment>
+      ))}
+    </nav>
+  );
+}
+
+function fmtSpeed(v: number): string {
+  if (v >= 100) return Math.round(v).toLocaleString('en-US');
+  if (v >= 1) return v.toFixed(1);
+  if (v >= 0.01) return v.toFixed(2);
+  return v.toPrecision(2);
+}
+
+/**
+ * Speed/scale readout (bottom-left). Reads the live controller on a rAF loop and
+ * writes to the DOM imperatively — never React state — so per-frame speed changes
+ * cost zero renders (§5.12). Hidden while stationary to keep the view clean; the
+ * unit tracks the scale context (pc/s in the galaxy, AU/s inside a system).
+ */
+function SpeedReadout(): React.JSX.Element {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const valueRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    let raf = 0;
+    let last = '';
+    const loop = (): void => {
+      const c = controllerHolder.current;
+      const container = containerRef.current;
+      const value = valueRef.current;
+      if (c && container && value) {
+        const v = c.state.speedUnitsPerS;
+        if (v < 1e-6) {
+          container.style.visibility = 'hidden';
+        } else {
+          container.style.visibility = 'visible';
+          const txt = `${fmtSpeed(v)} ${c.contextId === 'system' ? 'AU/s' : 'pc/s'}`;
+          if (txt !== last) {
+            value.textContent = txt;
+            last = txt;
+          }
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <div className="hud-speed" ref={containerRef} aria-hidden="true">
+      <Icon name="gauge" size={14} />
+      <span ref={valueRef} className="hud-speed-value" />
+    </div>
+  );
+}
+
 function ContextLostOverlay(): React.JSX.Element {
   return (
     <div className="context-lost-overlay">
@@ -216,10 +342,64 @@ function StarApp() {
   /** System mounted in the Canvas while `contextId === 'system'` (rare React state). */
   const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
   const handleContextLost = useCallback(() => setContextLost(true), []);
+  const cleanView = useHudStore((s) => s.cleanView);
+  /** Chrome auto-hides after a few seconds of no input, for an unobstructed view. */
+  const [idle, setIdle] = useState(false);
+  const idleRef = useRef(false);
+  const chromeHidden = cleanView || idle;
 
   // Install the time glue and start the clock once.
   useEffect(() => {
     installTimeGlue();
+  }, []);
+
+  // Auto-hide on inactivity. A ref gates the state write so routine pointer moves
+  // (which only reschedule the timer) never re-render — only idle transitions do.
+  // Held back while a panel is open so it can't vanish mid-interaction.
+  useEffect(() => {
+    const IDLE_MS = 4000;
+    let timer: ReturnType<typeof setTimeout>;
+    const setIdleTo = (next: boolean): void => {
+      if (idleRef.current === next) return;
+      idleRef.current = next;
+      setIdle(next);
+    };
+    const schedule = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const s = useHudStore.getState();
+        if (s.searchOpen || s.bookmarksOpen) {
+          schedule();
+          return;
+        }
+        setIdleTo(true);
+      }, IDLE_MS);
+    };
+    const onActivity = (): void => {
+      setIdleTo(false);
+      schedule();
+    };
+    const events: readonly string[] = ['pointermove', 'pointerdown', 'keydown', 'wheel'];
+    for (const e of events) window.addEventListener(e, onActivity, { passive: true });
+    schedule();
+    return () => {
+      clearTimeout(timer);
+      for (const e of events) window.removeEventListener(e, onActivity);
+    };
+  }, []);
+
+  // Clean view (H): collapse all chrome to bare crosshair. Ignored while typing
+  // in an input so it never fights the search palette / bookmark fields.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== 'h' && e.key !== 'H') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      useHudStore.getState().toggleCleanView();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {
@@ -306,6 +486,29 @@ function StarApp() {
     [goto],
   );
 
+  // Esc: pop up one level — exit the system if inside, else clear the selection.
+  // G: frame (zoom-to-fit) the current system. (Not F — KeyF is "move down" in the
+  // flight controller.) Both skipped while typing so they never steal keys from
+  // the search/bookmark fields.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      if (e.key === 'Escape') {
+        if (controllerHolder.current?.contextId === 'system') {
+          goto?.exitSystem();
+        } else if (useSelectionStore.getState().selectedId !== null) {
+          useSelectionStore.getState().select(null);
+        }
+      } else if (e.key === 'g' || e.key === 'G') {
+        goto?.frameSystem();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [goto]);
+
   const mountedSystem = useMemo(() => {
     if (sources === null || mountedSystemId === null) return null;
     const system = sources.sol.getSystem(mountedSystemId) ?? sources.exo.getSystem(mountedSystemId);
@@ -333,6 +536,7 @@ function StarApp() {
             combined={pack.sources.combined}
             origin={origin}
             controllerRef={controllerHolder}
+            onActivate={handleGoTo}
           />
           {mountedSystem ? (
             <SystemScene
@@ -346,43 +550,56 @@ function StarApp() {
       ) : null}
 
       <div className="hud">
-        <div className="hud-panel hud-panel--info">
-          <h1>cosmos</h1>
-          {pack.status === 'loading' ? (
-            <div className="dim">loading catalog…</div>
-          ) : null}
-          {pack.status === 'error' ? (
-            <>
-              <div className="dim">catalog failed to load: {pack.message}</div>
-              <button
-                className="hud-retry"
-                onClick={() => setAttempt((n) => n + 1)}
-              >
-                Retry
-              </button>
-            </>
-          ) : null}
-          {pack.status === 'ready' ? (
-            <>
-              <div className="dim">
-                M2 — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) ·
-                Sol + {pack.sources.exo.systems.length} exoplanet systems
-              </div>
-              <div className="dim">
-                WASD move · drag to look · Ctrl+K search · click a body
-              </div>
-            </>
-          ) : null}
-        </div>
-        {pack.status === 'ready' && goto ? (
-          <Hud
-            source={pack.sources.combined}
-            onGoTo={handleGoTo}
-            onSyncToNow={syncClockToNow}
-            onCapture={goto.capture}
-            onGoToBookmark={goto.goToBookmark}
+        {pack.status === 'ready' ? <Crosshair /> : null}
+        {pack.status === 'ready' ? (
+          <Breadcrumb
+            systemName={mountedSystem?.system.name ?? null}
+            combined={pack.sources.combined}
+            onExit={() => goto?.exitSystem()}
           />
         ) : null}
+        <div className={`hud-chrome${chromeHidden ? ' hud-chrome--hidden' : ''}`}>
+          {pack.status === 'ready' ? <SpeedReadout /> : null}
+          <div className="hud-panel hud-panel--info">
+            <h1>cosmos</h1>
+            {pack.status === 'loading' ? (
+              <div className="dim">loading catalog…</div>
+            ) : null}
+            {pack.status === 'error' ? (
+              <>
+                <div className="dim">catalog failed to load: {pack.message}</div>
+                <button
+                  className="hud-retry"
+                  onClick={() => setAttempt((n) => n + 1)}
+                >
+                  Retry
+                </button>
+              </>
+            ) : null}
+            {pack.status === 'ready' ? (
+              <>
+                <div className="dim">
+                  M2 — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) ·
+                  Sol + {pack.sources.exo.systems.length} exoplanet systems
+                </div>
+                <div className="dim">
+                  WASD move · R/F up·down · drag to look · double-click to fly · Ctrl+K search · G frame · H clean
+                </div>
+              </>
+            ) : null}
+          </div>
+          {pack.status === 'ready' && goto ? (
+            <Hud
+              source={pack.sources.combined}
+              currentSystemId={mountedSystemId}
+              onExitSystem={() => goto.exitSystem()}
+              onGoTo={handleGoTo}
+              onSyncToNow={syncClockToNow}
+              onCapture={goto.capture}
+              onGoToBookmark={goto.goToBookmark}
+            />
+          ) : null}
+        </div>
       </div>
     </>
   );

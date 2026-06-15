@@ -28,6 +28,13 @@ const MIN_SURFACE_DISTANCE_PC = 1e-7;
 const MIN_SURFACE_DISTANCE_AU = 1e-9;
 /** Anchor scan cadence — ≤ 10 Hz (never per-frame, §5.8). */
 const ANCHOR_SCAN_MS = 100;
+/**
+ * Free-flight base speed cap, context units/s (pc in galaxy, AU in system). The
+ * speed law (speed ∝ distance to nearest body) is otherwise unbounded; this keeps
+ * cruising controllable and stops void runaway. Shift boosts ×10 over this. Tune
+ * to taste — higher = faster traversal, lower = tighter control.
+ */
+const MAX_FREE_FLIGHT_SPEED = 10;
 
 interface NavDriverProps {
   readonly origin: OriginManager;
@@ -63,6 +70,12 @@ export function NavDriver({
   const flight = useFlightController({
     origin,
     initial: { position: INITIAL_CAMERA, orientation: [0, 0, 0, 1] },
+    // Free-flight speed scales with distance-to-nearest-body (fly faster when far).
+    // The frozen default cap (1e7 units/s) is effectively unbounded, so flying into
+    // an interstellar void runs away to escape velocity. Cap it to a sane cruise so
+    // movement stays controllable; Shift still boosts ×10 for deliberate traversal.
+    // (Units are context-relative: pc/s in the galaxy, AU/s inside a system.)
+    maxSpeedUnitsPerS: MAX_FREE_FLIGHT_SPEED,
   });
 
   useEffect(() => {
