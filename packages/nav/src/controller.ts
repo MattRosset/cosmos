@@ -39,6 +39,13 @@ export interface GoToOptions {
   readonly arrivalDistanceM: number;
   /** Total flight duration target. Default 6000. Clamped to [1000, 20000]. */
   readonly durationMs?: number;
+  /**
+   * Point the camera should FACE during/after the flight, if different from the
+   * travel target. Default: face the travel target (the usual fly-to behavior).
+   * Lets a flight dolly AWAY from a point while still looking AT it — e.g.
+   * "frame system" pulls back to a vantage while keeping the star centered.
+   */
+  readonly lookAtTarget?: UniversePosition;
 }
 
 export interface FlightController {
@@ -79,6 +86,8 @@ interface GoToState {
   readonly arrivalDistanceM: number;
   readonly k: number;
   readonly durationMs: number;
+  /** Facing point, or null to face the travel target (default). */
+  readonly lookAtTarget: UniversePosition | null;
   endCallbacks: Array<(completed: boolean) => void>;
 }
 
@@ -106,6 +115,8 @@ const deltaQuatScratch: [number, number, number, number] = [0, 0, 0, 1];
 // ── Module-scoped scratch (goTo path — no allocations in update during goTo) ──
 
 const gotoRenderScratch: [number, number, number] = [0, 0, 0];
+/** Render-space vector to the lookAt point (facing target), when one is set. */
+const gotoLookScratch: [number, number, number] = [0, 0, 0];
 const gotoAxisScratch: [number, number, number] = [0, 0, 0];
 const gotoQDeltaScratch: [number, number, number, number] = [0, 0, 0, 1];
 const gotoQTempScratch: [number, number, number, number] = [0, 0, 0, 1];
@@ -390,6 +401,7 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
       arrivalDistanceM: opts.arrivalDistanceM,
       k,
       durationMs,
+      lookAtTarget: opts.lookAtTarget ?? null,
       endCallbacks: [],
     };
   }
@@ -432,12 +444,23 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     const stepUnits = stepM / metersPerUnit;
     const arrived = dNextM <= arrivalDistanceM;
 
-    // 3. Orientation slerp toward camera→target direction
+    // 3. Orientation slerp toward the FACING direction: the lookAt point when one
+    //    is set (dolly-back framing), else the travel direction (normal fly-to).
     rotateVecByQuat(orientation, FORWARD_LOCAL, forwardScratch);
     const invDUnits = 1 / dUnits;
-    const tDirX = gotoRenderScratch[0] * invDUnits;
-    const tDirY = gotoRenderScratch[1] * invDUnits;
-    const tDirZ = gotoRenderScratch[2] * invDUnits;
+    let tDirX = gotoRenderScratch[0] * invDUnits;
+    let tDirY = gotoRenderScratch[1] * invDUnits;
+    let tDirZ = gotoRenderScratch[2] * invDUnits;
+    if (state.lookAtTarget !== null) {
+      origin.toRenderSpace(state.lookAtTarget, gotoLookScratch);
+      const lLen = Math.hypot(gotoLookScratch[0], gotoLookScratch[1], gotoLookScratch[2]);
+      if (lLen > 1e-30) {
+        const invL = 1 / lLen;
+        tDirX = gotoLookScratch[0] * invL;
+        tDirY = gotoLookScratch[1] * invL;
+        tDirZ = gotoLookScratch[2] * invL;
+      }
+    }
     const dot = clamp(
       forwardScratch[0] * tDirX + forwardScratch[1] * tDirY + forwardScratch[2] * tDirZ,
       -1,
