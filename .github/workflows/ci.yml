@@ -65,12 +65,26 @@ jobs:
       - name: Build web
         run: pnpm --filter @cosmos/web build
 
+      # ── Phase 2 acceptance gate (TASK-030, §6 M2) ───────────────────────────
+      # The re-asserted gates are listed explicitly here so a skipped or cached
+      # unit job cannot mask them in the milestone-closing run.
+
+      # Orbit accuracy (TASK-021): the 8-planet JPL/Horizons gate.
+      - name: Orbit accuracy gate (pack-solar)
+        run: pnpm --filter @cosmos/pack-solar test
+
+      # Time controls per §5.4 (TASK-019): epoch clock + acceleration precision.
+      - name: Time controls gate (sim-time §5.4)
+        run: pnpm --filter @cosmos/sim-time test
+
       # Phase 1 acceptance (TASK-017, §6): performance >= 0.85 and Time-to-Interactive
       # <= 4000 ms (the "cable connection" cold-load budget, modeled by Lighthouse's
       # desktop throttling profile). Runs against the built dist, never the dev server.
       - name: Lighthouse (performance + cold-load budget)
         run: pnpm lighthouse
 
+      # Full e2e suite, incl. the TASK-030 context-switch gate (ctxswitch.spec.ts):
+      # smoke, flythrough, m1, m2, jitter, ctxswitch, context-loss.
       - name: Run E2E tests
         run: pnpm --filter @cosmos/e2e test
 

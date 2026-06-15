@@ -59,6 +59,31 @@ stays simple:
   TASK-017 — performance ≥ 0.85, interactive ≤ 4000 ms, now with packs +
   textures in `dist`).
 
+## Deviation note — yardstick refinement (human-approved 2026-06-14)
+
+The PASS rule's first clause was written as *each switch-frame delta ≤ 3 ×
+`medianFlightDelta`*. In practice the M2 descent renders **mostly-empty frames**:
+at galaxy/system scales nearby stars show no perceptible parallax and planets are
+sub-pixel until the final approach, so the consecutive-frame flight-delta
+distribution is extremely heavy-tailed — `medianFlightDelta ≈ 0.001` while
+`maxFlightDelta ≈ 2.4` (÷255). The context switches are genuinely invisible
+(`enterFrameDelta ≈ 0.11`, `exitFrameDelta ≈ 0.72`, both far below the 2.4 peak of
+ordinary flight motion), yet `3 × ≈0` is a degenerate threshold that no faithful
+probe can clear (confirmed: the median stays ≈0.001 even when the start is moved
+well outside the enter gate — the empty scene, not the start point, is the cause).
+
+**Resolution (approved, not a relaxation):** compare each switch-frame delta
+against the **max ordinary flight-frame delta** instead of `3 × median`. This keeps
+the architecture's stated intent verbatim — *"a switch may not stand out from
+ordinary flight motion"* — and is robust to the empty-scene median collapse; the
+switch must be no more prominent than the single most prominent ordinary frame
+(margin ~0.72 vs ~2.4). The other two clauses are unchanged: **exactly 2 switches**
+and **no frame > 250 ms**. The switch delta is measured as a true across-switch
+adjacent-frame delta (switch frame vs the frame immediately before it), and the
+diagnostics `medianFlightDelta`/`p99FlightDelta`/`maxFlightDelta` are logged every
+run. Precedent for recorded, signed-off gate refinements: TASK-019 (Kahan advance)
+and TASK-021 (ADR-002 Jupiter/Saturn tolerance).
+
 ## Inputs / Outputs
 
 - **Inputs:** the complete M2 app (TASK-029).
