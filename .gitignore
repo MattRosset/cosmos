@@ -11,3 +11,8 @@ Thumbs.db
 test-results/
 playwright-report/
 .lighthouseci/
+
+# Raw source catalogs — inputs to tools/pack-* generators. Large; not versioned.
+# Download separately (HYG database, NASA Exoplanet Archive) before regenerating packs.
+hygdata_v41.csv
+pscomppars.csv
