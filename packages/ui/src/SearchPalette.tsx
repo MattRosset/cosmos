@@ -6,8 +6,16 @@ import type { SearchPaletteProps } from './types';
  * Opens on Ctrl+K or "/" (when no input focused); Esc closes; ↑/↓ + Enter navigate.
  * Renders nothing while closed. Max 12 results, 80 ms input debounce.
  */
-export function SearchPalette({ adapter, onGoTo }: SearchPaletteProps): JSX.Element {
-  const [open, setOpen] = useState(false);
+export function SearchPalette({
+  adapter,
+  onGoTo,
+  open: openProp,
+  onOpenChange,
+}: SearchPaletteProps): JSX.Element {
+  // Controlled when the host passes open/onOpenChange; else self-managed.
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = onOpenChange ?? setOpenState;
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<readonly BodyRecord[]>([]);
   const [highlighted, setHighlighted] = useState(0);
@@ -18,14 +26,14 @@ export function SearchPalette({ adapter, onGoTo }: SearchPaletteProps): JSX.Elem
     setQuery('');
     setResults([]);
     setHighlighted(0);
-  }, []);
+  }, [setOpen]);
 
   const openPalette = useCallback(() => {
     setOpen(true);
     setQuery('');
     setResults([]);
     setHighlighted(0);
-  }, []);
+  }, [setOpen]);
 
   // Debounced search
   useEffect(() => {

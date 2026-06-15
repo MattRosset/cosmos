@@ -1,6 +1,7 @@
 import { type JSX, useState } from 'react';
 import { useBookmarkStore, useHistoryStore } from '@cosmos/app-state';
 import type { BookmarkRecord } from '@cosmos/core-types';
+import { Icon } from './Icon';
 import type { BookmarksPanelProps } from './types';
 
 type Tab = 'bookmarks' | 'history';
@@ -10,8 +11,15 @@ export function BookmarksPanel({
   onGoToBookmark,
   onGoToBody,
   adapter,
+  open: openProp,
+  onOpenChange,
 }: BookmarksPanelProps): JSX.Element {
-  const [open, setOpen] = useState(false);
+  // Controlled when the host passes onOpenChange (the dock owns the trigger);
+  // otherwise self-managed with the built-in toggle button (back-compat).
+  const [openState, setOpenState] = useState(false);
+  const controlled = onOpenChange !== undefined;
+  const open = openProp ?? openState;
+  const setOpen = onOpenChange ?? setOpenState;
   const [tab, setTab] = useState<Tab>('bookmarks');
   const [name, setName] = useState('');
   const [captureError, setCaptureError] = useState(false);
@@ -43,13 +51,15 @@ export function BookmarksPanel({
   }
 
   if (!open) {
+    // In controlled mode the host (dock) renders the trigger — render nothing.
+    if (controlled) return <></>;
     return (
       <button
         className="cosmos-ui-bookmarks-toggle"
         aria-label="Open bookmarks"
         onClick={() => setOpen(true)}
       >
-        🔖
+        <Icon name="bookmark" size={18} />
       </button>
     );
   }
@@ -83,7 +93,7 @@ export function BookmarksPanel({
           aria-label="Close bookmarks"
           onClick={() => setOpen(false)}
         >
-          ✕
+          <Icon name="close" size={14} />
         </button>
       </div>
 
@@ -122,13 +132,13 @@ export function BookmarksPanel({
                       aria-label={`Confirm rename ${b.name}`}
                       onClick={() => handleRenameConfirm(b)}
                     >
-                      ✓
+                      <Icon name="check" size={14} />
                     </button>
                     <button
                       aria-label={`Cancel rename ${b.name}`}
                       onClick={() => setRenamingId(null)}
                     >
-                      ✕
+                      <Icon name="close" size={14} />
                     </button>
                   </>
                 ) : (
@@ -141,7 +151,7 @@ export function BookmarksPanel({
                       aria-label={`Fly to ${b.name}`}
                       onClick={() => onGoToBookmark(b)}
                     >
-                      →
+                      <Icon name="arrow-right" size={14} />
                     </button>
                     <button
                       aria-label={`Rename ${b.name}`}
@@ -150,13 +160,13 @@ export function BookmarksPanel({
                         setRenameValue(b.name);
                       }}
                     >
-                      ✎
+                      <Icon name="edit" size={14} />
                     </button>
                     <button
                       aria-label={`Delete ${b.name}`}
                       onClick={() => remove(b.id)}
                     >
-                      🗑
+                      <Icon name="trash" size={14} />
                     </button>
                   </>
                 )}

@@ -2,6 +2,51 @@
  * The app must wrap these panels in a container with pointer-events: none.
  * Each panel opts back in with pointer-events: auto (see README). */
 
+/* ─── Design tokens ───────────────────────────────────────────────────────
+ * The "flight instrument" system: one cool accent, hairline borders, dark
+ * translucent glass, soft single shadow. Deliberately minimal — the 3D scene
+ * is the subject; the HUD recedes. Every panel reads from these so the look
+ * stays consistent and is themeable from one place. */
+:root {
+  --hud-surface: rgba(8, 10, 18, 0.66);
+  --hud-surface-input: rgba(255, 255, 255, 0.04);
+  --hud-border: rgba(255, 255, 255, 0.07);
+  --hud-border-strong: rgba(255, 255, 255, 0.14);
+
+  --hud-accent: #8fa6ff;
+  --hud-accent-fill: rgba(120, 150, 255, 0.14);
+  --hud-accent-fill-hover: rgba(120, 150, 255, 0.26);
+
+  --hud-text: #e6e9f2;
+  --hud-text-dim: #888fa3;
+  --hud-text-faint: rgba(230, 233, 242, 0.4);
+  --hud-warm: #ffd27a;
+  --hud-danger: #ff7a7a;
+
+  --hud-radius: 10px;
+  --hud-radius-sm: 7px;
+  --hud-blur: 14px;
+  --hud-shadow: 0 6px 28px rgba(0, 0, 0, 0.4);
+  --hud-fade: 180ms ease;
+  --hud-pad: 14px;
+}
+
+/* Shared glass surface — every floating panel builds on this. */
+.cosmos-ui-palette,
+.cosmos-ui-info,
+.cosmos-ui-time,
+.cosmos-ui-exposure,
+.cosmos-ui-bookmarks,
+.cosmos-ui-bookmarks-toggle {
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text-dim);
+}
+
 .cosmos-ui-palette {
   pointer-events: auto;
   position: fixed;
@@ -9,11 +54,7 @@
   left: 50%;
   transform: translateX(-50%);
   width: min(480px, 90vw);
-  background: rgba(16, 16, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
   padding: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   z-index: 100;
 }
 
@@ -21,8 +62,8 @@
   width: 100%;
   background: transparent;
   border: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  color: #e8e8f0;
+  border-bottom: 1px solid var(--hud-border-strong);
+  color: var(--hud-text);
   font-size: 1rem;
   padding: 8px 4px;
   outline: none;
@@ -39,21 +80,21 @@
 
 .cosmos-ui-palette-item {
   padding: 8px 12px;
-  border-radius: 4px;
-  color: #c8c8d8;
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 0.9rem;
 }
 
 .cosmos-ui-palette-item--highlighted,
 .cosmos-ui-palette-item:hover {
-  background: rgba(100, 120, 200, 0.25);
-  color: #ffffff;
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
 }
 
 .cosmos-ui-palette-no-matches {
   padding: 8px 12px;
-  color: rgba(200, 200, 216, 0.5);
+  color: var(--hud-text-faint);
   font-size: 0.85rem;
   font-style: italic;
 }
@@ -66,13 +107,8 @@
   top: 80px;
   right: 20px;
   width: min(280px, 90vw);
-  background: rgba(16, 16, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
   padding: 16px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 90;
-  color: #c8c8d8;
 }
 
 .cosmos-ui-info-close {
@@ -81,7 +117,7 @@
   right: 8px;
   background: none;
   border: none;
-  color: rgba(200, 200, 216, 0.6);
+  color: var(--hud-text-faint);
   cursor: pointer;
   font-size: 0.9rem;
   line-height: 1;
@@ -89,13 +125,13 @@
 }
 
 .cosmos-ui-info-close:hover {
-  color: #ffffff;
+  color: var(--hud-text);
 }
 
 .cosmos-ui-info-name {
   margin: 0 0 12px;
   font-size: 1.1rem;
-  color: #ffffff;
+  color: var(--hud-text);
   padding-right: 24px;
 }
 
@@ -108,21 +144,21 @@
 }
 
 .cosmos-ui-info-data dt {
-  color: rgba(200, 200, 216, 0.6);
+  color: var(--hud-text-dim);
 }
 
 .cosmos-ui-info-data dd {
   margin: 0;
-  color: #e8e8f0;
+  color: var(--hud-text);
 }
 
 .cosmos-ui-info-goto {
   display: block;
   width: 100%;
-  background: rgba(80, 100, 180, 0.4);
-  border: 1px solid rgba(100, 130, 220, 0.4);
-  border-radius: 4px;
-  color: #c8d0ff;
+  background: var(--hud-accent-fill);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text);
   cursor: pointer;
   font-size: 0.85rem;
   padding: 6px;
@@ -130,7 +166,7 @@
 }
 
 .cosmos-ui-info-goto:hover {
-  background: rgba(80, 100, 180, 0.65);
+  background: var(--hud-accent-fill-hover);
   color: #ffffff;
 }
 
@@ -145,36 +181,66 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  background: rgba(16, 16, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
   padding: 6px 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 90;
-  color: #c8c8d8;
   font-size: 0.85rem;
 }
 
 .cosmos-ui-time button {
   background: none;
   border: none;
-  color: #c8c8d8;
+  color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 0.9rem;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--hud-radius-sm);
 }
 
 .cosmos-ui-time button:hover {
-  background: rgba(100, 120, 200, 0.25);
-  color: #ffffff;
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
 }
 
 .cosmos-ui-time-readout {
   margin-left: 8px;
-  color: #e8e8f0;
+  color: var(--hud-text);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* --- Exposure (star brightness) slider --- */
+
+.cosmos-ui-exposure {
+  pointer-events: auto;
+  position: fixed;
+  bottom: 24px;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  z-index: 90;
+  font-size: 0.85rem;
+}
+
+.cosmos-ui-exposure-icon {
+  color: var(--hud-warm);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.cosmos-ui-exposure input[type='range'] {
+  width: 120px;
+  accent-color: var(--hud-accent);
+  cursor: pointer;
+}
+
+.cosmos-ui-exposure-readout {
+  color: var(--hud-text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 2.5em;
+  text-align: right;
 }
 
 /* --- Bookmarks panel --- */
@@ -184,10 +250,7 @@
   position: fixed;
   top: 80px;
   right: 20px;
-  background: rgba(16, 16, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  color: #c8c8d8;
+  color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 1.1rem;
   padding: 8px 10px;
@@ -195,8 +258,8 @@
 }
 
 .cosmos-ui-bookmarks-toggle:hover {
-  background: rgba(40, 40, 60, 0.95);
-  color: #ffffff;
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
 }
 
 .cosmos-ui-bookmarks {
@@ -207,13 +270,8 @@
   width: min(300px, 92vw);
   max-height: 70vh;
   overflow-y: auto;
-  background: rgba(16, 16, 24, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
   padding: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   z-index: 90;
-  color: #c8c8d8;
   font-size: 0.85rem;
 }
 
@@ -227,30 +285,30 @@
 .cosmos-ui-bookmarks-tab {
   flex: 1;
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 4px;
-  color: #c8c8d8;
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 0.82rem;
   padding: 4px;
 }
 
 .cosmos-ui-bookmarks-tab[aria-pressed='true'] {
-  background: rgba(80, 100, 180, 0.4);
-  color: #ffffff;
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
 }
 
 .cosmos-ui-bookmarks-close {
   background: none;
   border: none;
-  color: rgba(200, 200, 216, 0.6);
+  color: var(--hud-text-faint);
   cursor: pointer;
   font-size: 0.85rem;
   padding: 4px 6px;
 }
 
 .cosmos-ui-bookmarks-close:hover {
-  color: #ffffff;
+  color: var(--hud-text);
 }
 
 .cosmos-ui-bookmarks-capture {
@@ -261,20 +319,20 @@
 
 .cosmos-ui-bookmarks-capture input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
-  color: #e8e8f0;
+  background: var(--hud-surface-input);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text);
   font-size: 0.82rem;
   padding: 4px 8px;
   outline: none;
 }
 
 .cosmos-ui-bookmarks-capture button {
-  background: rgba(80, 100, 180, 0.4);
-  border: 1px solid rgba(100, 130, 220, 0.4);
-  border-radius: 4px;
-  color: #c8d0ff;
+  background: var(--hud-accent-fill);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text);
   cursor: pointer;
   font-size: 0.8rem;
   padding: 4px 8px;
@@ -282,12 +340,12 @@
 }
 
 .cosmos-ui-bookmarks-capture button:hover {
-  background: rgba(80, 100, 180, 0.65);
+  background: var(--hud-accent-fill-hover);
   color: #ffffff;
 }
 
 .cosmos-ui-bookmarks-error {
-  color: #ff7070;
+  color: var(--hud-danger);
   font-size: 0.8rem;
   margin: 0 0 8px;
 }
@@ -305,7 +363,7 @@
   align-items: center;
   gap: 4px;
   padding: 4px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--hud-border);
   font-size: 0.82rem;
 }
 
@@ -314,11 +372,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #e8e8f0;
+  color: var(--hud-text);
 }
 
 .cosmos-ui-bookmarks-date {
-  color: rgba(200, 200, 216, 0.5);
+  color: var(--hud-text-faint);
   font-size: 0.78rem;
 }
 
@@ -326,7 +384,7 @@
 .cosmos-ui-history-row button {
   background: none;
   border: none;
-  color: #c8c8d8;
+  color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 0.82rem;
   padding: 2px 4px;
@@ -335,16 +393,16 @@
 
 .cosmos-ui-bookmarks-row button:hover,
 .cosmos-ui-history-row button:hover {
-  background: rgba(100, 120, 200, 0.2);
-  color: #ffffff;
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
 }
 
 .cosmos-ui-bookmarks-row input {
   flex: 1;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--hud-surface-input);
+  border: 1px solid var(--hud-border-strong);
   border-radius: 3px;
-  color: #e8e8f0;
+  color: var(--hud-text);
   font-size: 0.82rem;
   padding: 2px 6px;
   outline: none;
@@ -352,9 +410,9 @@
 
 .cosmos-ui-history-clear {
   background: none;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 4px;
-  color: #c8c8d8;
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 0.8rem;
   margin-bottom: 8px;
@@ -363,7 +421,7 @@
 
 .cosmos-ui-history-clear:hover {
   background: rgba(200, 60, 60, 0.3);
-  color: #ffffff;
+  color: var(--hud-text);
 }
 
 .cosmos-ui-history-row button {
@@ -372,4 +430,101 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* --- Icons --- */
+
+.cosmos-ui-icon {
+  display: block; /* kill inline-svg baseline gap so buttons size tightly */
+}
+
+/* --- Unified dock --- */
+
+.cosmos-ui-dock {
+  pointer-events: auto;
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 94vw;
+  padding: 6px 10px;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: 14px;
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text-dim);
+  z-index: 90;
+}
+
+/* Inner control groups shed their own positioning/chrome inside the dock —
+ * the dock provides the surface; they are just inline segments. */
+.cosmos-ui-dock .cosmos-ui-time,
+.cosmos-ui-dock .cosmos-ui-exposure {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  background: none;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 0;
+}
+
+.cosmos-ui-dock .cosmos-ui-exposure input[type='range'] {
+  width: 88px;
+}
+
+.cosmos-ui-dock-sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--hud-border-strong);
+}
+
+.cosmos-ui-dock-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--hud-text-dim);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--hud-radius-sm);
+}
+
+.cosmos-ui-dock-btn:hover {
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
+}
+
+/* Center icons inside the transport buttons. */
+.cosmos-ui-time button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cosmos-ui-time-reset,
+.cosmos-ui-time button {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Keyboard focus (accessibility) --- */
+
+.cosmos-ui-palette :focus-visible,
+.cosmos-ui-info :focus-visible,
+.cosmos-ui-bookmarks :focus-visible,
+.cosmos-ui-bookmarks-toggle:focus-visible,
+.cosmos-ui-dock :focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 1px;
+  border-radius: var(--hud-radius-sm);
 }

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { useSelectionStore } from '../src/selection';
-import { useSettingsStore } from '../src/settings';
+import { useSettingsStore, EXPOSURE_DEFAULT } from '../src/settings';
 
 afterEach(() => {
   useSelectionStore.setState({ selectedId: null });
-  useSettingsStore.setState({ exposure: 1 });
+  useSettingsStore.setState({ exposure: EXPOSURE_DEFAULT });
 });
 
 describe('useSelectionStore', () => {
@@ -25,8 +25,8 @@ describe('useSelectionStore', () => {
 });
 
 describe('useSettingsStore', () => {
-  it('starts with exposure 1', () => {
-    expect(useSettingsStore.getState().exposure).toBe(1);
+  it('starts at the default exposure (rich local field)', () => {
+    expect(useSettingsStore.getState().exposure).toBe(EXPOSURE_DEFAULT);
   });
 
   it('setExposure clamps low (0.01 → 0.1)', () => {
@@ -34,9 +34,9 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().exposure).toBe(0.1);
   });
 
-  it('setExposure clamps high (100 → 10)', () => {
-    useSettingsStore.getState().setExposure(100);
-    expect(useSettingsStore.getState().exposure).toBe(10);
+  it('setExposure clamps high (1000 → 200)', () => {
+    useSettingsStore.getState().setExposure(1000);
+    expect(useSettingsStore.getState().exposure).toBe(200);
   });
 
   it('setExposure accepts valid value', () => {

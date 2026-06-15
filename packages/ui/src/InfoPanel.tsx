@@ -3,6 +3,7 @@ import { useSelectionStore } from '@cosmos/app-state';
 import type { BodyId, PlanetRecord } from '@cosmos/core-types';
 import { spectralClassFromBV } from './spectral';
 import { formatOrbitalPeriod } from './format';
+import { Icon } from './Icon';
 import type { InfoPanelProps } from './types';
 
 const PC_TO_LY = 3.26156;
@@ -62,7 +63,12 @@ function PlanetInfo({
 }
 
 /** Subscribes to useSelectionStore. Hidden when nothing selected. */
-export function InfoPanel({ adapter, onGoTo }: InfoPanelProps): JSX.Element {
+export function InfoPanel({
+  adapter,
+  onGoTo,
+  currentSystemId = null,
+  onExitSystem,
+}: InfoPanelProps): JSX.Element {
   const selectedId = useSelectionStore((s) => s.selectedId);
   const select = useSelectionStore((s) => s.select);
 
@@ -76,7 +82,7 @@ export function InfoPanel({ adapter, onGoTo }: InfoPanelProps): JSX.Element {
       onClick={() => select(null)}
       aria-label="Close panel"
     >
-      ✕
+      <Icon name="close" size={14} />
     </button>
   );
 
@@ -129,21 +135,36 @@ export function InfoPanel({ adapter, onGoTo }: InfoPanelProps): JSX.Element {
   const distLyStr = fmtSig3(dist * PC_TO_LY);
   const hip = extractHip(star.id);
   const spectral = spectralClassFromBV(star.colorIndexBV);
+  const hostSystemId = adapter.hostSystemIdFor?.(star.id) ?? null;
+  const starLabel = star.name ?? star.id;
+  // A host star's primary action depends on context: descend in from the galaxy,
+  // or pop back out once you're already inside that system.
+  const insideThisSystem =
+    hostSystemId !== null && hostSystemId === currentSystemId && onExitSystem !== undefined;
+  const actionLabel =
+    hostSystemId === null ? 'Go to' : insideThisSystem ? '◂ Exit system' : 'Enter system ▸';
+  const actionAria =
+    hostSystemId === null
+      ? `Go to ${starLabel}`
+      : insideThisSystem
+        ? `Exit ${starLabel} system`
+        : `Enter ${starLabel} system`;
+  const onAction = insideThisSystem ? onExitSystem! : (): void => onGoTo(star.id);
 
   return (
     <div className="cosmos-ui-info" role="complementary" aria-label="Star information">
       {closeBtn}
-      <h2 className="cosmos-ui-info-name">{star.name ?? star.id}</h2>
+      <h2 className="cosmos-ui-info-name">{starLabel}</h2>
       <dl className="cosmos-ui-info-data">
         <dt>Distance</dt>
         <dd className="cosmos-ui-info-distance">
           {distPcStr} pc / {distLyStr} ly
         </dd>
         <dt>Abs. Magnitude</dt>
-        <dd className="cosmos-ui-info-absmag">{star.absMag}</dd>
+        <dd className="cosmos-ui-info-absmag">{fmtSig3(star.absMag)}</dd>
         <dt>Spectral Class</dt>
         <dd className="cosmos-ui-info-spectral">
-          {spectral} (B−V {star.colorIndexBV})
+          {spectral} (B−V {star.colorIndexBV.toFixed(2)})
         </dd>
         {hip !== null && (
           <>
@@ -152,12 +173,8 @@ export function InfoPanel({ adapter, onGoTo }: InfoPanelProps): JSX.Element {
           </>
         )}
       </dl>
-      <button
-        className="cosmos-ui-info-goto"
-        onClick={() => onGoTo(star.id)}
-        aria-label={`Go to ${star.name ?? star.id}`}
-      >
-        Go to
+      <button className="cosmos-ui-info-goto" onClick={onAction} aria-label={actionAria}>
+        {actionLabel}
       </button>
     </div>
   );

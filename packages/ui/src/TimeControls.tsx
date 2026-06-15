@@ -1,6 +1,7 @@
 import { type JSX } from 'react';
 import { useTimeStore, ACCEL_STEPS } from '@cosmos/app-state';
 import { formatEpochJD } from './format';
+import { Icon } from './Icon';
 import type { TimeControlsProps } from './types';
 
 /** Next ACCEL_STEPS entry larger than abs; saturates at 1e7. */
@@ -48,18 +49,22 @@ export function TimeControls({ onSyncToNow }: TimeControlsProps): JSX.Element {
   return (
     <div className="cosmos-ui-time" role="toolbar" aria-label="Time controls">
       <button aria-label="Reverse faster" onClick={handleRev}>
-        ⏪
+        <Icon name="rewind" />
       </button>
       <button
         aria-label={paused ? 'Resume' : 'Pause'}
         onClick={() => setPaused(!paused)}
       >
-        {paused ? '▶' : '⏸'}
+        <Icon name={paused ? 'play' : 'pause'} />
       </button>
       <button aria-label="Forward faster" onClick={handleFwd}>
-        ⏩
+        <Icon name="forward" />
       </button>
-      <button aria-label="Reset speed" onClick={() => setAccel(1)}>
+      <button
+        className="cosmos-ui-time-reset"
+        aria-label="Reset speed"
+        onClick={() => setAccel(1)}
+      >
         1×
       </button>
       {onSyncToNow && (

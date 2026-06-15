@@ -1,0 +1,33 @@
+import { type JSX } from 'react';
+import { TimeControls } from './TimeControls';
+import { ExposureControl } from './ExposureControl';
+import { Icon } from './Icon';
+import type { DockProps } from './types';
+
+/**
+ * Unified bottom control bar. Consolidates the previously scattered time controls
+ * and exposure slider into one glass pill, plus icon triggers for the search
+ * palette and bookmarks panel (which the app opens via the HUD store). The inner
+ * groups shed their own positioning/chrome when inside `.cosmos-ui-dock` (see
+ * ui.css) — the dock provides the surface; the groups are just inline segments.
+ */
+export function Dock({ onSyncToNow, onOpenSearch, onOpenBookmarks }: DockProps): JSX.Element {
+  return (
+    <div className="cosmos-ui-dock" role="toolbar" aria-label="Controls">
+      <TimeControls {...(onSyncToNow ? { onSyncToNow } : {})} />
+      <span className="cosmos-ui-dock-sep" aria-hidden="true" />
+      <ExposureControl />
+      <span className="cosmos-ui-dock-sep" aria-hidden="true" />
+      <button className="cosmos-ui-dock-btn" aria-label="Search" onClick={onOpenSearch}>
+        <Icon name="search" />
+      </button>
+      <button
+        className="cosmos-ui-dock-btn"
+        aria-label="Open bookmarks"
+        onClick={onOpenBookmarks}
+      >
+        <Icon name="bookmark" />
+      </button>
+    </div>
+  );
+}
