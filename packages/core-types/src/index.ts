@@ -8,3 +8,8 @@ export * from './batches';
 export * from './systems';
 export * from './bookmarks';
 export * from './frames';
+export * from './octree';
+export * from './procgen';
+export * from './streaming';
+export * from './quality';
+export * from './worker-rpc';

@@ -6,7 +6,7 @@ Built web-first with React, TypeScript, Three.js (React Three Fiber), and Web Wo
 
 ## Status
 
-**Phase 1 (M1) complete — Phase 2 (Solar & Planetary Systems) spec in progress.** The full technical design lives in
+**Phase 2 (M2) complete — Phase 3 (Galaxy & Streaming) spec in progress.** The full technical design lives in
 [`docs/architecture.md`](docs/architecture.md). Execution is tracked task-by-task in
 [`docs/agent-tasks/README.md`](docs/agent-tasks/README.md) — agents: start there.
 
