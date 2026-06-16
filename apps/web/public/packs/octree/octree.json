@@ -1,0 +1,333 @@
+{
+  "octreeFormatVersion": 1,
+  "source": "hyg-v41-octree",
+  "context": "galaxy",
+  "rootHalfExtentUnits": 65536,
+  "idPrefix": "hyg-v41",
+  "tiles": [
+    {
+      "key": "0/0",
+      "isLeaf": false,
+      "childMask": 255,
+      "pointCount": 4096,
+      "centerUnits": [
+        0,
+        0,
+        0
+      ],
+      "halfExtentUnits": 65536,
+      "binUrl": "tiles/0_0.bin",
+      "contentHashSha256": "f000b1472c580d6c2a200acd028e412a52457d995587ee8c6379f2a2331bb33f",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 49152
+        },
+        "absMag": {
+          "byteOffset": 49152,
+          "byteLength": 16384
+        },
+        "colorIndexBV": {
+          "byteOffset": 65536,
+          "byteLength": 16384
+        },
+        "catalogIds": {
+          "byteOffset": 81920,
+          "byteLength": 16384
+        },
+        "hipIds": {
+          "byteOffset": 98304,
+          "byteLength": 16384
+        }
+      }
+    },
+    {
+      "key": "1/0",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 14375,
+      "centerUnits": [
+        -32768,
+        -32768,
+        -32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_0.bin",
+      "contentHashSha256": "6cc121e0d704f83ecc15cbd3859ca2464466760262453c99ae7f692c839b51da",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 172500
+        },
+        "absMag": {
+          "byteOffset": 172500,
+          "byteLength": 57500
+        },
+        "colorIndexBV": {
+          "byteOffset": 230000,
+          "byteLength": 57500
+        },
+        "catalogIds": {
+          "byteOffset": 287500,
+          "byteLength": 57500
+        },
+        "hipIds": {
+          "byteOffset": 345000,
+          "byteLength": 57500
+        }
+      }
+    },
+    {
+      "key": "1/1",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 16361,
+      "centerUnits": [
+        32768,
+        -32768,
+        -32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_1.bin",
+      "contentHashSha256": "fba30bbef5ea89cfeae6ef32f5c84ff29c9862e925f61ae5faef538b04a0e514",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 196332
+        },
+        "absMag": {
+          "byteOffset": 196332,
+          "byteLength": 65444
+        },
+        "colorIndexBV": {
+          "byteOffset": 261776,
+          "byteLength": 65444
+        },
+        "catalogIds": {
+          "byteOffset": 327220,
+          "byteLength": 65444
+        },
+        "hipIds": {
+          "byteOffset": 392664,
+          "byteLength": 65444
+        }
+      }
+    },
+    {
+      "key": "1/2",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 13201,
+      "centerUnits": [
+        -32768,
+        32768,
+        -32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_2.bin",
+      "contentHashSha256": "a178894e3562680305f0f74121c050b4b287c644cf9d7b92e9bd019e83f4b797",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 158412
+        },
+        "absMag": {
+          "byteOffset": 158412,
+          "byteLength": 52804
+        },
+        "colorIndexBV": {
+          "byteOffset": 211216,
+          "byteLength": 52804
+        },
+        "catalogIds": {
+          "byteOffset": 264020,
+          "byteLength": 52804
+        },
+        "hipIds": {
+          "byteOffset": 316824,
+          "byteLength": 52804
+        }
+      }
+    },
+    {
+      "key": "1/3",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 12457,
+      "centerUnits": [
+        32768,
+        32768,
+        -32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_3.bin",
+      "contentHashSha256": "d1450cc709c8b95f7c5e3063ebc58ac64e917f4d179b8f9ecef4f7946fc5154d",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 149484
+        },
+        "absMag": {
+          "byteOffset": 149484,
+          "byteLength": 49828
+        },
+        "colorIndexBV": {
+          "byteOffset": 199312,
+          "byteLength": 49828
+        },
+        "catalogIds": {
+          "byteOffset": 249140,
+          "byteLength": 49828
+        },
+        "hipIds": {
+          "byteOffset": 298968,
+          "byteLength": 49828
+        }
+      }
+    },
+    {
+      "key": "1/4",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 11949,
+      "centerUnits": [
+        -32768,
+        -32768,
+        32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_4.bin",
+      "contentHashSha256": "6fda9321b68335c7dc02ed29f987675c0c7315ab189acce75395f93fd1292cb3",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 143388
+        },
+        "absMag": {
+          "byteOffset": 143388,
+          "byteLength": 47796
+        },
+        "colorIndexBV": {
+          "byteOffset": 191184,
+          "byteLength": 47796
+        },
+        "catalogIds": {
+          "byteOffset": 238980,
+          "byteLength": 47796
+        },
+        "hipIds": {
+          "byteOffset": 286776,
+          "byteLength": 47796
+        }
+      }
+    },
+    {
+      "key": "1/5",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 14140,
+      "centerUnits": [
+        32768,
+        -32768,
+        32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_5.bin",
+      "contentHashSha256": "2dbcc61b406efe6482f62611d47848b208514b7e678f0674cb555864736d60b9",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 169680
+        },
+        "absMag": {
+          "byteOffset": 169680,
+          "byteLength": 56560
+        },
+        "colorIndexBV": {
+          "byteOffset": 226240,
+          "byteLength": 56560
+        },
+        "catalogIds": {
+          "byteOffset": 282800,
+          "byteLength": 56560
+        },
+        "hipIds": {
+          "byteOffset": 339360,
+          "byteLength": 56560
+        }
+      }
+    },
+    {
+      "key": "1/6",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 13705,
+      "centerUnits": [
+        -32768,
+        32768,
+        32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_6.bin",
+      "contentHashSha256": "90ea8331f7eb2aff0dfdee12e1d57e0c9dfb0d442c49c646c01255e877a02ad1",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 164460
+        },
+        "absMag": {
+          "byteOffset": 164460,
+          "byteLength": 54820
+        },
+        "colorIndexBV": {
+          "byteOffset": 219280,
+          "byteLength": 54820
+        },
+        "catalogIds": {
+          "byteOffset": 274100,
+          "byteLength": 54820
+        },
+        "hipIds": {
+          "byteOffset": 328920,
+          "byteLength": 54820
+        }
+      }
+    },
+    {
+      "key": "1/7",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 13211,
+      "centerUnits": [
+        32768,
+        32768,
+        32768
+      ],
+      "halfExtentUnits": 32768,
+      "binUrl": "tiles/1_7.bin",
+      "contentHashSha256": "bef403059730b39b7af98b154a44adc04c22bdb8ec1af06992f9e78cfba6ca21",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 158532
+        },
+        "absMag": {
+          "byteOffset": 158532,
+          "byteLength": 52844
+        },
+        "colorIndexBV": {
+          "byteOffset": 211376,
+          "byteLength": 52844
+        },
+        "catalogIds": {
+          "byteOffset": 264220,
+          "byteLength": 52844
+        },
+        "hipIds": {
+          "byteOffset": 317064,
+          "byteLength": 52844
+        }
+      }
+    }
+  ]
+}
