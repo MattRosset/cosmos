@@ -126,4 +126,27 @@ export default tseslint.config(
       ],
     },
   },
+  {
+    // §5.13: workers must not import Three.js, React, procgen, or data
+    files: ['packages/workers/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'three', message: 'packages/workers must not import Three.js (§5.13).' },
+            { name: 'react', message: 'packages/workers must not import React.' },
+            { name: '@cosmos/procgen', message: 'packages/workers must not import @cosmos/procgen (§5.13 cycle ban).' },
+            { name: '@cosmos/data', message: 'packages/workers must not import @cosmos/data (§5.13 cycle ban).' },
+          ],
+          patterns: [
+            {
+              group: ['@cosmos/*/src/*'],
+              message: 'Deep imports banned: use the package public API (index.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
 );
