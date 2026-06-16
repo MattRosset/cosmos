@@ -1,7 +1,9 @@
 {
   "ci": {
     "collect": {
-      "staticDistDir": "apps/web/dist",
+      "startServerCommand": "pnpm exec serve apps/web/dist -l 42495",
+      "startServerReadyPattern": "localhost:42495",
+      "url": ["http://localhost:42495/index.html"],
       "numberOfRuns": 3,
       "settings": {
         "preset": "desktop"

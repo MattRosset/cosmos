@@ -9,5 +9,14 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/three/')) return 'vendor-three';
+          if (id.includes('/node_modules/@react-three/fiber/')) return 'vendor-r3f';
+          if (id.includes('/node_modules/react-dom/') || id.includes('/node_modules/react/')) return 'vendor-react';
+        },
+      },
+    },
   },
 });
