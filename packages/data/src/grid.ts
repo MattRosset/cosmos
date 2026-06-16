@@ -50,6 +50,31 @@ export function buildGrid(positionsPc: Float32Array, count: number): SpatialGrid
 let _bestDistSq = 0;
 let _bestIdx = 0;
 
+function _scanCell(
+  grid: SpatialGrid,
+  positionsPc: Float32Array,
+  cx: number,
+  cy: number,
+  cz: number,
+  xPc: number,
+  yPc: number,
+  zPc: number,
+): void {
+  const indices = grid.get(cellKey(cx, cy, cz));
+  if (indices === undefined) return;
+  for (let j = 0; j < indices.length; j++) {
+    const idx = indices[j]!;
+    const dx = positionsPc[idx * 3]! - xPc;
+    const dy = positionsPc[idx * 3 + 1]! - yPc;
+    const dz = positionsPc[idx * 3 + 2]! - zPc;
+    const d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 < _bestDistSq) {
+      _bestDistSq = d2;
+      _bestIdx = idx;
+    }
+  }
+}
+
 /**
  * Index of the star nearest to (xPc, yPc, zPc) in tile-local coordinates,
  * or -1 if count === 0.  Zero allocations per call — all state is module-scoped.
@@ -74,37 +99,40 @@ export function nearestStarIndex(
   // Expanding shell search; ring r covers max(|Δcx|,|Δcy|,|Δcz|) == r.
   // Minimum possible Euclidean distance to any ring-r cell is (r-1)*CELL_SIZE,
   // so once bestDistSq ≤ that threshold squared we can stop.
+  //
+  // Each ring is visited by iterating its surface cells directly — three pairs
+  // of face slabs that together tile the shell without overlap or gaps:
+  //   ±X faces: full (2r+1)² slabs
+  //   ±Y faces: (2r-1)×(2r+1) strips (X edges already covered)
+  //   ±Z faces: (2r-1)² patches (X and Y edges already covered)
+  // This is O(r²) per ring rather than O(r³) for the full-cube scan.
   for (let r = 0; r <= 200; r++) {
     if (r > 0 && _bestDistSq <= (r - 1) * (r - 1) * CELL_SIZE * CELL_SIZE) break;
 
-    for (let cx = cx0 - r; cx <= cx0 + r; cx++) {
-      for (let cy = cy0 - r; cy <= cy0 + r; cy++) {
-        for (let cz = cz0 - r; cz <= cz0 + r; cz++) {
-          const dr =
-            Math.abs(cx - cx0) > Math.abs(cy - cy0)
-              ? Math.abs(cx - cx0) > Math.abs(cz - cz0)
-                ? Math.abs(cx - cx0)
-                : Math.abs(cz - cz0)
-              : Math.abs(cy - cy0) > Math.abs(cz - cz0)
-                ? Math.abs(cy - cy0)
-                : Math.abs(cz - cz0);
-          if (dr !== r) continue;
+    if (r === 0) {
+      _scanCell(grid, positionsPc, cx0, cy0, cz0, xPc, yPc, zPc);
+      continue;
+    }
 
-          const indices = grid.get(cellKey(cx, cy, cz));
-          if (indices === undefined) continue;
-
-          for (let j = 0; j < indices.length; j++) {
-            const idx = indices[j]!;
-            const dx = positionsPc[idx * 3]! - xPc;
-            const dy = positionsPc[idx * 3 + 1]! - yPc;
-            const dz = positionsPc[idx * 3 + 2]! - zPc;
-            const d2 = dx * dx + dy * dy + dz * dz;
-            if (d2 < _bestDistSq) {
-              _bestDistSq = d2;
-              _bestIdx = idx;
-            }
-          }
-        }
+    // ±X faces
+    for (let a = -r; a <= r; a++) {
+      for (let b = -r; b <= r; b++) {
+        _scanCell(grid, positionsPc, cx0 + r, cy0 + a, cz0 + b, xPc, yPc, zPc);
+        _scanCell(grid, positionsPc, cx0 - r, cy0 + a, cz0 + b, xPc, yPc, zPc);
+      }
+    }
+    // ±Y faces, excluding the X-face columns already covered
+    for (let a = -r + 1; a <= r - 1; a++) {
+      for (let b = -r; b <= r; b++) {
+        _scanCell(grid, positionsPc, cx0 + a, cy0 + r, cz0 + b, xPc, yPc, zPc);
+        _scanCell(grid, positionsPc, cx0 + a, cy0 - r, cz0 + b, xPc, yPc, zPc);
+      }
+    }
+    // ±Z faces, excluding edges already covered by X and Y faces
+    for (let a = -r + 1; a <= r - 1; a++) {
+      for (let b = -r + 1; b <= r - 1; b++) {
+        _scanCell(grid, positionsPc, cx0 + a, cy0 + b, cz0 + r, xPc, yPc, zPc);
+        _scanCell(grid, positionsPc, cx0 + a, cy0 + b, cz0 - r, xPc, yPc, zPc);
       }
     }
   }
