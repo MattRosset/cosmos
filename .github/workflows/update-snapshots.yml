@@ -28,7 +28,7 @@ jobs:
           key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright browsers
-        run: pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium
+        run: pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium webkit
 
       - name: Build web
         run: pnpm --filter @cosmos/web build
