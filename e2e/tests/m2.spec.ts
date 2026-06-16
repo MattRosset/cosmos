@@ -117,11 +117,13 @@ test('time: pause freezes the scene, 1e6× advances the epoch', async ({ page })
   const fwd = page.getByRole('button', { name: 'Forward faster' });
   for (let i = 0; i < 6; i++) await fwd.click();
 
-  const epochBefore = await page.evaluate(() => window.__cosmos!.epochJD);
+  // Capture screenshots outside the epoch measurement window so that
+  // slow CI screenshot rendering (SwiftShader) doesn't inflate elapsed time.
   const c = await page.screenshot();
+  const epochBefore = await page.evaluate(() => window.__cosmos!.epochJD);
   await page.waitForTimeout(3_000);
-  const d = await page.screenshot();
   const epochAfter = await page.evaluate(() => window.__cosmos!.epochJD);
+  const d = await page.screenshot();
 
   // Frames 3 s apart must differ (planets moved).
   expect(c.equals(d), 'running-time frames must differ').toBe(false);
