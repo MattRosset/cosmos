@@ -12,10 +12,9 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    # Skip cleanly when CF secrets are absent (forks, local PRs without secrets).
-    if: >
-      vars.CLOUDFLARE_ACCOUNT_ID != '' ||
-      secrets.CLOUDFLARE_API_TOKEN != ''
+    # Skip cleanly when CF credentials are absent (forks, PRs without secrets).
+    # secrets context is not available in job-level if; gate on the var instead.
+    if: vars.CLOUDFLARE_ACCOUNT_ID != ''
     permissions:
       contents: read
       deployments: write
