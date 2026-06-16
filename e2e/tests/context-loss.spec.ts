@@ -9,7 +9,10 @@ test('WebGL context loss shows reload overlay', async ({ page }) => {
     timeout: 20_000,
   });
 
-  // Force context loss via the WEBGL_lose_context extension.
+  // Force context loss via the WEBGL_lose_context extension, then also
+  // dispatch a synthetic webglcontextlost event as a fallback: SwiftShader /
+  // headless Chromium accepts the extension but doesn't always fire the DOM
+  // event from loseContext(). The handler is idempotent so double-firing is safe.
   await page.evaluate(() => {
     const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
     if (!canvas) throw new Error('canvas not found');
@@ -18,6 +21,7 @@ test('WebGL context loss shows reload overlay', async ({ page }) => {
     const ext = gl.getExtension('WEBGL_lose_context');
     if (!ext) throw new Error('WEBGL_lose_context extension not available');
     ext.loseContext();
+    canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
   });
 
   // The overlay must appear.
