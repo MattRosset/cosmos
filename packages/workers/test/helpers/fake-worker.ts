@@ -2,38 +2,42 @@ import { serveWorker } from '../../src/serve.js';
 import type { WorkerHandlers } from '../../src/serve.js';
 
 /**
- * A fake Worker backed by a MessageChannel so serveWorker and the pool can be
- * tested in Node without a real browser Worker.  Buffers in the transfer list
- * are transferred (detached) just like a real Worker because MessagePort.postMessage
- * honours the transfer list in Node 17+.
+ * A fake Worker that delivers messages via queueMicrotask rather than
+ * MessageChannel, avoiding Node.js/Windows libuv timer overhead (~15 ms per
+ * hop) that caused the no-op round-trip test to exceed its 100 ms budget.
+ * Buffer transfers are emulated with structuredClone so detachment semantics
+ * are preserved.
  */
 export class FakeWorker {
-  private readonly mainPort: MessagePort;
-  private readonly workerPort: MessagePort;
+  private readonly mainListeners: Array<(e: MessageEvent) => void> = [];
+  private dispatchToWorker!: (msg: unknown) => void;
 
-  /** Optional spy called when terminate() is invoked. */
   onTerminate?: () => void;
-
-  /** Set true to make postMessage clone instead of transfer (simulates a
-   *  broken channel — used to test the DEV transfer assertion). */
   skipTransfer = false;
 
   constructor(handlers: Partial<WorkerHandlers>) {
-    const channel = new MessageChannel();
-    this.mainPort = channel.port1;
-    this.workerPort = channel.port2;
+    const workerListeners: Array<(e: MessageEvent) => void> = [];
 
     serveWorker(handlers, {
       postMessage: (msg, transfer) => {
-        this.workerPort.postMessage(msg, (transfer ?? []) as Transferable[]);
+        // Worker → main: clone with optional transfer so StarBatch buffers arrive intact.
+        const data = transfer && transfer.length > 0
+          ? structuredClone(msg, { transfer: transfer as Transferable[] })
+          : structuredClone(msg);
+        queueMicrotask(() => {
+          for (const l of this.mainListeners) l({ data } as MessageEvent);
+        });
       },
-      addEventListener: (_type: string, handler: (e: MessageEvent) => void) => {
-        this.workerPort.addEventListener('message', handler);
-        this.workerPort.start();
+      addEventListener: (_type, handler) => {
+        workerListeners.push(handler);
       },
     });
 
-    this.mainPort.start();
+    this.dispatchToWorker = (msg: unknown) => {
+      queueMicrotask(() => {
+        for (const l of workerListeners) l({ data: msg } as MessageEvent);
+      });
+    };
   }
 
   postMessage(message: unknown, transferOrOptions?: Transferable[] | StructuredSerializeOptions): void {
@@ -41,31 +45,28 @@ export class FakeWorker {
       ? (transferOrOptions as Transferable[])
       : ((transferOrOptions as StructuredSerializeOptions | undefined)?.transfer ?? []);
 
-    if (this.skipTransfer) {
-      // Clone only — do NOT pass the transfer list so buffers stay accessible
-      this.mainPort.postMessage(message);
+    if (this.skipTransfer || transfer.length === 0) {
+      // Clone without transferring — buffers stay intact on the main side.
+      this.dispatchToWorker(structuredClone(message));
     } else {
-      this.mainPort.postMessage(message, transfer);
+      // Transfer buffers: structuredClone detaches them from main side, matching
+      // real Worker.postMessage behaviour.
+      const cloned = structuredClone(message, { transfer: transfer as Transferable[] });
+      this.dispatchToWorker(cloned);
     }
   }
 
   addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void {
     if (type === 'message') {
       const fn = typeof listener === 'function' ? listener : listener.handleEvent.bind(listener);
-      this.mainPort.addEventListener(
-        'message',
-        (e: MessageEvent) => fn({ data: e.data } as MessageEvent),
-        options,
-      );
+      this.mainListeners.push((e: MessageEvent) => fn({ data: e.data } as MessageEvent));
     }
   }
 
-  removeEventListener(): void { /* no-op — pool does not remove worker listeners */ }
+  removeEventListener(): void { /* pool does not remove worker listeners */ }
   dispatchEvent(): boolean { return false; }
 
   terminate(): void {
     this.onTerminate?.();
-    this.mainPort.close();
-    this.workerPort.close();
   }
 }
