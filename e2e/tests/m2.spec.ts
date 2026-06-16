@@ -41,8 +41,16 @@ async function waitInSystem(page: Page, systemId: string, timeout: number): Prom
 
 /** Wait for the (possibly two-leg) flight chain to fully settle. */
 async function waitFlightSettled(page: Page, timeout: number): Promise<void> {
-  // Allow the second leg to be issued (≤ 100 ms poll) before sampling goToActive.
-  await page.waitForTimeout(400);
+  // Phase 1: wait for the active leg to complete.
+  await page.waitForFunction(() => window.__cosmos?.goToActive === false, undefined, {
+    timeout,
+  });
+  // Phase 2: on CI the system scene can take ~1 s to build (KTX2 GPU upload via
+  // SwiftShader), delaying `attemptPendingLeg` from issuing the second leg. A
+  // 400 ms pre-delay is too short; 1.5 s gives the scene time to mount and the
+  // 100 ms poll to fire before we sample goToActive again.
+  await page.waitForTimeout(1_500);
+  // Phase 3: wait for the second leg (if started) to settle.
   await page.waitForFunction(() => window.__cosmos?.goToActive === false, undefined, {
     timeout,
   });
