@@ -56,7 +56,7 @@ export class FakeWorker {
     }
   }
 
-  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void {
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
     if (type === 'message') {
       const fn = typeof listener === 'function' ? listener : listener.handleEvent.bind(listener);
       this.mainListeners.push((e: MessageEvent) => fn({ data: e.data } as MessageEvent));
