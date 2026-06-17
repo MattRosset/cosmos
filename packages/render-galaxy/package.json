@@ -1,0 +1,23 @@
+{
+  "name": "@cosmos/render-galaxy",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@cosmos/core-types": "workspace:*",
+    "@cosmos/render-stars": "workspace:*",
+    "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.184.1",
+    "jsdom": "^26.1.0"
+  }
+}
