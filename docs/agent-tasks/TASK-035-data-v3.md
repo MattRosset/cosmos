@@ -1,6 +1,7 @@
 # Task: `data` v3 — octree manifest + on-demand tile loader
 
 **ID:** TASK-035
+**Status:** ✅ DONE
 **Target package:** `packages/data`
 **Size:** M
 **Phase:** 3 — lane (data runtime)

@@ -5,3 +5,5 @@ export { loadSystemsPack, SystemsPackFormatError } from './systems.js';
 export type { SystemsSource } from './systems.js';
 export { createCombinedSource } from './combined.js';
 export type { CombinedSource, NearestHostHit } from './combined.js';
+export { loadOctreePack, OctreeFormatError } from './octree.js';
+export type { OctreeNode, OctreeSource, LoadOctreeOptions } from './octree.js';

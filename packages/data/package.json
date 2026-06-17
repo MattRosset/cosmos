@@ -12,6 +12,7 @@
     "test": "vitest run --coverage --exclude '**/search-timing.test.ts' && vitest run test/search-timing.test.ts"
   },
   "dependencies": {
-    "@cosmos/core-types": "workspace:*"
+    "@cosmos/core-types": "workspace:*",
+    "@cosmos/workers": "workspace:*"
   }
 }

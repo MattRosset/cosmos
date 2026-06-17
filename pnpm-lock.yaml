@@ -144,6 +144,9 @@ importers:
       '@cosmos/core-types':
         specifier: workspace:*
         version: link:../core-types
+      '@cosmos/workers':
+        specifier: workspace:*
+        version: link:../workers
 
   packages/nav:
     dependencies:
