@@ -10,3 +10,5 @@ export {
   type FrameContext,
 } from './frame-loop.js';
 export { SceneHost, useFrameContext, type SceneHostProps } from './SceneHost.js';
+export { type QualityController } from './quality.js';
+export { useQuality } from './use-quality.js';

@@ -1,6 +1,9 @@
+import { PerformanceMonitor } from '@react-three/drei';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
+import type { QualitySettings } from '@cosmos/core-types';
+import type { QualityTier } from '@cosmos/core-types';
 import type * as THREE from 'three';
 import {
   PRIORITY_FRAME_CONTEXT,
@@ -10,6 +13,8 @@ import {
   type EpochProvider,
   type FrameCallback,
 } from './frame-loop.js';
+import { QualityControllerImpl, type QualityController } from './quality.js';
+import { QualityContext } from './use-quality.js';
 
 export interface SceneHostProps {
   /** Scene content (render packages, debug markers). Rendered inside the Canvas. */
@@ -23,6 +28,12 @@ export interface SceneHostProps {
    *  behavior, bit-identical). MUST be referentially stable or wrapped by the
    *  caller — changing it does not remount the canvas. */
   readonly epochProvider?: EpochProvider | undefined;
+  /** Start tier (default 'high'). PerformanceMonitor adapts from here. */
+  readonly initialQualityTier?: QualityTier;
+  /** Called once on mount with the QualityController (app wires streaming + post). */
+  readonly onQualityController?: (qc: QualityController) => void;
+  /** Disable automatic adaptation (tests / forced-tier demos). Default false. */
+  readonly disableAutoQuality?: boolean;
 }
 
 function FrameContextUpdater({
@@ -92,14 +103,90 @@ export function attachContextLossListener(
   return () => canvas.removeEventListener('webglcontextlost', handler);
 }
 
+/** Applies resolution scale via gl.setPixelRatio on tier change (never per-frame). */
+function QualityApplier({ qc }: { qc: QualityControllerImpl }): null {
+  const { gl } = useThree();
+
+  useEffect(() => {
+    const apply = (settings: QualitySettings) => {
+      gl.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.resolutionScale);
+    };
+    apply(qc.settings);
+    return qc.onChange(apply);
+  }, [qc, gl]);
+
+  return null;
+}
+
+/** Manages quality tier state and PerformanceMonitor wiring inside the Canvas. */
+function QualityRoot({
+  qc,
+  disableAutoQuality,
+  children,
+  onFrame,
+  epochProvider,
+}: {
+  qc: QualityControllerImpl;
+  disableAutoQuality: boolean;
+  children?: ReactNode;
+  onFrame?: FrameCallback;
+  epochProvider?: EpochProvider;
+}): React.JSX.Element {
+  const disableRef = useRef(disableAutoQuality);
+  disableRef.current = disableAutoQuality;
+
+  const handleDecline = useCallback(() => {
+    if (!disableRef.current) qc.stepDown();
+  }, [qc]);
+
+  const handleIncline = useCallback(() => {
+    if (!disableRef.current) qc.stepUp();
+  }, [qc]);
+
+  const frameLoopRoot = (
+    <FrameLoopRoot
+      {...(onFrame !== undefined ? { onFrame } : {})}
+      {...(epochProvider !== undefined ? { epochProvider } : {})}
+    >
+      {children}
+    </FrameLoopRoot>
+  );
+
+  return (
+    <QualityContext.Provider value={qc}>
+      <QualityApplier qc={qc} />
+      <PerformanceMonitor onDecline={handleDecline} onIncline={handleIncline}>
+        {frameLoopRoot}
+      </PerformanceMonitor>
+    </QualityContext.Provider>
+  );
+}
+
 /** Owns the only `<Canvas>`. Renderer config is THIS package's responsibility. */
 export function SceneHost({
   children,
   onFrame,
   onContextLost,
   epochProvider,
+  initialQualityTier = 'high',
+  onQualityController,
+  disableAutoQuality = false,
 }: SceneHostProps): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Stable controller for the lifetime of this SceneHost instance.
+  const qcRef = useRef<QualityControllerImpl | null>(null);
+  if (qcRef.current === null) {
+    qcRef.current = new QualityControllerImpl(initialQualityTier);
+  }
+  const qc = qcRef.current;
+
+  const onQcRef = useRef(onQualityController);
+  onQcRef.current = onQualityController;
+
+  useEffect(() => {
+    onQcRef.current?.(qc);
+  }, []);
 
   useEffect(() => {
     if (!onContextLost || !canvasRef.current) return;
@@ -112,12 +199,14 @@ export function SceneHost({
       gl={{ logarithmicDepthBuffer: true, antialias: false }}
       camera={{ position: [0, 0, 50], near: 0.1, far: 1e9, fov: 60 }}
     >
-      <FrameLoopRoot
+      <QualityRoot
+        qc={qc}
+        disableAutoQuality={disableAutoQuality}
         {...(onFrame !== undefined ? { onFrame } : {})}
         {...(epochProvider !== undefined ? { epochProvider } : {})}
       >
         {children}
-      </FrameLoopRoot>
+      </QualityRoot>
     </Canvas>
   );
 }

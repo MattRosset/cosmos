@@ -69,12 +69,74 @@ Lower numbers run earlier within a frame.
 - **Canvas isolation:** HUD state must not force `<Canvas>` re-renders; pass scene
   content as stable children.
 
+## Adaptive quality tiers (§9)
+
+`SceneHost` uses drei's `<PerformanceMonitor>` to watch frame rate and step the
+active `QualityTier` (`high → medium → low`) before frames drop. Tier changes
+are debounced and never fire per-frame (§5.12).
+
+```tsx
+import { useQuality, type QualityController } from '@cosmos/scene-host';
+
+// App shell — receive the controller once on mount:
+function App() {
+  const handleQc = useCallback((qc: QualityController) => {
+    // qc.tier, qc.settings — wire to streaming / post chain
+    qc.onChange((settings) => {
+      streamingBudget.setMax(settings.maxRenderedPoints);
+    });
+  }, []);
+
+  return (
+    <SceneHost
+      initialQualityTier="high"
+      onQualityController={handleQc}
+    >
+      <PostChain />
+    </SceneHost>
+  );
+}
+
+// Inside the Canvas tree — re-renders only on tier change:
+function PostChain() {
+  const { bloomEnabled, atmosphereEnabled } = useQuality();
+  return (
+    <>
+      {bloomEnabled && <Bloom />}
+      {atmosphereEnabled && <Atmosphere />}
+    </>
+  );
+}
+```
+
+### Degradation order (§9)
+
+| Tier | maxRenderedPoints | bloom | atmosphere | resolutionScale |
+|---|---|---|---|---|
+| `high` | 2,000,000 | on | on | 1.0 |
+| `medium` | 1,000,000 | on | off | 0.75 |
+| `low` | 500,000 | off | off | 0.5 |
+
+`scene-host` drives `gl.setPixelRatio` for the resolution scale step on tier
+change only (never per-frame). Bloom/atmosphere flags are exposed via
+`useQuality()` for the post chain.
+
+### Manual override
+
+```ts
+qc.setTier('low');   // freeze at low (settings UI / tests)
+qc.setTier(null);    // resume automatic adaptation
+```
+
+Pass `disableAutoQuality` to `<SceneHost>` to ignore `PerformanceMonitor`
+callbacks entirely (forced-tier demos and tests).
+
 ## Extension points (later tasks)
 
 - Coords rebase: subscribe at `PRIORITY_COORDS`, shift root render groups on
   `RebaseEvent`.
 - Streaming: subscribe at `PRIORITY_STREAMING` for tile visibility.
-- Post chain / quality tiers: mount inside `SceneHost` after scene content.
+- Post chain: mount inside `SceneHost`; consume `useQuality()` for bloom/atmosphere.
 
 ## EpochProvider
 
