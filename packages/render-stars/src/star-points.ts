@@ -25,6 +25,8 @@ export interface StarPoints {
   setViewportHeight(px: number): void;
   /** Exposure multiplier (UI-controlled later). Default 1. */
   setExposure(exposure: number): void;
+  /** Cross-fade alpha in [0,1] (streaming LOD transitions, §5.8). Default 1. */
+  setOpacity(opacity: number): void;
   dispose(): void;
 }
 
@@ -49,6 +51,7 @@ export function createStarPoints(opts: StarPointsOptions): StarPoints {
     uMaxPointPx: { value: maxPointPx },
     uPixelScale: { value: 1.0 },
     uExposure: { value: 1.0 },
+    uOpacity: { value: 1.0 },
     uBvLut: { value: lut },
   };
 
@@ -81,6 +84,10 @@ export function createStarPoints(opts: StarPointsOptions): StarPoints {
 
     setExposure(exposure: number): void {
       uniforms.uExposure.value = exposure;
+    },
+
+    setOpacity(opacity: number): void {
+      uniforms.uOpacity.value = opacity;
     },
 
     dispose(): void {

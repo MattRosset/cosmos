@@ -4,6 +4,7 @@
 export const FRAG = /* glsl */ `
 uniform sampler2D uBvLut;
 uniform float uExposure;
+uniform float uOpacity;
 
 varying float vApparentMag;
 varying float vBV;
@@ -13,6 +14,6 @@ void main() {
   float brightness = clamp(pow(10.0, -0.4 * vApparentMag), 0.0, 1.0) * uExposure;
   float lutU = (vBV + 0.4) / 2.4;
   vec3 color = texture2D(uBvLut, vec2(lutU, 0.5)).rgb;
-  gl_FragColor = vec4(color * brightness, alpha);
+  gl_FragColor = vec4(color * brightness, alpha * uOpacity);
 }
 `;

@@ -93,6 +93,11 @@ describe('shader strings', () => {
   it('fragment shader contains the -0.4 brightness exponent', () => {
     expect(FRAG).toContain('-0.4');
   });
+
+  it('fragment shader multiplies the output alpha by uOpacity (cross-fade, §5.8)', () => {
+    expect(FRAG).toContain('uOpacity');
+    expect(FRAG).toContain('alpha * uOpacity');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -152,6 +157,18 @@ describe('setExposure', () => {
 
     points.setExposure(2.5);
     expect(mat.uniforms['uExposure']!.value).toBe(2.5);
+  });
+});
+
+describe('setOpacity', () => {
+  it('defaults to 1 (unchanged additive output) and updates uOpacity uniform', () => {
+    const batch = makeBatch(5);
+    const points = createStarPoints({ batch });
+    const mat = points.object.material as THREE.ShaderMaterial;
+
+    expect(mat.uniforms['uOpacity']!.value).toBe(1.0);
+    points.setOpacity(0.3);
+    expect(mat.uniforms['uOpacity']!.value).toBe(0.3);
   });
 });
 
