@@ -15,6 +15,13 @@ import {
   type ContextSwitchPolicy,
   type SystemAnchor,
 } from './context-switch.js';
+import {
+  resolveGalaxySwitchPolicy,
+  shouldEnterGalaxy,
+  shouldExitGalaxy,
+  type GalaxyAnchor,
+  type GalaxySwitchPolicy,
+} from './galaxy-switch.js';
 
 export interface FlightState {
   readonly position: UniversePosition;
@@ -31,6 +38,8 @@ export interface FlightControllerOptions {
   readonly dampingHalfLifeMs?: number;
   /** Hysteresis thresholds for auto galaxy⇄system switching (TASK-027). */
   readonly contextSwitchPolicy?: Partial<ContextSwitchPolicy>;
+  /** Hysteresis thresholds for auto universe⇄galaxy switching (TASK-037). */
+  readonly galaxySwitchPolicy?: Partial<GalaxySwitchPolicy>;
 }
 
 export interface GoToOptions {
@@ -77,6 +86,17 @@ export interface FlightController {
   readonly contextId: ContextId;
   /** Fires AFTER a completed switch, same frame. Returns unsubscribe. */
   onContextSwitch(cb: (e: ContextSwitchEvent) => void): () => void;
+
+  // ── Galaxy context switching (TASK-037) ────────────────────────────────────
+  /**
+   * Set/replace the candidate galaxy anchor. PRECONDITION (documented, asserted
+   * in dev): the caller has ALREADY set the frame tree's 'galaxy' anchor to
+   * positionMpc-in-universe-units (tree.setAnchor('galaxy', …)) before the
+   * camera enters. While context is 'galaxy' or deeper, a call with a DIFFERENT
+   * galaxy id is IGNORED until the camera exits back to 'universe'. null clears.
+   */
+  setGalaxyAnchor(anchor: GalaxyAnchor | null): void;
+  readonly galaxyAnchor: GalaxyAnchor | null;
 }
 
 // ── Internal state ──────────────────────────────────────────────────────────
@@ -135,6 +155,18 @@ const anchorMeasureScratch: UniversePosition = {
 };
 const ctxRenderScratch: [number, number, number] = [0, 0, 0];
 
+// ── Module-scoped scratch (galaxy-anchor measurement — no allocations) ────────
+// Galaxy anchors are expressed in universe frame (Mpc); toRenderSpace converts
+// into the current context. Separate from the system-anchor scratch so both can
+// coexist without aliasing (switches are serialised — one per update — but the
+// dev check for galaxy entry runs in doSwitch before the event is fired).
+const galAnchorLocalScratch: [number, number, number] = [0, 0, 0];
+const galAnchorMeasureScratch: UniversePosition = {
+  context: 'universe',
+  local: galAnchorLocalScratch,
+};
+const galCtxRenderScratch: [number, number, number] = [0, 0, 0];
+
 /** Test hook: module-scoped scratch used by update() — same identity every frame. */
 export const UPDATE_SCRATCH = {
   pos: posScratch,
@@ -144,6 +176,8 @@ export const UPDATE_SCRATCH = {
   gotoAxis: gotoAxisScratch,
   ctxAnchor: anchorLocalScratch,
   ctxRender: ctxRenderScratch,
+  galAnchor: galAnchorLocalScratch,
+  galRender: galCtxRenderScratch,
 } as const;
 
 // Dev-only precondition guard (architecture §5.3). Bundlers set
@@ -321,6 +355,14 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
   const policy = resolveContextSwitchPolicy(opts.contextSwitchPolicy);
   let systemAnchor: SystemAnchor | null = null;
   const contextSwitchCallbacks: Array<(e: ContextSwitchEvent) => void> = [];
+
+  // Galaxy context switching (TASK-037)
+  const galaxyPolicy = resolveGalaxySwitchPolicy(opts.galaxySwitchPolicy);
+  let galaxyAnchor: GalaxyAnchor | null = null;
+  // true only when we entered 'galaxy' from 'universe' via the switch law;
+  // false when the controller starts in galaxy context (TASK-027 scenario)
+  // so those tests never accidentally trigger a universe exit.
+  let ownGalaxyContext = false;
 
   const input: InputHandler = createInputHandler();
 
@@ -542,6 +584,26 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     systemAnchor = anchor;
   }
 
+  // ── Galaxy context switching (TASK-037) ────────────────────────────────────
+
+  function setGalaxyAnchor(anchor: GalaxyAnchor | null): void {
+    if (anchor === null) {
+      galaxyAnchor = null;
+      return;
+    }
+    // While in galaxy or deeper, ignore a DIFFERENT anchor id. The glue must
+    // exit back to universe before re-anchoring. Same id is allowed (refresh).
+    const ctx = origin.context;
+    if (
+      (ctx === 'galaxy' || ctx === 'system' || ctx === 'planet') &&
+      galaxyAnchor !== null &&
+      anchor.id !== galaxyAnchor.id
+    ) {
+      return;
+    }
+    galaxyAnchor = anchor;
+  }
+
   function onContextSwitch(cb: (e: ContextSwitchEvent) => void): () => void {
     contextSwitchCallbacks.push(cb);
     return () => {
@@ -582,9 +644,9 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
 
     // Dev precondition guard (skipped in production builds): switchContext is a
     // pure coordinate reconversion, so it never moves the camera's ABSOLUTE
-    // point — but it is only MEANINGFUL if the glue set the tree's 'system'
-    // anchor to positionPc, which places the host star at the system origin.
-    // Cheap check on enter: the anchor's absolute system coordinate must be ≈ 0.
+    // point — but it is only MEANINGFUL if the glue set the correct tree anchor.
+    // Cheap check on enter: the anchor's absolute coordinate in the new context
+    // must be ≈ 0 (the anchor must be at the context origin).
     // (preDM is referenced so the param is meaningful to callers; NaN on a
     // cleared-anchor exit, where there is no anchor to verify.)
     if (NAV_DEV && to === 'system' && systemAnchor !== null && Number.isFinite(preDM)) {
@@ -607,6 +669,31 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
       }
     }
 
+    if (NAV_DEV && to === 'galaxy' && from === 'universe' && galaxyAnchor !== null && Number.isFinite(preDM)) {
+      galAnchorLocalScratch[0] = galaxyAnchor.positionMpc[0];
+      galAnchorLocalScratch[1] = galaxyAnchor.positionMpc[1];
+      galAnchorLocalScratch[2] = galaxyAnchor.positionMpc[2];
+      origin.toRenderSpace(galAnchorMeasureScratch, galCtxRenderScratch);
+      const ax = cam.local[0] + galCtxRenderScratch[0];
+      const ay = cam.local[1] + galCtxRenderScratch[1];
+      const az = cam.local[2] + galCtxRenderScratch[2];
+      const offsetM = Math.hypot(ax, ay, az) * CONTEXT_UNIT_METERS.galaxy;
+      if (offsetM > galaxyPolicy.enterGalaxyAtM) {
+        throw new Error(
+          'nav: context switch broke positional continuity — the galaxy center is not ' +
+            'at the galaxy origin. The glue must call ' +
+            "tree.setAnchor('galaxy', anchor.positionMpc) before the camera enters " +
+            '(TASK-037 precondition).',
+        );
+      }
+    }
+
+    // Track whether we own the galaxy context (entered from universe). This
+    // prevents TASK-027 controllers (initial context = galaxy, no galaxy anchor)
+    // from accidentally triggering a universe exit.
+    if (from === 'universe' && to === 'galaxy') ownGalaxyContext = true;
+    else if (from === 'galaxy' && to === 'universe') ownGalaxyContext = false;
+
     if (contextSwitchCallbacks.length > 0) {
       const event: ContextSwitchEvent = { from, to, anchorId };
       const cbs = contextSwitchCallbacks.slice();
@@ -614,13 +701,7 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     }
   }
 
-  /**
-   * Switch law (TASK-027). Runs at the END of update(), after the camera's new
-   * position is final for the frame. At most ONE switch per call — the
-   * hysteresis gap guarantees enter and exit cannot both fire.
-   */
-  /** Camera↔anchor distance in meters: the only sanctioned cross-context
-   *  measurement (toRenderSpace of the galaxy-frame anchor, ADR-001). */
+  /** Camera↔system-anchor distance in meters (galaxy-frame anchor, ADR-001). */
   function measureAnchorDM(anchor: SystemAnchor): number {
     anchorLocalScratch[0] = anchor.positionPc[0];
     anchorLocalScratch[1] = anchor.positionPc[1];
@@ -632,24 +713,70 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     );
   }
 
+  /** Camera↔galaxy-anchor distance in meters (universe-frame anchor, ADR-001). */
+  function measureGalaxyAnchorDM(anchor: GalaxyAnchor): number {
+    galAnchorLocalScratch[0] = anchor.positionMpc[0];
+    galAnchorLocalScratch[1] = anchor.positionMpc[1];
+    galAnchorLocalScratch[2] = anchor.positionMpc[2];
+    origin.toRenderSpace(galAnchorMeasureScratch, galCtxRenderScratch);
+    return (
+      Math.hypot(galCtxRenderScratch[0], galCtxRenderScratch[1], galCtxRenderScratch[2]) *
+      CONTEXT_UNIT_METERS[origin.context]
+    );
+  }
+
+  /**
+   * Switch law (TASK-027 + TASK-037). Runs at the END of update(), after the
+   * camera's new position is final for the frame. At most ONE switch per call —
+   * enforced by early returns after each doSwitch(). The galaxy switch (universe
+   * boundary) is checked first in universe context; the system switch (galaxy
+   * boundary) is checked first in galaxy context before the universe exit.
+   */
   function maybeSwitchContext(): void {
-    const anchor = systemAnchor;
+    const sysAnchor = systemAnchor;
+    const galAnch = galaxyAnchor;
     const ctx = origin.context;
 
+    if (ctx === 'universe') {
+      // Rule 1: no galaxy anchor → universe⇄galaxy switching is inert.
+      if (galAnch === null) return;
+      const dM = measureGalaxyAnchorDM(galAnch);
+      if (shouldEnterGalaxy(dM, galaxyPolicy)) {
+        doSwitch('universe', 'galaxy', galAnch.id, dM);
+      }
+      return;
+    }
+
     if (ctx === 'galaxy') {
-      if (anchor === null) return; // Phase-1 behavior, bit-identical.
-      const dM = measureAnchorDM(anchor);
-      if (shouldEnterSystem(dM, policy)) doSwitch('galaxy', 'system', anchor.id, dM);
+      // System switch evaluated FIRST so at most one switch fires per update.
+      if (sysAnchor !== null) {
+        const dM = measureAnchorDM(sysAnchor);
+        if (shouldEnterSystem(dM, policy)) {
+          doSwitch('galaxy', 'system', sysAnchor.id, dM);
+          return; // at most one switch per update
+        }
+      }
+      // Galaxy exit: only when we entered from universe (ownGalaxyContext).
+      // Rule 1: if galaxyAnchor is null and we never entered from universe,
+      // this is a plain galaxy context (TASK-027) — no universe exit.
+      if (ownGalaxyContext) {
+        const cleared = galAnch === null;
+        const dM = cleared ? Number.NaN : measureGalaxyAnchorDM(galAnch!);
+        if (shouldExitGalaxy(cleared ? 0 : dM, cleared, galaxyPolicy)) {
+          doSwitch('galaxy', 'universe', cleared ? null : galAnch!.id, dM);
+        }
+      }
       return;
     }
 
     if (ctx === 'system') {
-      const cleared = anchor === null;
-      const dM = cleared ? Number.NaN : measureAnchorDM(anchor!);
+      const cleared = sysAnchor === null;
+      const dM = cleared ? Number.NaN : measureAnchorDM(sysAnchor!);
       if (shouldExitSystem(cleared ? 0 : dM, cleared, policy)) {
-        doSwitch('system', 'galaxy', cleared ? null : anchor!.id, dM);
+        doSwitch('system', 'galaxy', cleared ? null : sysAnchor!.id, dM);
       }
     }
+    // planet: no automatic switching
   }
 
   function update(dtMs: number): void {
@@ -780,5 +907,9 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
       return origin.context;
     },
     onContextSwitch,
+    setGalaxyAnchor,
+    get galaxyAnchor() {
+      return galaxyAnchor;
+    },
   };
 }

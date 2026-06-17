@@ -1,6 +1,7 @@
 # Task: `nav` v4 — universe⇄galaxy context switch + local group of procedural galaxies
 
 **ID:** TASK-037
+**Status:** done
 **Target package:** `packages/nav` (+ a small pure local-group helper)
 **Size:** M
 **Phase:** 3 — lane (nav / coords integration)

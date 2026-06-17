@@ -82,6 +82,31 @@ cancels the flight automatically and resumes free flight that same frame.
 
 Touch: deferred — see architecture §5.3.
 
+### Context switching (v4 — TASK-037): universe⇄galaxy
+
+The M3 zoom chain extends one level up: when the camera nears a `GalaxyAnchor`
+the controller switches `universe → galaxy` (and back on leaving), with the same
+hysteresis / velocity-rescaling / zero-discontinuity guarantees as the
+galaxy⇄system boundary.
+
+```ts
+// PRECONDITION — glue sets the tree anchor FIRST; nav never touches the tree:
+tree.setAnchor('galaxy', galaxy.positionMpc);   // galaxy → galaxy origin
+flight.setGalaxyAnchor({ id: 'proc:milkyway', positionMpc: galaxy.positionMpc });
+
+// Procedural local group (pure, seeded, no Three.js):
+import { generateLocalGroup } from '@cosmos/nav';
+const galaxies = generateLocalGroup({ seed: 7 });   // 12 GalaxyRecords, ≤ 1.5 Mpc
+```
+
+**Glue contract (mirrors galaxy⇄system):**
+- Call `tree.setAnchor('galaxy', positionMpc)` before the camera enters — a
+  dev-only guard throws if the galaxy is not at the galaxy-frame origin.
+- While `contextId` is `'galaxy'` or deeper, `setGalaxyAnchor` with a **different**
+  id is ignored — wait for exit to universe before re-anchoring. `null` clears.
+- Hysteresis: `enterGalaxyAtM` default `1.543e21` (≈ 50 kpc), `exitGalaxyAtM`
+  default `3.086e21`. Constructor throws `RangeError` if exit < 1.5× enter.
+
 ### Context switching (v3 — TASK-027)
 
 Seamless galaxy⇄system zoom (architecture §5.3, ADR-001 §3–§4). When the camera
