@@ -7,14 +7,11 @@ import {
   PROCGEN_STREAM_JITTER,
 } from '@cosmos/core-types';
 import type { GalaxyGenParams, StarBatch, ProcgenGalaxyRequest } from '@cosmos/core-types';
-import {
-  sampleDiscRadius,
-  sampleDiscHeight,
-  sampleBulgeRadius,
-  sampleArmAzimuth,
-} from './sampling.js';
-import type { ArmParams } from './sampling.js';
+import { sampleBulgeRadius } from './sampling.js';
 import { sampleMass, massToColorBV, massToAbsMag } from './stellar.js';
+
+// Matches the clamp in sampleDiscHeight (sampling.ts) — keeps atanh in domain.
+const ATANH_EPS = 1e-9;
 
 const TWO_PI = 2 * Math.PI;
 
@@ -144,14 +141,16 @@ function generate(params: GalaxyGenParams, isCancelled: () => boolean): GalaxyRe
   // `streaming`) but draws nothing from it.
   base.fork(PROCGEN_STREAM_JITTER);
 
-  const arm: ArmParams = {
-    scaleLengthPc: p.discScaleLengthPc,
-    armCount: p.armCount,
-    armPitchRad: p.armPitchRad,
-    armWindings: p.armWindings,
-    armWidthPc: p.armWidthPc,
-    armContrast: p.armContrast,
-  };
+  // Per-galaxy constants — computed once, reused for every star in the loop.
+  // Hoisting these out of the hot path eliminates ~2M redundant transcendental
+  // calls (exp for disc truncation, tan for arm pitch) at 1e6 stars.
+  // NOTE: armTanPitch is used as a divisor (not inverted) so the division
+  // `A / armTanPitch` stays bit-identical to the original `A / Math.tan(...)`,
+  // preserving the golden hash.
+  const discTruncation = 1 - Math.exp(-p.discRadiusPc / p.discScaleLengthPc);
+  const armTanPitch = Math.tan(p.armPitchRad);
+  const armDenominator = 2 * p.armWidthPc * p.armWidthPc; // constant denom in armDensity
+  const armContrastM1 = p.armContrast - 1; // (contrast − 1) factor in armDensity
 
   let drawn = count;
   for (let i = 0; i < count; i++) {
@@ -165,6 +164,7 @@ function generate(params: GalaxyGenParams, isCancelled: () => boolean): GalaxyRe
     let y: number;
     let z: number;
     if (placement.next() < p.bulgeFraction) {
+      // Bulge: spherically distributed with Plummer-like radial profile.
       const r = sampleBulgeRadius(placement.next(), p.bulgeRadiusPc, p.discRadiusPc);
       const cosTheta = 2 * placement.next() - 1;
       const sinTheta = Math.sqrt(Math.max(0, 1 - cosTheta * cosTheta));
@@ -173,9 +173,40 @@ function generate(params: GalaxyGenParams, isCancelled: () => boolean): GalaxyRe
       y = r * sinTheta * Math.sin(az);
       z = r * cosTheta;
     } else {
-      const r = sampleDiscRadius(placement.next(), p.discScaleLengthPc, p.discRadiusPc);
-      const phi = sampleArmAzimuth(placement.next, r, arm);
-      z = sampleDiscHeight(placement.next(), p.discScaleHeightPc);
+      // Disc: inline sampleDiscRadius + sampleArmAzimuth + sampleDiscHeight so
+      // V8 can see the full loop as one unit and avoid callback-call overhead.
+
+      // sampleDiscRadius — inverse-CDF of exponential surface density.
+      const r = -p.discScaleLengthPc * Math.log(1 - placement.next() * discTruncation);
+
+      // armPhase depends only on r (not φ), so compute it once per star rather
+      // than once per rejection attempt (saves ~0.7 log+tan calls per disc star).
+      // Division by armTanPitch mirrors `/ Math.tan(p.armPitchRad)` exactly.
+      const armBase = (p.armWindings * Math.log(r / p.discScaleLengthPc + 1)) / armTanPitch;
+
+      // sampleArmAzimuth — rejection sampler; envelope ceiling = armContrast.
+      let phi = 0;
+      for (let attempt = 0; attempt < 64; attempt++) {
+        phi = placement.next() * TWO_PI;
+        const u = placement.next() * p.armContrast;
+        // Inline armDensity: 1 + (contrast−1)·Σ_a exp(−(r·Δφ_a)²/denom)
+        // centre formula `(TWO_PI * a) / armCount` matches armDensity exactly.
+        let sum = 0;
+        for (let a = 0; a < p.armCount; a++) {
+          const center = armBase + (TWO_PI * a) / p.armCount;
+          // wrapPi(phi − center) inlined
+          let dphi = (phi - center) % TWO_PI;
+          if (dphi > Math.PI) dphi -= TWO_PI;
+          else if (dphi < -Math.PI) dphi += TWO_PI;
+          const arc = r * dphi;
+          sum += Math.exp(-(arc * arc) / armDenominator);
+        }
+        if (u < 1 + armContrastM1 * sum) break;
+      }
+
+      // sampleDiscHeight — inverse-CDF of sech² vertical profile.
+      const arg = Math.max(-1 + ATANH_EPS, Math.min(1 - ATANH_EPS, 2 * placement.next() - 1));
+      z = (p.discScaleHeightPc * Math.atanh(arg)) / 2;
       x = r * Math.cos(phi);
       y = r * Math.sin(phi);
     }
