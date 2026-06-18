@@ -1,5 +1,10 @@
 # Task: M3 integration — continuous Milky Way → Sol → Earth zoom, no loading screens
 
+**Status:** **done** (2026-06-18) — branch `task-040-galaxy-view`, head `5a41bcb`.
+M3 e2e green (`m3.spec.ts`); production breadcrumbs ◂ Milky Way / ◂ Galaxy signed off
+manually (smooth flight, no bugs). Follow-up perf/doc: `docs/research/TASK-040-breadcrumb-freeze.md`.
+**Next:** TASK-041 (Phase 3 gate).
+
 **ID:** TASK-040
 **Target package:** `apps/web` (+ `e2e/` flow specs)
 **Size:** L — integration-heavy: assign to the strongest agent/human pair (§8.3).

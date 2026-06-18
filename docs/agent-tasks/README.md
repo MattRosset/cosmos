@@ -90,7 +90,7 @@ sections — they are part of the spec.
 | [TASK-037](TASK-037-universe-context.md) | `nav` v4: universe⇄galaxy switch + local group of procedural galaxies | TASK-031 | pending | lane (nav/coords); thaw of `nav` API; mirrors TASK-027 one level up |
 | [TASK-038](TASK-038-streaming.md) | `streaming` v1: LOD policy + octree fetch/evict + procgen chunks + budgets | TASK-031, 033, 034, 035 | done | SSE LOD + hysteresis/cross-fade, in-flight cap + cancel, LRU evict (camera-pinned), budget degradation, typed lifecycle, nearestBodyDistanceM; 21 tests, 92% stmt cov, verify green |
 | [TASK-039](TASK-039-quality-tiers.md) | `scene-host` v1.2: PerformanceMonitor-driven adaptive quality tiers | TASK-031 | pending | lane (scene-host); thaw of `scene-host` API (allowed dep: drei) |
-| [TASK-040](TASK-040-m3-integration.md) | M3 integration: continuous Milky Way → Sol → Earth zoom, no loading screens | TASK-032–039 (all) | done | exclusive in `apps/web`/`e2e`; composition only; shipped on `task-040-galaxy-view` (galaxy view + streaming tier + `m3.spec.ts` green) |
+| [TASK-040](TASK-040-m3-integration.md) | M3 integration: continuous Milky Way → Sol → Earth zoom, no loading screens | TASK-032–039 (all) | done | `task-040-galaxy-view` @ `5a41bcb`: M3 e2e green, galaxy breadcrumbs + streaming tier, breadcrumb freeze fix; manual sign-off 2026-06-18 |
 | [TASK-041](TASK-041-phase3-gate.md) | Phase 3 gate: recorded-flythrough perf + memory soak + WebKit/Firefox + M3 | TASK-040 | pending | **GATE: closes Phase 3.** Freezes Phase 3 APIs on completion |
 
 **GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
