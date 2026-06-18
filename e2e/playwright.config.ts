@@ -6,6 +6,12 @@ export default defineConfig({
   testDir: './tests',
   timeout: 60_000,
   reporter: CI ? [['html', { outputFolder: 'playwright-report', open: 'never' }]] : 'list',
+  // Serial on CI (TASK-041): the perf gates (flythrough3, m1/m2/breadcrumb perf,
+  // jitter, ctxswitch) measure frame times of the shipped WebGL pipeline. Running
+  // spec files in parallel across workers makes heavy specs contend for CPU/GPU and
+  // inflates those measurements into flaky failures. One worker = no contention =
+  // trustworthy perf signal (and never a pile of concurrent browsers on the runner).
+  workers: CI ? 1 : undefined,
 
   use: {
     viewport: { width: 1280, height: 720 },
