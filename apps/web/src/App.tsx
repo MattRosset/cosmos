@@ -48,6 +48,8 @@ const DEBUG_CTXSWITCH =
 /** TASK-040 M3 gate (`?debug=m3`): full packs + streaming, scripted universe→Earth zoom. */
 const DEBUG_M3 = new URLSearchParams(window.location.search).get('debug') === 'm3';
 
+const M3_SOL_SYSTEM_ID: BodyId = 'sol';
+
 const HYG_MANIFEST_URL = '/packs/manifest.json';
 const SOL_PACK_URL = '/packs/systems-sol.json';
 const EXO_PACK_URL = '/packs/systems-exo.json';
@@ -275,11 +277,12 @@ function M3App() {
   );
 
   const mountedSystem = useMemo(() => {
-    if (sources === null || mountedSystemId === null) return null;
-    const system = sources.sol.getSystem(mountedSystemId) ?? sources.exo.getSystem(mountedSystemId);
+    if (sources === null) return null;
+    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
+    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
     if (system === undefined) return null;
     const packUrl =
-      sources.sol.getSystem(mountedSystemId) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
     return { system, packUrl };
   }, [sources, mountedSystemId]);
 

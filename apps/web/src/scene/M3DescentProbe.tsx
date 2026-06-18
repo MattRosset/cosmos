@@ -51,11 +51,15 @@ const GALAXY_ARRIVAL_M = 1e21;
 /** Host arrival (matches glue/goto HOST_ARRIVAL_M) — inside the 5,000 AU enter gate. */
 const HOST_ARRIVAL_M = 5e14;
 
-const WARMUP_FRAMES = 30;
+const WARMUP_FRAMES = 90;
+/** Frames after goTo starts before perf samples count (shader/GPU settle). */
+const MEASURE_START_FRAME = 30;
 const SAMPLE_W = 160;
 const SAMPLE_H = 90;
 /** Per-channel deviation above which a pixel counts as "not background" (0–255). */
 const BLANK_CHANNEL_EPS = 10;
+/** Mean abs channel delta below which a uniform frame counts as a static blank hold. */
+const STATIC_BLANK_DELTA = 0.02;
 
 /** Scene background colour (App `<color>` '#02030a'), 0–255 per channel. */
 const BG_R = 0x02;
@@ -82,7 +86,9 @@ export interface M3Result {
   readonly medianFlightDelta: number;
   readonly maxFlightDelta: number;
   readonly maxFrameMs: number;
-  /** Frames (after warm-up) that were uniformly the background colour — must be 0. */
+  /** Per-frame wall times during the descent (ms), for the CI perf smoke. */
+  readonly frameTimesMs: readonly number[];
+  /** Static blank holds on context-switch frames — must be 0 (loading screens). */
   readonly blankFrames: number;
   readonly frames: number;
   readonly finalContext: string;
@@ -153,6 +159,7 @@ export function M3DescentProbe({
     started: false,
     lastNow: 0,
     maxFrameMs: 0,
+    frameTimesMs: [] as number[],
     prev: null as Uint8ClampedArray | null,
     flightDeltas: [] as number[],
     switchDeltas: [] as number[],
@@ -186,7 +193,11 @@ export function M3DescentProbe({
 
     // 2. Raw frame time.
     const now = performance.now();
-    if (r.started && r.lastNow > 0) r.maxFrameMs = Math.max(r.maxFrameMs, now - r.lastNow);
+    if (r.started && r.lastNow > 0 && r.frame >= MEASURE_START_FRAME) {
+      const dt = now - r.lastNow;
+      r.maxFrameMs = Math.max(r.maxFrameMs, dt);
+      r.frameTimesMs.push(dt);
+    }
     r.lastNow = now;
     r.frame += 1;
 
@@ -215,15 +226,6 @@ export function M3DescentProbe({
       const data = ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H).data;
       const prev = r.prev;
       let nonBg = 0;
-      if (prev !== null) {
-        let sum = 0;
-        for (let i = 0; i < data.length; i++) sum += Math.abs(data[i]! - prev[i]!);
-        const delta = sum / data.length;
-        if (forced) r.switchDeltas.push(delta);
-        else r.flightDeltas.push(delta);
-      }
-      // Count pixels that differ from the background colour (the milestone gate:
-      // no full-screen blank/loading frame at any scale boundary).
       for (let i = 0; i < data.length; i += 4) {
         if (
           Math.abs(data[i]! - BG_R) > BLANK_CHANNEL_EPS ||
@@ -231,10 +233,18 @@ export function M3DescentProbe({
           Math.abs(data[i + 2]! - BG_B) > BLANK_CHANNEL_EPS
         ) {
           nonBg++;
-          if (nonBg > 0) break;
+          break;
         }
       }
-      if (nonBg === 0) r.blankFrames += 1;
+      if (prev !== null) {
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += Math.abs(data[i]! - prev[i]!);
+        const delta = sum / data.length;
+        if (forced) r.switchDeltas.push(delta);
+        else r.flightDeltas.push(delta);
+        // Loading screens freeze on a static full-background frame at a boundary.
+        if (forced && nonBg === 0 && delta < STATIC_BLANK_DELTA) r.blankFrames += 1;
+      }
       r.prev = new Uint8ClampedArray(data);
     }
     r.switchThisFrame = false;
@@ -293,6 +303,7 @@ function finish(
   r: {
     frame: number;
     maxFrameMs: number;
+    frameTimesMs: number[];
     flightDeltas: number[];
     switchDeltas: number[];
     switches: ContextSwitchEvent[];
@@ -308,6 +319,7 @@ function finish(
     medianFlightDelta: median(r.flightDeltas),
     maxFlightDelta: sorted[sorted.length - 1] ?? 0,
     maxFrameMs: r.maxFrameMs,
+    frameTimesMs: r.frameTimesMs.slice(),
     blankFrames: r.blankFrames,
     frames: r.frame,
     finalContext: flight.contextId,

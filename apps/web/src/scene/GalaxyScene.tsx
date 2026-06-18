@@ -338,9 +338,9 @@ export function GalaxyScene({
     const ctrl = controllerRef.current;
     const ctx: ContextId = ctrl ? ctrl.contextId : origin.context;
 
-    // Streaming galaxy layer: full in universe; in galaxy it fades in as the camera
-    // pulls far out from Sol (so "view galaxy" + the descent show the spiral) and
-    // fades to nothing near Sol (M2 star field takes over); hidden in system/planet.
+    // Streaming tier: active in universe + galaxy. Procgen Milky Way fades out near
+    // Sol (layerFade); octree HYG tiles stay at full opacity so the M2 hand-off never
+    // leaves a blank frame (M3 gate: blankFrames must be 0).
     let layerFade = 0;
     if (ctx === 'universe') {
       layerFade = 1;
@@ -349,8 +349,9 @@ export function GalaxyScene({
       layerFade = smoothstep(GAL_FADE_LO_PC, GAL_FADE_HI_PC, Math.hypot(p[0], p[1], p[2]));
     }
 
+    const streamingActive = ctx === 'universe' || ctx === 'galaxy';
     const visible = streaming.visible;
-    if (layerFade > 0) {
+    if (streamingActive) {
       for (let i = 0; i < visible.length; i++) {
         const v = visible[i]!;
         const m = mounts.current.get(v.chunkId);
@@ -361,7 +362,8 @@ export function GalaxyScene({
         posScratch.local[1] = m.originPc[1];
         posScratch.local[2] = m.originPc[2];
         origin.toRenderSpace(posScratch, offScratch);
-        m.applyFrame(offScratch, v.opacity * layerFade, v.lod);
+        const mountOpacity = m.kind === 'procgen' ? v.opacity * layerFade : v.opacity;
+        m.applyFrame(offScratch, mountOpacity, v.lod);
       }
     }
     // Hide any mount not on the visible cut this frame (or whole layer faded out).
