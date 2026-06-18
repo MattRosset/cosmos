@@ -51,13 +51,26 @@ export default defineConfig({
       },
     },
     {
-      // TASK-014: WebKit runs smoke.spec.ts only — WebGL screenshot assertions are
-      // flaky under Linux WebKit's software GL renderer. Perf and flythrough tests
-      // are chromium-only for signal reliability.
+      // TASK-014 + TASK-041: WebKit runs smoke.spec.ts and the recorded-flythrough
+      // perf gate (flythrough3.spec.ts, §6 cross-browser matrix). WebGL *screenshot*
+      // assertions stay chromium-only — flaky under Linux WebKit's software GL — but
+      // the flythrough's frame-time + cap clauses run here (no screenshots; the heap
+      // assertion is chromium-only since WebKit lacks performance.memory).
       name: 'webkit',
-      testMatch: '**/smoke.spec.ts',
+      testMatch: '**/{smoke,flythrough3}.spec.ts',
       use: {
         ...devices['Desktop Safari'],
+        viewport: { width: 1280, height: 720 },
+        deviceScaleFactor: 1,
+      },
+    },
+    {
+      // TASK-041: Firefox joins the §6 cross-browser matrix on the same scope as
+      // WebKit — smoke + flythrough3 (perf-relaxed). Heap assertion is chromium-only.
+      name: 'firefox',
+      testMatch: '**/{smoke,flythrough3}.spec.ts',
+      use: {
+        ...devices['Desktop Firefox'],
         viewport: { width: 1280, height: 720 },
         deviceScaleFactor: 1,
       },

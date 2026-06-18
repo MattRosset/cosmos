@@ -1,0 +1,15 @@
+{
+  "_comment": "TASK-041 recorded flythrough camera path (architecture §5.8). The continuous descent outside the Milky Way -> spiral arms -> star field -> Sol -> Earth, plus the reverse legs the soak loops on. Positions are camera waypoints expressed in each scale context; the clock is paused at a frozen epoch so Earth's waypoint is deterministic. flythrough-descent.ts replays this as discrete per-context goTo legs through the REAL nav controller + streaming pipeline (this gate measures the shipped pipeline, like TASK-030). Symbolic targets (milkyWayCenter / sol / earth) resolve at runtime from the deterministic local group + frozen-epoch system feed; arrival distances + durations are the committed, reviewable knobs.",
+  "epochJD": 2451545.0,
+  "start": { "context": "universe", "local": [0, 0, 0.6] },
+  "legs": [
+    { "phase": "toGalaxy", "to": "milkyWayCenter", "context": "universe", "arrivalDistanceM": 1e21, "durationMs": 3000 },
+    { "phase": "toSol", "to": "sol", "context": "galaxy", "local": [0, 0, 0], "arrivalDistanceM": 5e14, "durationMs": 3000 },
+    { "phase": "toEarth", "to": "earth", "context": "system", "arrivalDistanceM": "planet", "durationMs": 3000 }
+  ],
+  "reverse": [
+    { "phase": "outToGalaxy", "to": "galaxyExit", "context": "galaxy", "local": [0.1, 0, 0], "arrivalDistanceM": 1e13, "durationMs": 2000 },
+    { "phase": "outToUniverse", "to": "universeExit", "context": "galaxy", "local": [120000, 0, 0], "arrivalDistanceM": 1e20, "durationMs": 2000 }
+  ],
+  "soakLoops": 5
+}

@@ -60,7 +60,7 @@ jobs:
           key: playwright-${{ hashFiles('pnpm-lock.yaml') }}
 
       - name: Install Playwright browsers
-        run: pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium webkit
+        run: pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium webkit firefox
 
       - name: Build web
         run: pnpm --filter @cosmos/web build
@@ -77,14 +77,29 @@ jobs:
       - name: Time controls gate (sim-time §5.4)
         run: pnpm --filter @cosmos/sim-time test
 
+      # ── Phase 3 acceptance gate (TASK-041, §6 M3) ───────────────────────────
+      # Streaming/procgen/octree determinism, named explicitly so a skipped or
+      # cached unit job cannot mask them in the milestone-closing run.
+      - name: Procgen determinism gate (§5.6)
+        run: pnpm --filter @cosmos/procgen test
+
+      - name: Octree pack determinism gate (§5.7)
+        run: pnpm --filter @cosmos/pack-octree test
+
+      - name: Streaming LOD/evict gate (§5.8)
+        run: pnpm --filter @cosmos/streaming test
+
       # Phase 1 acceptance (TASK-017, §6): performance >= 0.85 and Time-to-Interactive
       # <= 4000 ms (the "cable connection" cold-load budget, modeled by Lighthouse's
       # desktop throttling profile). Runs against the built dist, never the dev server.
       - name: Lighthouse (performance + cold-load budget)
         run: pnpm lighthouse
 
-      # Full e2e suite, incl. the TASK-030 context-switch gate (ctxswitch.spec.ts):
-      # smoke, flythrough, m1, m2, jitter, ctxswitch, context-loss.
+      # Full e2e suite across the chromium + webkit + firefox matrix, incl. the
+      # TASK-030 context-switch gate (ctxswitch) and the TASK-041 Phase 3 gates
+      # (flythrough3 perf on all three projects, soak3 memory plateau on chromium):
+      # smoke, flythrough, m1, m2, m3, jitter, ctxswitch, flythrough3, soak3,
+      # context-loss.
       - name: Run E2E tests
         run: pnpm --filter @cosmos/e2e test
 

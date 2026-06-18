@@ -26,6 +26,13 @@ import { DebugMarkers } from './scene/DebugMarkers';
 import { JitterProbe } from './scene/JitterProbe';
 import { CtxSwitchProbe, CTX_START } from './scene/CtxSwitchProbe';
 import { M3DescentProbe, M3_START } from './scene/M3DescentProbe';
+import { Flythrough3Probe } from './scene/Flythrough3Probe';
+import { SoakProbe } from './scene/SoakProbe';
+import {
+  FLYTHROUGH3_START,
+  FLYTHROUGH3_EPOCH_JD,
+  FLYTHROUGH3_SOAK_LOOPS,
+} from './scene/flythrough-descent';
 import { clock, epochProvider, installTimeGlue, syncClockToNow } from './glue/time';
 import { createGoToCoordinator } from './glue/goto';
 import { testHook, controllerHolder, mirrorControllerState, streamingHolder } from './glue/test-hook';
@@ -49,6 +56,18 @@ const DEBUG_CTXSWITCH =
 
 /** TASK-040 M3 gate (`?debug=m3`): full packs + streaming, scripted universe→Earth zoom. */
 const DEBUG_M3 = new URLSearchParams(window.location.search).get('debug') === 'm3';
+
+/** TASK-041 recorded-flythrough perf gate (`?debug=flythrough3`, §5.8). */
+const DEBUG_FLYTHROUGH3 =
+  new URLSearchParams(window.location.search).get('debug') === 'flythrough3';
+
+/** TASK-041 memory-soak gate (`?debug=soak3`, §5.8); `?loops=N` overrides the count. */
+const DEBUG_SOAK3 = new URLSearchParams(window.location.search).get('debug') === 'soak3';
+const SOAK3_LOOPS = (() => {
+  const raw = new URLSearchParams(window.location.search).get('loops');
+  const n = raw !== null ? Number.parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : FLYTHROUGH3_SOAK_LOOPS;
+})();
 
 /** Breadcrumb freeze profiler — span timings on `window.__breadcrumbProfile`. */
 const DEBUG_BREADCRUMB_PROFILE =
@@ -79,6 +98,7 @@ export function App() {
   if (DEBUG_JITTER) return <JitterApp />;
   if (DEBUG_CTXSWITCH) return <CtxSwitchApp />;
   if (DEBUG_M3) return <M3App />;
+  if (DEBUG_FLYTHROUGH3 || DEBUG_SOAK3) return <StreamingProbeApp kind={DEBUG_SOAK3 ? 'soak3' : 'flythrough3'} />;
   return DEBUG_MARKERS ? <DebugApp /> : <StarApp />;
 }
 
@@ -309,6 +329,161 @@ function M3App() {
         onController={handleController}
         onContextSwitch={handleContextSwitch}
       />
+      <GalaxyScene
+        streaming={streaming}
+        origin={origin}
+        controllerRef={controllerHolder}
+        milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+      />
+      <StarScene
+        stars={pack.sources.stars}
+        combined={pack.sources.combined}
+        origin={origin}
+        controllerRef={controllerHolder}
+      />
+      {mountedSystem ? (
+        <SystemScene
+          system={mountedSystem.system}
+          origin={origin}
+          packUrl={mountedSystem.packUrl}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+    </SceneHost>
+  );
+}
+
+/**
+ * TASK-041 Phase 3 gate (`?debug=flythrough3` / `?debug=soak3`, §5.8). Loads the
+ * exact M3 composition (full packs + HYG octree + streaming tier + procedural
+ * Milky Way) and replaces user input with a self-measuring probe that replays the
+ * committed recorded camera path. flythrough3 measures a single descent's frame
+ * times + heap + streaming peak; soak3 loops the path back and forth, sampling
+ * heap + loadedChunks to prove the memory plateau. Both pin the (paused) clock to
+ * the frozen flythrough epoch so the path is deterministic and orbits cannot
+ * contaminate frame deltas. Shares M3App's structure exactly — the gate measures
+ * the SHIPPED pipeline (TASK-030/040 doctrine).
+ */
+function StreamingProbeApp({ kind }: { kind: 'flythrough3' | 'soak3' }): React.JSX.Element | null {
+  const [pack, setPack] = useState<PackState>({ status: 'loading' });
+  const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
+
+  useEffect(() => {
+    installTimeGlue();
+    clock.setEpochJD(FLYTHROUGH3_EPOCH_JD); // frozen epoch → deterministic Earth waypoint.
+    clock.setPaused(true); // freeze orbits — the probe tests CAMERA + streaming.
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadStarPack(HYG_MANIFEST_URL),
+      loadSystemsPack(SOL_PACK_URL),
+      loadSystemsPack(EXO_PACK_URL),
+      loadOctreePack(OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+    ]).then(
+      ([stars, sol, exo, octree]) => {
+        if (cancelled) return;
+        const combined = createCombinedSource(stars, [sol, exo]);
+        setPack({ status: 'ready', sources: { stars, sol, exo, combined, octree } });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setPack({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    testHook.ready = pack.status === 'ready';
+  }, [pack]);
+
+  const tree = useMemo(() => createScaleFrameTree(), []);
+  const origin = useMemo(() => createOriginManager(tree, FLYTHROUGH3_START), [tree]);
+  const { milkyWay } = useMemo(() => makeLocalGroup(), []);
+
+  const handleController = useCallback((controller: FlightController) => {
+    controllerHolder.current = controller;
+    mirrorControllerState();
+  }, []);
+
+  const handleContextSwitch = useCallback((e: ContextSwitchEvent) => {
+    setMountedSystemId(e.to === 'system' ? e.anchorId : null);
+    mirrorControllerState();
+  }, []);
+
+  const sources = pack.status === 'ready' ? pack.sources : null;
+
+  const streaming = useMemo<StreamingPolicy | null>(() => {
+    if (sources?.octree === undefined) return null;
+    return createMilkyWayStreaming({ origin, octree: sources.octree, milkyWay });
+  }, [origin, sources, milkyWay]);
+
+  useEffect(() => {
+    streamingHolder.current = streaming;
+    return () => {
+      if (streamingHolder.current === streaming) streamingHolder.current = null;
+    };
+  }, [streaming]);
+
+  const handleQc = useCallback(
+    (qc: QualityController) => {
+      if (streaming === null) return;
+      wireQuality(streaming, (tier) => {
+        testHook.qualityTier = tier;
+      })(qc);
+    },
+    [streaming],
+  );
+
+  const mountedSystem = useMemo(() => {
+    if (sources === null) return null;
+    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
+    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
+    if (system === undefined) return null;
+    const packUrl =
+      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+    return { system, packUrl };
+  }, [sources, mountedSystemId]);
+
+  if (pack.status !== 'ready' || streaming === null) return null;
+
+  return (
+    <SceneHost
+      epochProvider={epochProvider}
+      initialQualityTier="high"
+      onQualityController={handleQc}
+    >
+      <color attach="background" args={['#02030a']} />
+      {kind === 'soak3' ? (
+        <SoakProbe
+          origin={origin}
+          tree={tree}
+          combined={pack.sources.combined}
+          milkyWay={milkyWay}
+          streaming={streaming}
+          loops={SOAK3_LOOPS}
+          onController={handleController}
+          onContextSwitch={handleContextSwitch}
+        />
+      ) : (
+        <Flythrough3Probe
+          origin={origin}
+          tree={tree}
+          combined={pack.sources.combined}
+          milkyWay={milkyWay}
+          streaming={streaming}
+          onController={handleController}
+          onContextSwitch={handleContextSwitch}
+        />
+      )}
       <GalaxyScene
         streaming={streaming}
         origin={origin}
