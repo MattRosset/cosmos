@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { GalaxyRecord, UniversePosition } from '@cosmos/core-types';
 import { CONTEXT_UNIT_METERS } from '@cosmos/core-types';
 import type { OriginManager, ScaleFrameTree } from '@cosmos/coords';
@@ -27,6 +27,14 @@ export const INITIAL_CAMERA: UniversePosition = {
 
 /** Distance floor (pc): avoids the Sol-at-zero-distance trap (TASK-015). */
 const MIN_SURFACE_DISTANCE_PC = 1e-7;
+/**
+ * Reach (pc) of the HYG spatial-grid nearest-star search: 200 rings × 25 pc cells
+ * (see `@cosmos/data` grid.ts). Beyond this from the star field, the expanding-shell
+ * search finds nothing yet still scans every ring (~2.7 M empty cells) — a multi-
+ * hundred-ms-per-frame stall. The "Milky Way" vantage (~49 kpc out, TASK-040) sits
+ * far outside the field, so we must short-circuit before calling it (see below).
+ */
+const HYG_GRID_REACH_PC = 200 * 25;
 /** Distance floor (AU) for the system-context surface feed. */
 const MIN_SURFACE_DISTANCE_AU = 1e-9;
 /** Distance floor (Mpc) for the universe-context streaming surface feed. */
@@ -89,6 +97,29 @@ export function NavDriver({
     maxSpeedUnitsPerS: MAX_FREE_FLIGHT_SPEED,
   });
 
+  // Bounding sphere of the HYG field (absolute pc), computed once. Used to skip the
+  // O(rings³) grid nearest-star search when the camera is too far out for it to find
+  // anything (TASK-040: the "Milky Way" vantage is ~49 kpc beyond the field).
+  const hygBounds = useMemo(() => {
+    const { positionsPc, originPc, count } = stars.batch;
+    if (count === 0) return { cx: originPc[0], cy: originPc[1], cz: originPc[2], radius: 0 };
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    for (let i = 0; i < count; i++) {
+      const x = positionsPc[i * 3]!, y = positionsPc[i * 3 + 1]!, z = positionsPc[i * 3 + 2]!;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+    }
+    const hx = (maxX - minX) / 2, hy = (maxY - minY) / 2, hz = (maxZ - minZ) / 2;
+    return {
+      cx: originPc[0] + (minX + maxX) / 2,
+      cy: originPc[1] + (minY + maxY) / 2,
+      cz: originPc[2] + (minZ + maxZ) / 2,
+      radius: Math.hypot(hx, hy, hz),
+    };
+  }, [stars]);
+
   useEffect(() => {
     onController(flight);
   }, [flight, onController]);
@@ -150,7 +181,19 @@ export function NavDriver({
       return;
     }
 
-    // Galaxy context — HYG nearest-star distance (M1 unchanged).
+    // Galaxy context — HYG nearest-star distance (M1 unchanged near the field).
+    // Short-circuit when the camera is beyond the grid's reach from the field: the
+    // expanding-shell search would scan all ~2.7 M empty cells and find nothing
+    // (TASK-040 perf bug). The bounding-sphere distance is a sound nearest-star
+    // estimate for the speed law out there, and avoids the per-frame stall.
+    const ddx = cx - hygBounds.cx;
+    const ddy = cy - hygBounds.cy;
+    const ddz = cz - hygBounds.cz;
+    const distToField = Math.hypot(ddx, ddy, ddz) - hygBounds.radius;
+    if (distToField > HYG_GRID_REACH_PC) {
+      flight.setDistanceToNearestSurface(Math.max(distToField, MIN_SURFACE_DISTANCE_PC));
+      return;
+    }
     const i = stars.nearestStarIndex(cx, cy, cz);
     if (i < 0) return;
     const { positionsPc, originPc } = stars.batch;
