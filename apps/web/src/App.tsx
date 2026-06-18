@@ -29,9 +29,11 @@ import { M3DescentProbe, M3_START } from './scene/M3DescentProbe';
 import { clock, epochProvider, installTimeGlue, syncClockToNow } from './glue/time';
 import { createGoToCoordinator } from './glue/goto';
 import { testHook, controllerHolder, mirrorControllerState, streamingHolder } from './glue/test-hook';
-import { makeLocalGroup } from './glue/local-group';
+import { makeLocalGroup, MILKY_WAY_STAR_COUNT } from './glue/local-group';
 import { getCosmosPool, createMilkyWayStreaming } from './glue/streaming';
 import { wireQuality } from './glue/quality';
+import { BreadcrumbFrameProfiler } from './scene/BreadcrumbFrameProfiler';
+import './glue/frame-profiler';
 
 /** TASK-006 debug flythrough scene, behind the query flag only. */
 const DEBUG_MARKERS =
@@ -47,6 +49,10 @@ const DEBUG_CTXSWITCH =
 
 /** TASK-040 M3 gate (`?debug=m3`): full packs + streaming, scripted universe→Earth zoom. */
 const DEBUG_M3 = new URLSearchParams(window.location.search).get('debug') === 'm3';
+
+/** Breadcrumb freeze profiler — span timings on `window.__breadcrumbProfile`. */
+const DEBUG_BREADCRUMB_PROFILE =
+  new URLSearchParams(window.location.search).get('debug') === 'breadcrumb-profile';
 
 const M3_SOL_SYSTEM_ID: BodyId = 'sol';
 
@@ -352,12 +358,15 @@ function Crosshair(): React.JSX.Element {
 function Breadcrumb({
   systemName,
   combined,
+  galaxyNavReady,
   onExit,
   onViewGalaxy,
   onEnterGalaxy,
 }: {
   systemName: string | null;
   combined: CombinedSource;
+  /** False while the procgen Milky Way worker is still loading (§5.8). */
+  galaxyNavReady: boolean;
   onExit(): void;
   onViewGalaxy(): void;
   onEnterGalaxy(): void;
@@ -401,13 +410,24 @@ function Breadcrumb({
             </span>
           ) : null}
           {seg.onClick ? (
+            (() => {
+              const scaleNav =
+                !galaxyNavReady &&
+                (seg.key === 'milkyway' || (seg.key === 'galaxy' && !inSystem));
+              return (
             <button
+              type="button"
               className="hud-breadcrumb-seg hud-breadcrumb-exit"
-              onClick={seg.onClick}
-              title={seg.title ?? ''}
+              disabled={scaleNav}
+              onClick={scaleNav ? undefined : seg.onClick}
+              title={
+                scaleNav ? 'Preparing Milky Way view…' : (seg.title ?? '')
+              }
             >
               ◂ {seg.label}
             </button>
+              );
+            })()
           ) : (
             <span
               className={`hud-breadcrumb-seg${
@@ -516,6 +536,8 @@ function StarApp() {
   const [contextLost, setContextLost] = useState(false);
   /** System mounted in the Canvas while `contextId === 'system'` (rare React state). */
   const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
+  /** Procgen Milky Way on the visible cut — gates scale breadcrumbs (§5.8 / M3 waitReady). */
+  const [galaxyNavReady, setGalaxyNavReady] = useState(false);
   const handleContextLost = useCallback(() => setContextLost(true), []);
   const cleanView = useHudStore((s) => s.cleanView);
   /** Chrome auto-hides after a few seconds of no input, for an unobstructed view. */
@@ -664,6 +686,31 @@ function StarApp() {
     };
   }, [streaming]);
 
+  // Same gate as e2e `waitReady`: do not start Milky Way ↔ Galaxy flights until
+  // the procgen chunk is drawable. GalaxyScene stays mounted; only breadcrumbs wait.
+  useEffect(() => {
+    if (streaming === null) {
+      setGalaxyNavReady(false);
+      return;
+    }
+    let raf = 0;
+    let cancelled = false;
+    const tick = (): void => {
+      if (cancelled) return;
+      if (streaming.stats.renderedPoints >= MILKY_WAY_STAR_COUNT) {
+        setGalaxyNavReady(true);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    setGalaxyNavReady(false);
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
+  }, [streaming]);
+
   // Adaptive quality: relay the SceneHost tier to the streaming point cap + test
   // hook (§9). Stable across renders for the same streaming policy.
   const handleQc = useCallback(
@@ -750,6 +797,7 @@ function StarApp() {
             onController={handleController}
             onContextSwitch={handleContextSwitch}
           />
+          {DEBUG_BREADCRUMB_PROFILE ? <BreadcrumbFrameProfiler /> : null}
           {streaming ? (
             <GalaxyScene
               streaming={streaming}
@@ -782,6 +830,7 @@ function StarApp() {
           <Breadcrumb
             systemName={mountedSystem?.system.name ?? null}
             combined={pack.sources.combined}
+            galaxyNavReady={galaxyNavReady}
             onExit={() => goto?.exitSystem()}
             onViewGalaxy={() => goto?.viewGalaxy()}
             onEnterGalaxy={() => goto?.enterGalaxy()}
@@ -804,6 +853,9 @@ function StarApp() {
                   Retry
                 </button>
               </>
+            ) : null}
+            {pack.status === 'ready' && streaming !== null && !galaxyNavReady ? (
+              <div className="dim">preparing Milky Way view…</div>
             ) : null}
             {pack.status === 'ready' ? (
               <>

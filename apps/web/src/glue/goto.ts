@@ -263,8 +263,8 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     });
   }
 
-  /** Descend from the universe view back to the galaxy star field near Sol. The
-   *  controller crosses the universe→galaxy gate mid-flight (TASK-037). */
+  /** Descend from the Milky Way view back to the Sol star field. Faces the galactic
+   *  centre during the flight (same as viewGalaxy) so the first frames are not empty. */
   function enterGalaxy(): void {
     const controller = deps.controllerRef.current;
     if (controller === null) return;
@@ -272,6 +272,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       target: { context: 'galaxy', local: [0, 0, GALAXY_FIELD_VANTAGE_PC] },
       arrivalDistanceM: GALAXY_FIELD_ARRIVAL_M,
       durationMs: GALAXY_FIELD_DURATION_MS,
+      lookAtTarget: { context: 'galaxy', local: [0, 0, 0] },
     });
   }
 

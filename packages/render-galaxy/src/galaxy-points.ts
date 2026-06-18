@@ -29,6 +29,8 @@ export interface GalaxyPoints {
   setViewportHeight(px: number): void;
   setExposure(v: number): void;
   setOpacity(a: number): void;
+  /** Fraction of batch points to draw (0–1). Uses geometry drawRange — no regen. */
+  setDrawFraction(f: number): void;
   setVisible(visible: boolean): void;
   dispose(): void;
 }
@@ -81,6 +83,7 @@ export function createGalaxyPoints(opts: GalaxyPointsOptions): GalaxyPoints {
   });
 
   const object = new THREE.Points(geometry, material);
+  const starCount = batch.count;
 
   let disposed = false;
 
@@ -104,6 +107,11 @@ export function createGalaxyPoints(opts: GalaxyPointsOptions): GalaxyPoints {
 
     setOpacity(a: number): void {
       uniforms.uOpacity.value = a;
+    },
+
+    setDrawFraction(f: number): void {
+      const clamped = Math.max(0, Math.min(1, f));
+      geometry.setDrawRange(0, Math.max(1, Math.floor(starCount * clamped)));
     },
 
     setVisible(visible: boolean): void {

@@ -82,8 +82,14 @@ button.hud-breadcrumb-exit {
   color: var(--hud-accent);
 }
 
-button.hud-breadcrumb-exit:hover {
+button.hud-breadcrumb-exit:hover:not(:disabled) {
   color: #ffffff;
+}
+
+button.hud-breadcrumb-exit:disabled {
+  cursor: default;
+  color: var(--hud-text-faint);
+  opacity: 0.55;
 }
 
 .hud :focus-visible {

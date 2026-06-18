@@ -600,6 +600,11 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     get nearestBodyDistanceM() { return nearestBodyDistanceM; },
     onChunk(cb) {
       listeners.push(cb);
+      // Replay ready chunks subscribed after warm-up (StrictMode / late mount).
+      for (let i = 0; i < chunkList.length; i++) {
+        const c = chunkList[i]!;
+        if (c.status === 'ready' && c.batch !== null) emit('ready', c);
+      }
       return () => {
         const i = listeners.indexOf(cb);
         if (i >= 0) listeners.splice(i, 1);

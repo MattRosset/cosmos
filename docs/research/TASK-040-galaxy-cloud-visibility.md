@@ -5,6 +5,8 @@
 **Owner of this doc:** cold-start brief — assume the reader has **no** prior context.
 **Supersedes:** the previous version of this doc, whose root-cause theory (§"brightness
 underflow") was **disproven** by live testing. See §4 for what was actually happening.
+**See also:** breadcrumb **freeze** (main-thread stall, not visual) —
+[`TASK-040-breadcrumb-freeze.md`](TASK-040-breadcrumb-freeze.md).
 
 ---
 

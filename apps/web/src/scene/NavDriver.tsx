@@ -12,6 +12,7 @@ import {
 } from '@cosmos/nav';
 import { systemFeed } from '../glue/system-feed';
 import { startGalaxyAnchorScan } from '../glue/local-group';
+import { profileSpan } from '../glue/frame-profiler';
 
 /**
  * Initial camera: in the galaxy star field, ~0.06 pc from Sol — just OUTSIDE the
@@ -152,6 +153,7 @@ export function NavDriver({
   }, [flight, tree, milkyWay]);
 
   useFrameContext(() => {
+    profileSpan('nav.surfaceFeed', () => {
     const [cx, cy, cz] = flight.state.position.local;
     if (flight.contextId === 'system') {
       if (!systemFeed.active) return; // scene not built yet — keep last value
@@ -182,27 +184,31 @@ export function NavDriver({
     }
 
     // Galaxy context — HYG nearest-star distance (M1 unchanged near the field).
-    // Short-circuit when the camera is beyond the grid's reach from the field: the
-    // expanding-shell search would scan all ~2.7 M empty cells and find nothing
-    // (TASK-040 perf bug). The bounding-sphere distance is a sound nearest-star
-    // estimate for the speed law out there, and avoids the per-frame stall.
+    // Short-circuit when the camera is beyond the grid's reach from the field, OR
+    // during an animated goTo (breadcrumbs): both cases skip nearestStarIndex.
+    // The expanding-shell search scans up to 200 empty rings (~1.7 s/frame) when
+    // the camera is in the inter-arm void (3–20 kpc) where HYG has no cells — see
+    // docs/research/TASK-040-breadcrumb-freeze.md.
     const ddx = cx - hygBounds.cx;
     const ddy = cy - hygBounds.cy;
     const ddz = cz - hygBounds.cz;
     const distToField = Math.hypot(ddx, ddy, ddz) - hygBounds.radius;
-    if (distToField > HYG_GRID_REACH_PC) {
+    if (flight.goToActive || distToField > HYG_GRID_REACH_PC) {
       flight.setDistanceToNearestSurface(Math.max(distToField, MIN_SURFACE_DISTANCE_PC));
       return;
     }
-    const i = stars.nearestStarIndex(cx, cy, cz);
-    if (i < 0) return;
-    const { positionsPc, originPc } = stars.batch;
-    const dx = originPc[0] + positionsPc[i * 3]! - cx;
-    const dy = originPc[1] + positionsPc[i * 3 + 1]! - cy;
-    const dz = originPc[2] + positionsPc[i * 3 + 2]! - cz;
-    flight.setDistanceToNearestSurface(
-      Math.max(Math.hypot(dx, dy, dz), MIN_SURFACE_DISTANCE_PC),
-    );
+    profileSpan('nav.hyg.nearestStarIndex', () => {
+      const i = stars.nearestStarIndex(cx, cy, cz);
+      if (i < 0) return;
+      const { positionsPc, originPc } = stars.batch;
+      const dx = originPc[0] + positionsPc[i * 3]! - cx;
+      const dy = originPc[1] + positionsPc[i * 3 + 1]! - cy;
+      const dz = originPc[2] + positionsPc[i * 3 + 2]! - cz;
+      flight.setDistanceToNearestSurface(
+        Math.max(Math.hypot(dx, dy, dz), MIN_SURFACE_DISTANCE_PC),
+      );
+    });
+    });
   }, PRIORITY_NAV - 1);
 
   return null;

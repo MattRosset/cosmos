@@ -200,6 +200,16 @@ describe('setOpacity', () => {
   });
 });
 
+describe('setDrawFraction', () => {
+  it('sets geometry drawRange from batch count', () => {
+    const pts = createGalaxyPoints({ batch: makeBatch(100) });
+    pts.setDrawFraction(0.5);
+    expect(pts.object.geometry.drawRange.count).toBe(50);
+    pts.setDrawFraction(1);
+    expect(pts.object.geometry.drawRange.count).toBe(100);
+  });
+});
+
 describe('setViewportHeight', () => {
   it('updates uPixelScale uniform', () => {
     const pts = createGalaxyPoints({ batch: makeBatch(5) });

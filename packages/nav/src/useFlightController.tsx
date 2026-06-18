@@ -28,11 +28,16 @@ export function useFlightController(
   }, [controller, gl.domElement]);
 
   useFrameContext((ctx) => {
-    controller.update(ctx.dtMs);
+    const profile = (globalThis as typeof globalThis & { __cosmosProfileSpan?: (n: string, fn: () => void) => void })
+      .__cosmosProfileSpan;
+    const run = profile ?? ((_n: string, fn: () => void) => fn());
+    run('nav.update', () => controller.update(ctx.dtMs));
     const { orientation } = controller.state;
-    opts.origin.toRenderSpace(controller.state.position, renderPosScratch);
-    camera.position.set(renderPosScratch[0], renderPosScratch[1], renderPosScratch[2]);
-    camera.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    run('nav.cameraSync', () => {
+      opts.origin.toRenderSpace(controller.state.position, renderPosScratch);
+      camera.position.set(renderPosScratch[0], renderPosScratch[1], renderPosScratch[2]);
+      camera.quaternion.set(orientation[0], orientation[1], orientation[2], orientation[3]);
+    });
   }, PRIORITY_NAV);
 
   return controller;

@@ -9,6 +9,7 @@ import type { FlightController } from '@cosmos/nav';
 import { useSelectionStore, useSettingsStore } from '@cosmos/app-state';
 import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
+import { profileSpan } from '../glue/frame-profiler';
 import { systemPickGroup } from '../glue/system-feed';
 
 /** Angular pick threshold, radians (TASK-015 fixed wiring). */
@@ -137,8 +138,10 @@ export function StarScene({
   }, [hygPoints, exoPoints]);
 
   useFrameContext(() => {
-    hygPoints.setRenderOffset(origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch));
-    exoPoints?.setRenderOffset(origin.toRenderSpace(EXO_ORIGIN, renderOffsetScratch));
+    profileSpan('stars.render', () => {
+      hygPoints.setRenderOffset(origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch));
+      exoPoints?.setRenderOffset(origin.toRenderSpace(EXO_ORIGIN, renderOffsetScratch));
+    });
   }, PRIORITY_RENDER);
 
   // Picking. The star ray must NOT use the Three camera's position — the camera

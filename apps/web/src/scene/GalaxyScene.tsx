@@ -24,6 +24,7 @@ import {
   buildHiiRegions,
 } from '../glue/galaxy-assets';
 import { milkyWayArmGeometry } from '../glue/milky-way-gen';
+import { profileSpan } from '../glue/frame-profiler';
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -63,13 +64,20 @@ const HII_GLOW_COLOR: readonly [number, number, number] = [1.0, 0.35, 0.72];
 // layer fades out (layerFade→0) before the camera gets close enough to blow out.
 const CLOUD_EXPOSURE_BOOST = 4e5;
 
-// Galaxy-context layer fade (parsecs from the Milky Way centre): the spiral is
-// fully shown when the camera is well outside the disc (the "view galaxy" vantage
-// and the universe→galaxy descent), and fades to nothing as it descends toward Sol
-// where the real HYG star field (M2) takes over. Hidden entirely near Sol so the
-// M2 galaxy view + its baselines are untouched.
+// Galaxy-context procgen blend (parsecs from the Milky Way centre): ramps from a
+// partial cloud near Sol to the full spiral at the Milky Way vantage. The floor
+// keeps breadcrumb flights visually filled (no empty band below 18 kpc) while the
+// real HYG field still dominates the neighbourhood around Sol.
 const GAL_FADE_LO_PC = 18_000;
 const GAL_FADE_HI_PC = 45_000;
+/** Minimum procgen draw + opacity inside the galaxy (50% of the 1M cloud). */
+const GAL_PROCGEN_FLOOR = 0.5;
+/** Cap procgen draw while a breadcrumb goTo is moving — avoids 500k–1M point stalls. */
+const GAL_FLIGHT_DRAW_MAX = 0.2;
+/** Ease draw cap back to full after goTo ends (ms). */
+const GAL_DRAW_CAP_RAMP_MS = 400;
+/** Octree tile mounts deferred during flight — flushed gradually after arrival. */
+const OCTREE_FLUSH_PER_FRAME = 2;
 
 function smoothstep(lo: number, hi: number, x: number): number {
   if (hi <= lo) return x >= hi ? 1 : 0;
@@ -86,7 +94,12 @@ interface Mount {
   readonly objects: readonly THREE.Object3D[];
   /** Last frame this mount was on the visible cut (hide stale mounts each frame). */
   seen: number;
-  applyFrame(offset: readonly [number, number, number], opacity: number, lod: number): void;
+  applyFrame(
+    offset: readonly [number, number, number],
+    opacity: number,
+    lod: number,
+    drawFraction?: number,
+  ): void;
   setViewportHeight(px: number): void;
   setExposure(exposure: number): void;
   hide(): void;
@@ -176,8 +189,9 @@ function makeProcgenMount(
     batch,
     objects: [impostor.object, lanes.object, cloud.object, hiiRegions.object],
     seen: 0,
-    applyFrame(offset, opacity, lod): void {
+    applyFrame(offset, opacity, lod, drawFraction = 1): void {
       const cloudFactor = 1 - smoothstep(LOD_CLOUD_FULL, LOD_IMPOSTOR_FULL, lod);
+      cloud.setDrawFraction(drawFraction);
       cloud.object.visible = true;
       lanes.object.visible = true;
       hiiRegions.object.visible = true;
@@ -259,6 +273,13 @@ export function GalaxyScene({
   const mountList = useRef<Mount[]>([]);
   const [version, setVersion] = useState(0);
   const frameTick = useRef(0);
+  const drawCapRef = useRef(1);
+  const wasFlyingRef = useRef(false);
+  const flightActiveRef = useRef(false);
+  const deferredOctree = useRef<{ chunkId: string; batch: StarBatch }[]>([]);
+  const addMountRef = useRef<(chunkId: string, kind: ChunkKind, batch: StarBatch) => void>(
+    () => {},
+  );
 
   // Stable refs to the latest viewport/exposure so the event-driven mount factory
   // can initialise new mounts without re-subscribing the lifecycle listener.
@@ -268,6 +289,7 @@ export function GalaxyScene({
   useEffect(() => {
     const addMount = (chunkId: string, kind: ChunkKind, batch: StarBatch): void => {
       if (mounts.current.has(chunkId)) return;
+      profileSpan(kind === 'octree' ? 'galaxy.mountOctree' : 'galaxy.mountProcgen', () => {
       const m =
         kind === 'octree'
           ? makeOctreeMount(chunkId, batch, viewportPx.current, exposure.current)
@@ -287,7 +309,9 @@ export function GalaxyScene({
       mounts.current.set(chunkId, m);
       mountList.current.push(m);
       setVersion((v) => v + 1);
+      });
     };
+    addMountRef.current = addMount;
     const removeMount = (chunkId: string): void => {
       const m = mounts.current.get(chunkId);
       if (!m) return;
@@ -299,11 +323,17 @@ export function GalaxyScene({
     };
 
     const unsub = streaming.onChunk((e) => {
-      if (e.phase === 'ready' && e.batch !== null) addMount(e.chunkId, e.kind, e.batch);
-      else if (e.phase === 'evict') removeMount(e.chunkId);
+      if (e.phase === 'ready' && e.batch !== null) {
+        if (e.kind === 'octree' && flightActiveRef.current) {
+          deferredOctree.current.push({ chunkId: e.chunkId, batch: e.batch });
+          return;
+        }
+        addMount(e.chunkId, e.kind, e.batch);
+      } else if (e.phase === 'evict') removeMount(e.chunkId);
     });
     return () => {
       unsub();
+      deferredOctree.current = [];
       for (const m of mountList.current) m.dispose();
       mountList.current = [];
       mounts.current.clear();
@@ -330,24 +360,48 @@ export function GalaxyScene({
   // §5.8 brain: the visible cut / fetch / evict decisions, on the main thread,
   // BEFORE render. dtMs is the clamped wall delta from the frame context.
   useFrameContext((ctx) => {
-    streaming.update(size.height * dpr, ctx.dtMs);
+    profileSpan('streaming.update', () => {
+      streaming.update(size.height * dpr, ctx.dtMs);
+    });
   }, PRIORITY_STREAMING);
 
-  useFrameContext(() => {
+  useFrameContext((frameCtx) => {
+    profileSpan('galaxy.render', () => {
     const tick = ++frameTick.current;
     const ctrl = controllerRef.current;
     const ctx: ContextId = ctrl ? ctrl.contextId : origin.context;
+    const flying = ctrl?.goToActive ?? false;
+    flightActiveRef.current = flying;
 
-    // Streaming tier: active in universe + galaxy. Procgen Milky Way fades out near
-    // Sol (layerFade); octree HYG tiles stay at full opacity so the M2 hand-off never
-    // leaves a blank frame (M3 gate: blankFrames must be 0).
-    let layerFade = 0;
-    if (ctx === 'universe') {
-      layerFade = 1;
-    } else if (ctx === 'galaxy' && ctrl) {
-      const p = ctrl.state.position.local;
-      layerFade = smoothstep(GAL_FADE_LO_PC, GAL_FADE_HI_PC, Math.hypot(p[0], p[1], p[2]));
+    // Snap draw cap down when a breadcrumb flight starts; ramp back up on arrival.
+    if (flying && !wasFlyingRef.current) {
+      drawCapRef.current = GAL_FLIGHT_DRAW_MAX;
+    } else if (flying) {
+      drawCapRef.current = GAL_FLIGHT_DRAW_MAX;
+    } else {
+      const ramp = Math.min(1, frameCtx.dtMs / GAL_DRAW_CAP_RAMP_MS);
+      drawCapRef.current += (1 - drawCapRef.current) * ramp;
+      for (let n = 0; n < OCTREE_FLUSH_PER_FRAME && deferredOctree.current.length > 0; n++) {
+        const p = deferredOctree.current.shift()!;
+        addMountRef.current(p.chunkId, 'octree', p.batch);
+      }
     }
+    wasFlyingRef.current = flying;
+
+    // Streaming tier: active in universe + galaxy. Procgen ramps from GAL_PROCGEN_FLOOR
+    // near Sol to full at the Milky Way vantage; octree HYG tiles stay at full opacity.
+    let procgenBlend = 1;
+    if (ctx === 'galaxy' && ctrl) {
+      const p = ctrl.state.position.local;
+      const dist = Math.hypot(p[0], p[1], p[2]);
+      const t = smoothstep(GAL_FADE_LO_PC, GAL_FADE_HI_PC, dist);
+      procgenBlend = GAL_PROCGEN_FLOOR + (1 - GAL_PROCGEN_FLOOR) * t;
+    } else if (ctx === 'galaxy') {
+      procgenBlend = GAL_PROCGEN_FLOOR;
+    }
+
+    const drawFraction = Math.min(procgenBlend, drawCapRef.current);
+    const opacityBlend = flying ? Math.min(1, procgenBlend * 1.15) : procgenBlend;
 
     const streamingActive = ctx === 'universe' || ctx === 'galaxy';
     const visible = streaming.visible;
@@ -356,14 +410,18 @@ export function GalaxyScene({
         const v = visible[i]!;
         const m = mounts.current.get(v.chunkId);
         if (m === undefined) continue;
+        if (flying && m.kind === 'octree') continue;
         m.seen = tick;
         posScratch.context = m.context;
         posScratch.local[0] = m.originPc[0];
         posScratch.local[1] = m.originPc[1];
         posScratch.local[2] = m.originPc[2];
         origin.toRenderSpace(posScratch, offScratch);
-        const mountOpacity = m.kind === 'procgen' ? v.opacity * layerFade : v.opacity;
-        m.applyFrame(offScratch, mountOpacity, v.lod);
+        if (m.kind === 'procgen') {
+          m.applyFrame(offScratch, v.opacity * opacityBlend, v.lod, drawFraction);
+        } else {
+          m.applyFrame(offScratch, v.opacity, v.lod);
+        }
       }
     }
     // Hide any mount not on the visible cut this frame (or whole layer faded out).
@@ -371,6 +429,7 @@ export function GalaxyScene({
     for (let i = 0; i < list.length; i++) {
       if (list[i]!.seen !== tick) list[i]!.hide();
     }
+    });
   }, PRIORITY_RENDER);
 
   return (
