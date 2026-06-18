@@ -2,7 +2,7 @@
  * Diagnostic: capture frames + brightness during Milky Way ↔ Galaxy breadcrumbs.
  * Run: pnpm exec playwright test breadcrumb-transition --config e2e/playwright.dev.config.ts
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -10,7 +10,7 @@ const OUT_DIR = path.join(process.cwd(), 'e2e', 'transition-capture');
 const SAMPLE_MS = 250;
 const MILKY_WAY_STAR_COUNT = 1_000_000;
 
-async function waitGalaxyNavReady(page: import('@playwright/test').Page): Promise<void> {
+async function waitGalaxyNavReady(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__cosmos?.ready === true, undefined, {
     timeout: 60_000,
   });
@@ -22,7 +22,7 @@ async function waitGalaxyNavReady(page: import('@playwright/test').Page): Promis
 }
 
 /** Mean non-background luminance of canvas (0 = black, higher = content). */
-async function canvasBrightness(page: import('@playwright/test').Page): Promise<number> {
+async function canvasBrightness(page: Page): Promise<number> {
   return page.evaluate(() => {
     const canvas = document.querySelector('canvas');
     if (!canvas) return 0;
@@ -63,7 +63,7 @@ interface Sample {
 }
 
 async function sampleDuring(
-  page: import('@playwright/test').Page,
+  page: Page,
   label: string,
   durationMs: number,
 ): Promise<Sample[]> {

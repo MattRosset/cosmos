@@ -2,7 +2,7 @@
  * Main-thread span profiler during breadcrumb flights.
  * Run: pnpm exec playwright test breadcrumb-profile --config e2e/playwright.dev.config.ts
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -26,7 +26,7 @@ interface ProfileResult {
   readonly topSpansByMax: readonly { readonly name: string; readonly maxMs: number }[];
 }
 
-async function waitReady(page: import('@playwright/test').Page): Promise<void> {
+async function waitReady(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__cosmos?.ready === true, undefined, {
     timeout: 60_000,
   });

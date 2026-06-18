@@ -3,7 +3,7 @@
  * Baseline captured pre/post HYG grid fix — see docs/research/TASK-040-breadcrumb-freeze.md.
  * Run: pnpm exec playwright test breadcrumb-perf --config e2e/playwright.dev.config.ts
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -21,7 +21,7 @@ interface PerfResult {
   readonly longFrames: number;
 }
 
-async function waitReady(page: import('@playwright/test').Page): Promise<void> {
+async function waitReady(page: Page): Promise<void> {
   await page.waitForFunction(() => window.__cosmos?.ready === true, undefined, {
     timeout: 60_000,
   });
@@ -32,7 +32,7 @@ async function waitReady(page: import('@playwright/test').Page): Promise<void> {
   );
 }
 
-async function startFrameProbe(page: import('@playwright/test').Page): Promise<void> {
+async function startFrameProbe(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as Window & { __frameProbe?: number[]; __probeLast?: number };
     w.__frameProbe = [];
@@ -47,7 +47,7 @@ async function startFrameProbe(page: import('@playwright/test').Page): Promise<v
   });
 }
 
-async function stopFrameProbe(page: import('@playwright/test').Page, label: string): Promise<PerfResult> {
+async function stopFrameProbe(page: Page, label: string): Promise<PerfResult> {
   return page.evaluate((lbl) => {
     const w = window as Window & { __frameProbe?: number[] };
     const frameMs = w.__frameProbe ?? [];

@@ -14,7 +14,7 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/public/**'],
+    ignores: ['**/dist/**', '**/node_modules/**', '**/.turbo/**', '**/public/**', 'tmpff/**'],
   },
   {
     // Node.js scripts (plain .mjs files — no bundler, no DOM)

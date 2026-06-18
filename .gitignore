@@ -10,6 +10,10 @@ Thumbs.db
 *.tsbuildinfo
 test-results/
 playwright-report/
+# Local scratch (demo-recording capture, e2e output dirs) — never versioned.
+tmpff/
+e2e/e2e/
+e2e/test-results-dev/
 .lighthouseci/
 
 # Raw source catalogs — inputs to tools/pack-* generators. Large; not versioned.
