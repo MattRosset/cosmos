@@ -954,6 +954,7 @@ function StarApp() {
   return (
     <>
       {contextLost ? <ContextLostOverlay /> : null}
+      <main id="main">
       {pack.status === 'ready' ? (
         <SceneHost
           onContextLost={handleContextLost}
@@ -1032,16 +1033,14 @@ function StarApp() {
             {pack.status === 'ready' && streaming !== null && !galaxyNavReady ? (
               <div className="dim">preparing Milky Way view…</div>
             ) : null}
+            <div className="dim">
+              WASD move · R/F up·down · drag to look · double-click to fly · Ctrl+K search · G frame · H clean
+            </div>
             {pack.status === 'ready' ? (
-              <>
-                <div className="dim">
-                  M2 — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) ·
-                  Sol + {pack.sources.exo.systems.length} exoplanet systems
-                </div>
-                <div className="dim">
-                  WASD move · R/F up·down · drag to look · double-click to fly · Ctrl+K search · G frame · H clean
-                </div>
-              </>
+              <div className="dim">
+                M2 — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) ·
+                Sol + {pack.sources.exo.systems.length} exoplanet systems
+              </div>
             ) : null}
           </div>
           {pack.status === 'ready' && goto ? (
@@ -1057,6 +1056,7 @@ function StarApp() {
           ) : null}
         </div>
       </div>
+      </main>
     </>
   );
 }

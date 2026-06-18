@@ -62,7 +62,7 @@ export function TimeControls({ onSyncToNow }: TimeControlsProps): JSX.Element {
       </button>
       <button
         className="cosmos-ui-time-reset"
-        aria-label="Reset speed"
+        aria-label="Reset to 1× speed"
         onClick={() => setAccel(1)}
       >
         1×
