@@ -42,15 +42,18 @@ export interface DustLaneGeometry {
 }
 
 /**
- * Billboards strung along the spiral arms (log-spiral phase, ADR-004 §3), thinning
- * toward the rim. Galaxy-local parsecs centred on the disc origin — the same frame
- * the procgen star batch uses, so a single render offset positions cloud + dust.
+ * Billboards strung densely along the spiral arms (log-spiral phase, ADR-004 §3) so
+ * they overlap into continuous dust lanes rather than discrete blobs. Each billboard
+ * is much smaller than the arm width (≈ ⅓) and placed at a fine radial step, so the
+ * chain reads as a soft lane tracing each arm. Galaxy-local parsecs centred on the
+ * disc origin — the same frame the procgen star batch uses, so one render offset
+ * positions cloud + dust together. Still a single instanced draw call.
  */
-export function buildDustLanes(perArm = 28): DustLaneGeometry {
+export function buildDustLanes(perArm = 110): DustLaneGeometry {
   const d = PROCGEN_GALAXY_DEFAULTS;
   const TWO_PI = 2 * Math.PI;
   const tanPitch = Math.tan(d.armPitchRad);
-  const innerPc = d.discScaleLengthPc * 0.5;
+  const innerPc = d.discScaleLengthPc * 0.6;
   const n = d.armCount * perArm;
   const centers = new Float32Array(3 * n);
   const radii = new Float32Array(n);
@@ -65,8 +68,9 @@ export function buildDustLanes(perArm = 28): DustLaneGeometry {
       centers[3 * i] = r * Math.cos(phi);
       centers[3 * i + 1] = r * Math.sin(phi);
       centers[3 * i + 2] = 0;
-      // Wider lanes outward, narrowing into the bright core.
-      radii[i] = d.armWidthPc * (1.5 + 1.5 * t);
+      // Small relative to the arm width (so the dense chain blends into a lane),
+      // tapering slightly outward.
+      radii[i] = d.armWidthPc * (0.35 + 0.25 * t);
       i++;
     }
   }

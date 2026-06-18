@@ -46,6 +46,10 @@ import {
 const LOD_CLOUD_FULL = 2;
 const LOD_IMPOSTOR_FULL = 6;
 
+// Dust lanes darken the additive cloud (MultiplyBlending); keep them subtle so they
+// read as lanes, not opaque bands.
+const DUST_MAX_OPACITY = 0.45;
+
 // Galaxy-context layer fade (parsecs from the Milky Way centre): full above HI,
 // gone below LO — the descent hands off to the M2 HYG field inside the disc.
 const GAL_FADE_LO_PC = 15_000;
@@ -142,7 +146,7 @@ function makeProcgenMount(
       cloud.setRenderOffset(offset);
       cloud.setOpacity(opacity * cloudFactor);
       lanes.setRenderOffset(offset);
-      lanes.setOpacity(opacity * cloudFactor);
+      lanes.setOpacity(opacity * cloudFactor * DUST_MAX_OPACITY);
       impostor.setRenderOffset(offset);
       impostor.setOpacity(opacity * (1 - cloudFactor));
     },
