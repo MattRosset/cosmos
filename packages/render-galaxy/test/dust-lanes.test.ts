@@ -76,6 +76,10 @@ describe('material flags', () => {
   it('transparent = true', () => {
     expect(mat.transparent).toBe(true);
   });
+
+  it('premultipliedAlpha = true (required by MultiplyBlending)', () => {
+    expect(mat.premultipliedAlpha).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

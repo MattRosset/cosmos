@@ -33,13 +33,16 @@ export function createDustLanes(opts: DustLanesOptions): DustLanes {
   };
 
   // MultiplyBlending: result = src * dst — darkens the additive star cloud
-  // behind the dust (§5.9 doctrine: dust occludes, does not add).
+  // behind the dust (§5.9 doctrine: dust occludes, does not add). Three.js
+  // requires premultipliedAlpha for MultiplyBlending (else it emits a per-frame
+  // WebGLState error and the blend is undefined).
   const material = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: VERT,
     fragmentShader: FRAG,
     transparent: true,
     blending: THREE.MultiplyBlending,
+    premultipliedAlpha: true,
     depthWrite: false,
     side: THREE.DoubleSide,
   });
