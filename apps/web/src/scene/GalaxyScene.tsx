@@ -18,9 +18,12 @@ import {
 import { PRIORITY_RENDER, PRIORITY_STREAMING, useFrameContext } from '@cosmos/scene-host';
 import {
   createDustTexture,
+  createHiiTexture,
   createImpostorTexture,
   buildDustLanes,
+  buildHiiRegions,
 } from '../glue/galaxy-assets';
+import { milkyWayArmGeometry } from '../glue/milky-way-gen';
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -46,9 +49,11 @@ import {
 const LOD_CLOUD_FULL = 2;
 const LOD_IMPOSTOR_FULL = 6;
 
-// Dust lanes darken the additive cloud (MultiplyBlending); keep them subtle so they
-// read as lanes, not opaque bands.
-const DUST_MAX_OPACITY = 0.45;
+// Arm glow is a subtle hint only — the star cloud carries the spiral (Tier-1 trial).
+const DUST_MAX_OPACITY = 0.1;
+// HII star-forming knots along the arms (Tier-2).
+const HII_MAX_OPACITY = 0.38;
+const HII_GLOW_COLOR: readonly [number, number, number] = [1.0, 0.35, 0.72];
 
 // The procgen cloud is rendered with magnitude-based per-star brightness, so at the
 // galaxy "view" vantage (~50 kpc) the distance modulus (~18 mag) drives each star's
@@ -128,19 +133,18 @@ function makeProcgenMount(
   viewportPx: number,
   exposure: number,
   dustTexture: THREE.Texture,
+  hiiTexture: THREE.Texture,
   impostorTexture: THREE.Texture,
   dust: { centersUnits: Float32Array; radiiUnits: Float32Array },
+  hii: { centersUnits: Float32Array; radiiUnits: Float32Array },
   impostorRadiusUnits: number,
 ): Mount {
-  // minPointPx 2.5: at galaxy distances every star clamps to the floor, so the
-  // floor IS the cloud's grain — 1px (default) is sub-pixel (≈0.7px after pixel
-  // scale) and the GPU culls it, leaving the cloud invisible. 2.5 keeps each star a
-  // visible speck so the additive arms read.
   const cloud: GalaxyPoints = createGalaxyPoints({
     batch,
     minPointPx: 2,
     basePointPx: 5,
     maxPointPx: 48,
+    armGeometry: milkyWayArmGeometry(),
   });
   cloud.object.frustumCulled = false;
   cloud.setViewportHeight(viewportPx);
@@ -151,6 +155,13 @@ function makeProcgenMount(
     dustTexture,
   });
   lanes.object.frustumCulled = false;
+  const hiiRegions: DustLanes = createDustLanes({
+    centersUnits: hii.centersUnits,
+    radiiUnits: hii.radiiUnits,
+    dustTexture: hiiTexture,
+    glowColor: HII_GLOW_COLOR,
+  });
+  hiiRegions.object.frustumCulled = false;
   const impostor: GalaxyImpostor = createGalaxyImpostor({
     spriteTexture: impostorTexture,
     radiusUnits: impostorRadiusUnits,
@@ -163,36 +174,35 @@ function makeProcgenMount(
     context: 'galaxy',
     originPc: batch.originPc,
     batch,
-    objects: [impostor.object, lanes.object, cloud.object],
+    objects: [impostor.object, lanes.object, cloud.object, hiiRegions.object],
     seen: 0,
     applyFrame(offset, opacity, lod): void {
-      // Cloud at fine LOD, impostor at coarse LOD; cross-fade between. NB the
-      // band is fine→coarse (LOD_CLOUD_FULL < LOD_IMPOSTOR_FULL), so smoothstep
-      // runs in its natural lo<hi direction and we invert: 1 at fine LOD (cloud
-      // full), 0 at coarse LOD (impostor full).
       const cloudFactor = 1 - smoothstep(LOD_CLOUD_FULL, LOD_IMPOSTOR_FULL, lod);
       cloud.object.visible = true;
       lanes.object.visible = true;
+      hiiRegions.object.visible = true;
       impostor.object.visible = true;
       cloud.setRenderOffset(offset);
       cloud.setOpacity(opacity * cloudFactor);
       lanes.setRenderOffset(offset);
       lanes.setOpacity(opacity * cloudFactor * DUST_MAX_OPACITY);
+      hiiRegions.setRenderOffset(offset);
+      hiiRegions.setOpacity(opacity * cloudFactor * HII_MAX_OPACITY);
       impostor.setRenderOffset(offset);
       impostor.setOpacity(opacity * (1 - cloudFactor));
     },
     setViewportHeight: (px) => cloud.setViewportHeight(px),
     setExposure: (e) => cloud.setExposure(e * CLOUD_EXPOSURE_BOOST),
-    // Hard hide via object.visible (MultiplyBlending dust at opacity 0 darkens
-    // rather than disappears, so visibility is the only reliable hide).
     hide(): void {
       cloud.object.visible = false;
       lanes.object.visible = false;
+      hiiRegions.object.visible = false;
       impostor.object.visible = false;
     },
     dispose(): void {
       cloud.dispose();
       lanes.dispose();
+      hiiRegions.dispose();
       impostor.dispose();
     },
   };
@@ -226,14 +236,17 @@ export function GalaxyScene({
   const assets = useMemo(
     () => ({
       dustTexture: createDustTexture(),
+      hiiTexture: createHiiTexture(),
       impostorTexture: createImpostorTexture(),
       dustLanes: buildDustLanes(),
+      hiiRegions: buildHiiRegions(),
     }),
     [],
   );
   useEffect(
     () => () => {
       assets.dustTexture.dispose();
+      assets.hiiTexture.dispose();
       assets.impostorTexture.dispose();
     },
     [assets],
@@ -264,8 +277,10 @@ export function GalaxyScene({
               viewportPx.current,
               exposure.current,
               assets.dustTexture,
+              assets.hiiTexture,
               assets.impostorTexture,
               assets.dustLanes,
+              assets.hiiRegions,
               milkyWayRadiusPc,
             );
       m.hide(); // start invisible; the frame loop fades it in via the cut opacity.

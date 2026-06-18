@@ -10,7 +10,8 @@ import { createStreamingPolicy, type StreamingPolicy } from '@cosmos/streaming';
 import type { OctreeSource } from '@cosmos/data';
 import type { OriginManager } from '@cosmos/coords';
 import type { GalaxyRecord } from '@cosmos/core-types';
-import { MILKY_WAY_ID, MILKY_WAY_STAR_COUNT } from './local-group';
+import { MILKY_WAY_ID } from './local-group';
+import { milkyWayGenParams } from './milky-way-gen';
 
 let _pool: WorkerPool | null = null;
 
@@ -43,8 +44,6 @@ export function createMilkyWayStreaming(opts: {
     origin: opts.origin,
     pool: getCosmosPool(),
     octree: opts.octree,
-    procgenGalaxies: new Map([
-      [MILKY_WAY_ID, { seed: opts.milkyWay.seed, starCount: MILKY_WAY_STAR_COUNT }],
-    ]),
+    procgenGalaxies: new Map([[MILKY_WAY_ID, milkyWayGenParams(opts.milkyWay.seed)]]),
   });
 }
