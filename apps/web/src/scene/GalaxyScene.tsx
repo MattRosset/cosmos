@@ -50,10 +50,21 @@ const LOD_IMPOSTOR_FULL = 6;
 // read as lanes, not opaque bands.
 const DUST_MAX_OPACITY = 0.45;
 
-// Galaxy-context layer fade (parsecs from the Milky Way centre): full above HI,
-// gone below LO — the descent hands off to the M2 HYG field inside the disc.
-const GAL_FADE_LO_PC = 15_000;
-const GAL_FADE_HI_PC = 40_000;
+// The procgen cloud is rendered with magnitude-based per-star brightness, so at the
+// galaxy "view" vantage (~50 kpc) the distance modulus (~18 mag) drives each star's
+// brightness to ~1e-9 — mathematically invisible. The exposure uniform multiplies
+// AFTER the magnitude term, so a large cloud-only boost (~10^distModulus·0.4) brings
+// the additive cloud back to a bright spiral. Tuned for the ~50 kpc vantage; the
+// layer fades out (layerFade→0) before the camera gets close enough to blow out.
+const CLOUD_EXPOSURE_BOOST = 4e5;
+
+// Galaxy-context layer fade (parsecs from the Milky Way centre): the spiral is
+// fully shown when the camera is well outside the disc (the "view galaxy" vantage
+// and the universe→galaxy descent), and fades to nothing as it descends toward Sol
+// where the real HYG star field (M2) takes over. Hidden entirely near Sol so the
+// M2 galaxy view + its baselines are untouched.
+const GAL_FADE_LO_PC = 18_000;
+const GAL_FADE_HI_PC = 45_000;
 
 function smoothstep(lo: number, hi: number, x: number): number {
   if (hi <= lo) return x >= hi ? 1 : 0;
@@ -96,12 +107,17 @@ function makeOctreeMount(
     objects: [points.object],
     seen: 0,
     applyFrame(offset, opacity): void {
+      points.object.visible = true;
       points.setRenderOffset(offset);
       points.setOpacity(opacity);
     },
     setViewportHeight: (px) => points.setViewportHeight(px),
     setExposure: (e) => points.setExposure(e),
-    hide: () => points.setOpacity(0),
+    // Hard hide via object.visible — additive/multiply opacity 0 does NOT remove a
+    // draw (and MultiplyBlending at 0 would darken), so toggle visibility instead.
+    hide: () => {
+      points.object.visible = false;
+    },
     dispose: () => points.dispose(),
   };
 }
@@ -116,10 +132,19 @@ function makeProcgenMount(
   dust: { centersUnits: Float32Array; radiiUnits: Float32Array },
   impostorRadiusUnits: number,
 ): Mount {
-  const cloud: GalaxyPoints = createGalaxyPoints({ batch });
+  // minPointPx 2.5: at galaxy distances every star clamps to the floor, so the
+  // floor IS the cloud's grain — 1px (default) is sub-pixel (≈0.7px after pixel
+  // scale) and the GPU culls it, leaving the cloud invisible. 2.5 keeps each star a
+  // visible speck so the additive arms read.
+  const cloud: GalaxyPoints = createGalaxyPoints({
+    batch,
+    minPointPx: 2,
+    basePointPx: 5,
+    maxPointPx: 48,
+  });
   cloud.object.frustumCulled = false;
   cloud.setViewportHeight(viewportPx);
-  cloud.setExposure(exposure);
+  cloud.setExposure(exposure * CLOUD_EXPOSURE_BOOST);
   const lanes: DustLanes = createDustLanes({
     centersUnits: dust.centersUnits,
     radiiUnits: dust.radiiUnits,
@@ -141,8 +166,14 @@ function makeProcgenMount(
     objects: [impostor.object, lanes.object, cloud.object],
     seen: 0,
     applyFrame(offset, opacity, lod): void {
-      // Cloud at fine LOD, impostor at coarse LOD; cross-fade between.
-      const cloudFactor = smoothstep(LOD_IMPOSTOR_FULL, LOD_CLOUD_FULL, lod);
+      // Cloud at fine LOD, impostor at coarse LOD; cross-fade between. NB the
+      // band is fine→coarse (LOD_CLOUD_FULL < LOD_IMPOSTOR_FULL), so smoothstep
+      // runs in its natural lo<hi direction and we invert: 1 at fine LOD (cloud
+      // full), 0 at coarse LOD (impostor full).
+      const cloudFactor = 1 - smoothstep(LOD_CLOUD_FULL, LOD_IMPOSTOR_FULL, lod);
+      cloud.object.visible = true;
+      lanes.object.visible = true;
+      impostor.object.visible = true;
       cloud.setRenderOffset(offset);
       cloud.setOpacity(opacity * cloudFactor);
       lanes.setRenderOffset(offset);
@@ -151,11 +182,13 @@ function makeProcgenMount(
       impostor.setOpacity(opacity * (1 - cloudFactor));
     },
     setViewportHeight: (px) => cloud.setViewportHeight(px),
-    setExposure: (e) => cloud.setExposure(e),
+    setExposure: (e) => cloud.setExposure(e * CLOUD_EXPOSURE_BOOST),
+    // Hard hide via object.visible (MultiplyBlending dust at opacity 0 darkens
+    // rather than disappears, so visibility is the only reliable hide).
     hide(): void {
-      cloud.setOpacity(0);
-      lanes.setOpacity(0);
-      impostor.setOpacity(0);
+      cloud.object.visible = false;
+      lanes.object.visible = false;
+      impostor.object.visible = false;
     },
     dispose(): void {
       cloud.dispose();
@@ -290,8 +323,9 @@ export function GalaxyScene({
     const ctrl = controllerRef.current;
     const ctx: ContextId = ctrl ? ctrl.contextId : origin.context;
 
-    // Layer fade: streaming tier visible only in universe, fading across the
-    // boundary; inert in galaxy/system so the M2 view is unchanged.
+    // Streaming galaxy layer: full in universe; in galaxy it fades in as the camera
+    // pulls far out from Sol (so "view galaxy" + the descent show the spiral) and
+    // fades to nothing near Sol (M2 star field takes over); hidden in system/planet.
     let layerFade = 0;
     if (ctx === 'universe') {
       layerFade = 1;

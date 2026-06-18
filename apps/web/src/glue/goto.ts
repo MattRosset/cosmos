@@ -26,6 +26,23 @@ const PC_PER_AU = CONTEXT_UNIT_METERS.system / CONTEXT_UNIT_METERS.galaxy;
 const EXIT_ARRIVAL_M = 1e12;
 /** Bookmark restore arrival — crosses contexts safely (TASK-013/027). */
 const BOOKMARK_ARRIVAL_M = 1e3;
+/**
+ * "View galaxy" vantage: a galaxy-context point ~55 kpc out along +Z, so the camera
+ * pulls well clear of the disc (≈ 15 kpc radius) and the GalaxyScene spiral fades
+ * fully in (it's beyond the §GalaxyScene fade band). Stays in the galaxy context —
+ * the controller only exits to universe when it ENTERED from universe (controller.ts
+ * ownGalaxyContext), so a galaxy vantage is the reliable "see the whole Milky Way"
+ * from the booted galaxy app. A bounded duration keeps the long pull-back snappy.
+ */
+const GALAXY_VIEW_VANTAGE_PC = 55_000;
+const GALAXY_VIEW_ARRIVAL_M = 6_000 * CONTEXT_UNIT_METERS.galaxy; // ≈ ends ~49 kpc out
+const GALAXY_VIEW_DURATION_MS = 5_000;
+/** "Enter galaxy" vantage: the boot position in the galaxy star field, ~0.06 pc
+ *  from Sol (matches NavDriver INITIAL_CAMERA). Used to descend back from the
+ *  whole-galaxy view to the Sol neighbourhood. */
+const GALAXY_FIELD_VANTAGE_PC = 0.06;
+const GALAXY_FIELD_ARRIVAL_M = 1e13;
+const GALAXY_FIELD_DURATION_MS = 5_000;
 /** Pending-leg poll cadence while waiting for the system scene to build. */
 const PENDING_POLL_MS = 100;
 
@@ -74,6 +91,11 @@ export interface GoToCoordinator {
   goTo(id: BodyId): void;
   /** Fly out of the current system back to a galaxy vantage. No-op in galaxy. */
   exitSystem(): void;
+  /** Fly all the way out to a universe vantage where the Milky Way reads as a
+   *  spiral galaxy (exits the system first if needed). */
+  viewGalaxy(): void;
+  /** Descend from the universe view back into the galaxy star field near Sol. */
+  enterGalaxy(): void;
   /** Zoom-to-fit the current system: pull back to a framing vantage that keeps
    *  the whole system in view, facing the host. No-op in galaxy. */
   frameSystem(): void;
@@ -224,6 +246,35 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     });
   }
 
+  /**
+   * Fly out to a galaxy vantage where the whole Milky Way reads as a spiral. Exits
+   * the system first if needed (the controller crosses system→galaxy mid-flight,
+   * TASK-027). The target is in the galaxy context (the Milky Way centre is the
+   * galaxy-frame origin), facing the centre, so GalaxyScene's spiral fades fully in.
+   */
+  function viewGalaxy(): void {
+    const controller = deps.controllerRef.current;
+    if (controller === null) return;
+    controller.goTo({
+      target: { context: 'galaxy', local: [0, 0, GALAXY_VIEW_VANTAGE_PC] },
+      arrivalDistanceM: GALAXY_VIEW_ARRIVAL_M,
+      durationMs: GALAXY_VIEW_DURATION_MS,
+      lookAtTarget: { context: 'galaxy', local: [0, 0, 0] },
+    });
+  }
+
+  /** Descend from the universe view back to the galaxy star field near Sol. The
+   *  controller crosses the universe→galaxy gate mid-flight (TASK-037). */
+  function enterGalaxy(): void {
+    const controller = deps.controllerRef.current;
+    if (controller === null) return;
+    controller.goTo({
+      target: { context: 'galaxy', local: [0, 0, GALAXY_FIELD_VANTAGE_PC] },
+      arrivalDistanceM: GALAXY_FIELD_ARRIVAL_M,
+      durationMs: GALAXY_FIELD_DURATION_MS,
+    });
+  }
+
   function systemById(id: BodyId): StarSystemRecord | undefined {
     for (const s of deps.sources) {
       const sys = s.getSystem(id);
@@ -326,5 +377,5 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     };
   }
 
-  return { goTo, exitSystem, frameSystem, goToBookmark, capture, start };
+  return { goTo, exitSystem, viewGalaxy, enterGalaxy, frameSystem, goToBookmark, capture, start };
 }

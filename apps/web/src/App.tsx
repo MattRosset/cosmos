@@ -350,10 +350,14 @@ function Breadcrumb({
   systemName,
   combined,
   onExit,
+  onViewGalaxy,
+  onEnterGalaxy,
 }: {
   systemName: string | null;
   combined: CombinedSource;
   onExit(): void;
+  onViewGalaxy(): void;
+  onEnterGalaxy(): void;
 }): React.JSX.Element {
   const selectedId = useSelectionStore((s) => s.selectedId);
   const inSystem = systemName !== null;
@@ -362,8 +366,24 @@ function Breadcrumb({
   const bodyCrumb =
     selectedName !== null && selectedName !== systemName ? selectedName : null;
 
-  const segs: ReadonlyArray<{ key: string; label: string; onClick?: () => void }> = [
-    { key: 'galaxy', label: 'Galaxy', ...(inSystem ? { onClick: onExit } : {}) },
+  const segs: ReadonlyArray<{
+    key: string;
+    label: string;
+    onClick?: () => void;
+    title?: string;
+  }> = [
+    {
+      key: 'milkyway',
+      label: 'Milky Way',
+      onClick: onViewGalaxy,
+      title: 'Fly out to see the whole Milky Way',
+    },
+    {
+      key: 'galaxy',
+      label: 'Galaxy',
+      onClick: inSystem ? onExit : onEnterGalaxy,
+      title: inSystem ? 'Exit to the galaxy (Esc)' : 'Descend into the Sol star field',
+    },
     ...(inSystem ? [{ key: 'system', label: systemName }] : []),
     ...(bodyCrumb !== null ? [{ key: 'body', label: bodyCrumb }] : []),
   ];
@@ -381,7 +401,7 @@ function Breadcrumb({
             <button
               className="hud-breadcrumb-seg hud-breadcrumb-exit"
               onClick={seg.onClick}
-              title="Exit to galaxy (Esc)"
+              title={seg.title ?? ''}
             >
               ◂ {seg.label}
             </button>
@@ -760,6 +780,8 @@ function StarApp() {
             systemName={mountedSystem?.system.name ?? null}
             combined={pack.sources.combined}
             onExit={() => goto?.exitSystem()}
+            onViewGalaxy={() => goto?.viewGalaxy()}
+            onEnterGalaxy={() => goto?.enterGalaxy()}
           />
         ) : null}
         <div className={`hud-chrome${chromeHidden ? ' hud-chrome--hidden' : ''}`}>
