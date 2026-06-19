@@ -91,7 +91,7 @@ describe('TimeControls — 1× reset', () => {
     const user = userEvent.setup();
     useTimeStore.setState({ accel: 1e5 });
     render(<TimeControls />);
-    await user.click(screen.getByRole('button', { name: /reset speed/i }));
+    await user.click(screen.getByRole('button', { name: /reset to.*speed/i }));
     expect(useTimeStore.getState().accel).toBe(1);
   });
 });
