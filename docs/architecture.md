@@ -401,6 +401,12 @@ Complexity scale: S < 3 agent-days, M ≈ 1 agent-week, L ≈ 2–3 agent-weeks 
 
 ### Phase 4 — Depth & Beauty (Weeks 17–24)
 
+**Render-tier hand-off (M3 → M4):** M3 intentionally overlaps three star layers near
+Sol (M2 monolithic HYG, streaming octree tiles, procedural Milky Way cloud) — see
+[`docs/research/phase4-render-tier-handoff.md`](research/phase4-render-tier-handoff.md).
+Phase 4 Gaia tiling is the trigger to **unify**: octree catalog authoritative inside
+the galaxy; procgen fades to impostor-only at universe scale; retire redundant draws.
+
 | Deliverable | Size |
 |---|---|
 | Gaia DR3 tiled subset (2–5M stars) | L |

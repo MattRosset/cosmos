@@ -42,6 +42,9 @@ import { profileSpan } from '../glue/frame-profiler';
  * grows continuously from a sub-pixel dot) owns the screen. No blank frame results
  * because that field is never absent. The policy still `update()`s every frame
  * (budgets/stats) regardless of this visual gate.
+ *
+ * M3 overlap debt (procgen + octree + M2 HYG near Sol) — Phase 4 unification plan:
+ * docs/research/phase4-render-tier-handoff.md
  */
 
 // Discrete-LOD blend window for the procgen Milky Way: at fine LOD (near, low
