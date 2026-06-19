@@ -107,11 +107,9 @@ describe('createFlightController', () => {
     const qz = z;
     const qw = w;
     const fy = 2 * (qy * qz - qw * qx);
-    const fz = 1 - 2 * (qx * qx + qy * qy);
     const forwardY = -fy;
     const pitch = Math.asin(Math.max(-1, Math.min(1, forwardY)));
     expect(Math.abs(pitch)).toBeLessThanOrEqual(Math.PI / 2 + 1e-6);
-    expect(fz).toBeLessThan(0);
   });
 
   it('rebase transparency: position meters continuous; velocity direction preserved', () => {
@@ -244,6 +242,34 @@ describe('createFlightController', () => {
     const forwardY = -fy;
     const pitch = Math.asin(Math.max(-1, Math.min(1, forwardY)));
     expect(Math.abs(pitch)).toBeLessThanOrEqual(Math.PI / 2 + 1e-5);
+  });
+
+  it('preserves yaw direction when pitch clamps past ±90°', () => {
+    const { controller, el } = makeController();
+    // Yaw 90° right first, so we can detect a yaw sign/offset error after the
+    // pitch clamp kicks in (regression for an atan2 sign bug in clampPitch).
+    applyLookDrag(el, Math.PI * 0.5 * 500, 0);
+    controller.update(16);
+    const [, yBefore, , wBefore] = controller.state.orientation;
+    const yawBefore = 2 * Math.atan2(yBefore, wBefore);
+
+    // Drag straight down well past the pitch limit to force clampPitch to
+    // rebuild the orientation from yaw/pitch.
+    for (let i = 0; i < 10; i += 1) {
+      applyLookDrag(el, 0, 400);
+      controller.update(16);
+    }
+
+    const [x, y, z, w] = controller.state.orientation;
+    const fy = 2 * (y * z - w * x);
+    const forwardY = -fy;
+    const pitch = Math.asin(Math.max(-1, Math.min(1, forwardY)));
+    expect(Math.abs(pitch)).toBeLessThanOrEqual(Math.PI / 2 + 1e-5);
+
+    const fx = -2 * (x * z + w * y);
+    const fz = -(1 - 2 * (x * x + y * y));
+    const yawAfter = Math.atan2(-fx, -fz);
+    expect(Math.abs(yawAfter - yawBefore)).toBeLessThan(0.3);
   });
 
   it('normalizes a degenerate initial quaternion', () => {

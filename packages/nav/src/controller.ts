@@ -263,24 +263,22 @@ function rotateVecByQuat(
   out[2] = vz + qw * tz + (qx * ty - qy * tx);
 }
 
-function clampPitch(q: [number, number, number, number]): void {
-  rotateVecByQuat(q, [0, 0, -1], forwardScratch);
-  const pitch = Math.asin(clamp(forwardScratch[1], -1, 1));
-  if (Math.abs(pitch) <= MAX_PITCH) return;
-
-  const yaw = Math.atan2(forwardScratch[0], forwardScratch[2]);
-  const clampedPitch = clamp(pitch, -MAX_PITCH, MAX_PITCH);
-  const halfYaw = yaw * 0.5;
-  const halfPitch = clampedPitch * 0.5;
-  const cy = Math.cos(halfYaw);
-  const sy = Math.sin(halfYaw);
-  const cx = Math.cos(halfPitch);
-  const sx = Math.sin(halfPitch);
-  q[0] = sx * cy;
-  q[1] = sy * cx;
-  q[2] = -sy * sx;
-  q[3] = cx * cy;
-  quatNormalize(q);
+/**
+ * Returns the rotation angle (around the local right axis) to apply so that
+ * the resulting pitch stays within ±MAX_PITCH. Pitch must be clamped *before*
+ * the rotation is applied: once the camera actually rotates past the pole,
+ * asin(forward.y) can no longer distinguish "approaching the limit" from
+ * "just flew past it", since forward.y decreases again on the far side while
+ * yaw flips ~180° — inspecting the result after the fact can't catch that.
+ */
+function clampedPitchAngle(
+  orientation: readonly [number, number, number, number],
+  rawAngle: number,
+): number {
+  rotateVecByQuat(orientation, [0, 0, -1], forwardScratch);
+  const currentPitch = Math.asin(clamp(forwardScratch[1], -1, 1));
+  const desiredPitch = clamp(currentPitch + rawAngle, -MAX_PITCH, MAX_PITCH);
+  return desiredPitch - currentPitch;
 }
 
 function applyLook(
@@ -303,23 +301,25 @@ function applyLook(
   }
 
   if (deltaY !== 0) {
-    rotateVecByQuat(orientation, [1, 0, 0], axisScratch);
-    const len = Math.hypot(axisScratch[0], axisScratch[1], axisScratch[2]);
-    if (len > 1e-20) {
-      axisScratch[0] /= len;
-      axisScratch[1] /= len;
-      axisScratch[2] /= len;
-      quatFromAxisAngle(axisScratch, -deltaY * LOOK_SENSITIVITY, deltaQuatScratch);
-      quatMultiply(deltaQuatScratch, orientation, quatScratch);
-      orientation[0] = quatScratch[0];
-      orientation[1] = quatScratch[1];
-      orientation[2] = quatScratch[2];
-      orientation[3] = quatScratch[3];
+    const angle = clampedPitchAngle(orientation, -deltaY * LOOK_SENSITIVITY);
+    if (angle !== 0) {
+      rotateVecByQuat(orientation, [1, 0, 0], axisScratch);
+      const len = Math.hypot(axisScratch[0], axisScratch[1], axisScratch[2]);
+      if (len > 1e-20) {
+        axisScratch[0] /= len;
+        axisScratch[1] /= len;
+        axisScratch[2] /= len;
+        quatFromAxisAngle(axisScratch, angle, deltaQuatScratch);
+        quatMultiply(deltaQuatScratch, orientation, quatScratch);
+        orientation[0] = quatScratch[0];
+        orientation[1] = quatScratch[1];
+        orientation[2] = quatScratch[2];
+        orientation[3] = quatScratch[3];
+      }
     }
   }
 
   quatNormalize(orientation);
-  clampPitch(orientation);
 }
 
 // ── Factory ──────────────────────────────────────────────────────────────────
