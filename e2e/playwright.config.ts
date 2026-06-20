@@ -4,14 +4,19 @@ const CI = !!process.env['CI'];
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 60_000,
+  // 90s (up from 60s) so medium WebGL specs (m1/m2 flights) absorb the slower
+  // wall-clock of sharing 2 vCPU under workers:2; the heaviest specs (flythrough3,
+  // soak3) set their own longer timeouts.
+  timeout: 90_000,
   reporter: CI ? [['html', { outputFolder: 'playwright-report', open: 'never' }]] : 'list',
-  // Serial on CI (TASK-041): the perf gates (flythrough3, m1/m2/breadcrumb perf,
-  // jitter, ctxswitch) measure frame times of the shipped WebGL pipeline. Running
-  // spec files in parallel across workers makes heavy specs contend for CPU/GPU and
-  // inflates those measurements into flaky failures. One worker = no contention =
-  // trustworthy perf signal (and never a pile of concurrent browsers on the runner).
-  workers: CI ? 1 : undefined,
+  // CI parallelism (revisited): the single worker was originally required so the
+  // perf gates' frame-time measurements weren't inflated by CPU contention. Those
+  // perf gates now run reference-only (@perf / !process.env.CI) — the CI gate is
+  // deterministic work-budget + correctness (draw-call/point/in-flight caps, switch
+  // sequences, errors), which CPU contention CANNOT fail in false. So we parallelize
+  // to cut wall-clock; 2 workers matches the 2-vCPU runner. If a heavy WebGL spec
+  // ever times out under contention here, drop back to 1 or shard across runners.
+  workers: CI ? 2 : undefined,
 
   use: {
     viewport: { width: 1280, height: 720 },
