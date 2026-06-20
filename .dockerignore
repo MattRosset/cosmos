@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.turbo
+coverage
+test-results
+playwright-report
+.lighthouseci
+.pnpm-store
+tmpff
+.git
