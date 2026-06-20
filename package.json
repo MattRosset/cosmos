@@ -17,7 +17,9 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "check:bundle": "node tools/check-bundle-size/src/check.mjs",
     "lighthouse": "lhci autorun",
-    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
+    "docker:ci:build": "docker build -t cosmos-ci -f Dockerfile.ci .",
+    "docker:ci:run": "docker run --rm --cpus=2 cosmos-ci"
   },
   "pnpm": {
     "overrides": {

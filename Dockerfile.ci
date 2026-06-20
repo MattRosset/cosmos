@@ -25,4 +25,7 @@ RUN CI=true pnpm install --frozen-lockfile
 RUN pnpm --filter @cosmos/web build
 RUN pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium
 
-CMD ["pnpm", "exec", "lhci", "collect", "--collect.settings.chromeFlags=--no-sandbox", "--collect.numberOfRuns=1"]
+# No fixed purpose — override the command per docs/research/ci-docker-repro.md
+# (run unit tests, the boot-perf e2e gate, or lhci directly under runner-like
+# CPU/memory limits). Defaults to the same check `pnpm verify`/CI runs first.
+CMD ["pnpm", "test"]
