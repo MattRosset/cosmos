@@ -14,9 +14,10 @@ import { test, expect, type Page } from '@playwright/test';
  * PASS rule (memory-stable, §5.8 "memory plateaus"):
  *   - the heap PLATEAUS: a linear regression over the SECOND HALF of the samples
  *     rises by a small fraction of the mean heap (no monotonic growth); and
- *   - eviction keeps pace: the tier issues MANY tile requests and `inFlight`
- *     OSCILLATES, yet the ready set stays bounded and the heap is flat — i.e. it
- *     loads and releases, "not just growing" (§5.8).
+ *   - eviction keeps pace: the tier issues FAR MORE tile requests than the in-flight
+ *     cap (so the bounded queue fills and drains many times over), yet the ready set
+ *     stays bounded and the heap is flat — i.e. it loads and releases, "not just
+ *     growing" (§5.8).
  *
  * Why not assert `loadedChunks` oscillation directly (the spec's literal wording):
  * in this fast scripted path octree tiles arrive already out-of-cut and are
@@ -122,21 +123,25 @@ test('soak3: heap plateaus while the streaming tier actively loads and releases'
     'heap plateaus: second-half linear trend rises < 10% of mean heap',
   ).toBeLessThan(0.1);
 
-  // ACTIVE LOAD↔RELEASE (eviction keeps pace): the tier issued many tile requests
-  // and in-flight oscillated, yet the ready set stayed bounded and the heap is
-  // flat — so it loads and releases, "not just growing" (§5.8). A scaled threshold
-  // tolerates a slower runner while still proving the tier is far from idle.
+  // ACTIVE LOAD↔RELEASE (deterministic, contention-robust): the tier issues far more
+  // tile requests than the in-flight cap, so the bounded queue must fill and drain
+  // many times over — that cycling, together with the flat heap above, IS the
+  // load↔release churn. The throughput≫depth check replaces the old
+  // `inFlightMax > inFlightMin` snapshot, which was fragile: under CPU contention the
+  // queue stays saturated across the whole sampling window, pinning inFlightMin ==
+  // inFlightMax == cap (observed 6 == 6) even while loading/releasing is healthy.
   expect(
     c.requestsIssued,
     'streaming issued many tile requests (active load, not idle)',
   ).toBeGreaterThan(result.loops * 20);
-  expect(c.inFlightMax, 'in-flight requests engaged (> the persistent chunk)').toBeGreaterThanOrEqual(
-    2,
-  );
   expect(
     c.inFlightMax,
-    'in-flight oscillates (requests rise and fall ⇒ load/release churn)',
-  ).toBeGreaterThan(c.inFlightMin);
+    'in-flight concurrency engaged (> the persistent chunk)',
+  ).toBeGreaterThanOrEqual(2);
+  expect(
+    c.requestsIssued,
+    'in-flight queue cycled many times over its depth (load/release churn)',
+  ).toBeGreaterThan(c.inFlightMax * 10);
 
   expect(pageErrors, 'no uncaught errors during the soak').toHaveLength(0);
 });
