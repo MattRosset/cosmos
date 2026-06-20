@@ -270,9 +270,12 @@ test('load: pack ready, no errors, initial Sol-side baseline', async ({ page }) 
   await page.goto('/');
   await waitReady(page);
 
-  // Static scene at rest — let a few frames settle before the baseline
+  // Static scene at rest — let a few frames settle before the baseline. Canvas
+  // only: the HUD's backdrop-filter blur composites with per-frame sub-pixel
+  // noise on SwiftShader (retries never settle) and its text is live data; the
+  // scene pixels are the regression signal.
   await page.waitForTimeout(1_000);
-  await expect(page).toHaveScreenshot('m1-initial.png');
+  await expect(page.locator('canvas')).toHaveScreenshot('m1-initial.png');
 
   expect(pageErrors, 'no uncaught errors during load').toHaveLength(0);
 });
@@ -309,9 +312,12 @@ test('search → fly: Betelgeuse flight with info panel, perf smoke, baseline', 
     expect(p95, 'p95 frame time during flight must be < 75 ms').toBeLessThan(75);
   }
 
-  // At rest after arrival — baseline keyframe
+  // At rest after arrival — baseline keyframe. Canvas only (see m1-initial): the
+  // full-page shot failed in CI because the HUD's backdrop-filter blur never
+  // settles on SwiftShader, so the screenshot retries timed out; the scene pixels
+  // are the signal.
   await page.waitForTimeout(500);
-  await expect(page).toHaveScreenshot('m1-betelgeuse.png');
+  await expect(page.locator('canvas')).toHaveScreenshot('m1-betelgeuse.png');
 
   expect(pageErrors, 'no uncaught errors during flight').toHaveLength(0);
 });

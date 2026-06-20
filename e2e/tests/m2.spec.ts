@@ -77,9 +77,12 @@ test('enter Sol: search Saturn → descend → rings baseline', async ({ page })
   await waitFlightSettled(page, 45_000);
   expect(await page.evaluate(() => window.__cosmos?.selectedId)).toBe(SATURN_ID);
 
-  // Saturn + rings + orbit line at rest — committed baseline.
+  // Saturn + rings + orbit line at rest — committed baseline. Canvas only: the
+  // HUD's backdrop-filter blur composites with per-frame sub-pixel noise on
+  // SwiftShader (never settles → screenshot retries time out) and its text shows
+  // live data; the scene pixels are the regression signal.
   await page.waitForTimeout(800);
-  await expect(page).toHaveScreenshot('m2-saturn.png');
+  await expect(page.locator('canvas')).toHaveScreenshot('m2-saturn.png');
 
   expect(pageErrors, 'no uncaught errors entering Sol').toHaveLength(0);
 });
