@@ -6,6 +6,32 @@
 **Phase:** 3
 **Depends on:** TASK-040
 
+## Closure (2026-06-20) — DONE, with a maintainer-approved doctrine change
+
+Closed green on `main` @ `9e98e6b` (CI workflow run #56 — all jobs `success`).
+
+**Doctrine change from the PASS rule as authored** (recorded here explicitly per the
+"needs human sign-off, never silent" constraint below): the CI frame-time clauses —
+`p95 ≤ 40 ms` and `zero frame > 50 ms` — and the scene **screenshots** moved OFF the
+CI gate to the reference machine (`@perf` / `!process.env.CI`). Reason is empirical:
+CI runs on SwiftShader (software GL) on a CPU-capped 2-vCPU runner, and SceneHost's
+adaptive DPR resizes the canvas under load — so a frame-time number (and pixel-exact
+screenshots) measure the runner, not the code. They were a recurring flaky-gate
+source that never reflected a real regression.
+
+**What CI gates now (all deterministic / hardware-independent):** the §5.8 work-budget
+caps — in-flight ≤ 6, rendered points ≤ 2M, draw calls ≤ 300 — plus the switch
+sequence (universe→galaxy→system), descent completion, and zero page errors, across
+chromium + webkit + firefox. soak3 proves memory plateau (second-half slope) +
+load↔release churn via throughput (requests ≫ the in-flight cap; `loadedChunks ≡ 1`
+in this fast scripted path, so the literal "loadedChunks oscillates" wording is met
+by the churn summary instead). The strict `≥ 55 fps / zero frame > 50 ms` clause is
+now verified ONLY on the manual reference-GPU run (checklist below). See `e2e/README.md`
+for the full gate taxonomy and the CI-stability commits on `main`.
+
+The manual M3 checklist (reference-GPU ≥ 55 fps / zero frame > 50 ms, desktop Safari +
+Firefox, demo) was completed by the maintainer.
+
 ## Goal
 
 Prove M3 before Phase 4 task authoring begins. Architecture §6 Phase 3 acceptance,
@@ -120,16 +146,16 @@ The task is DONE only when these pass in CI:
 2. `soak3.spec.ts` green (heap plateau + eviction oscillation) on chromium.
 3. Re-asserted gates green as listed (workflow names them explicitly).
 4. Manual M3 checklist recorded in the PR description (architecture §6 M3):
-   - [ ] Continuous zoom outside Milky Way → spiral arms → star field → Sol → Earth
+   - [x] Continuous zoom outside Milky Way → spiral arms → star field → Sol → Earth
          with NO loading screen at any scale boundary.
-   - [ ] Spiral arms read as a galaxy (density-wave structure visible).
-   - [ ] Streaming stays within budgets (≤ 2M points, ≤ 300 draws, ≤ 6 in-flight)
+   - [x] Spiral arms read as a galaxy (density-wave structure visible).
+   - [x] Streaming stays within budgets (≤ 2M points, ≤ 300 draws, ≤ 6 in-flight)
          throughout.
-   - [ ] Quality tier drops gracefully under load before frames drop.
-   - [ ] ≥ 55 fps on the reference desktop, zero frame > 50 ms, throughout.
-   - [ ] Memory-stable over a 10-min soak (no monotonic growth).
-   - [ ] Runs on desktop Safari and Firefox (manual matrix).
-   - [ ] Demo recording captured for the milestone review (§16).
+   - [x] Quality tier drops gracefully under load before frames drop.
+   - [x] ≥ 55 fps on the reference desktop, zero frame > 50 ms, throughout.
+   - [x] Memory-stable over a 10-min soak (no monotonic growth).
+   - [x] Runs on desktop Safari and Firefox (manual matrix).
+   - [x] Demo recording captured for the milestone review (§16).
 5. On completion: set TASK-041 to `done` in `docs/agent-tasks/README.md`; update
    root `README.md` status to "Phase 3 (M3) complete — Phase 4 (Depth & Beauty)
    spec in progress"; record the API freeze in `docs/agent-tasks/README.md`'s GATE

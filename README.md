@@ -6,7 +6,7 @@ Built web-first with React, TypeScript, Three.js (React Three Fiber), and Web Wo
 
 ## Status
 
-**Phase 2 (M2) complete — Phase 3 (Galaxy & Streaming) integration shipped; Phase 3 gate (TASK-041) next.** The full technical design lives in
+**Phase 3 (M3) complete — Phase 4 (Depth & Beauty) spec in progress.** The full technical design lives in
 [`docs/architecture.md`](docs/architecture.md). Execution is tracked task-by-task in
 [`docs/agent-tasks/README.md`](docs/agent-tasks/README.md) — agents: start there.
 
