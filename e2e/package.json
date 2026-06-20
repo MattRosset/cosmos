@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "test": "playwright test",
+    "test:gate": "playwright test --grep-invert @perf",
+    "test:perf": "playwright test --grep @perf",
     "test:ui": "playwright test --ui",
     "update-baselines": "playwright test --update-snapshots"
   },

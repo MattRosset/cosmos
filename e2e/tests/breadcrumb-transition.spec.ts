@@ -109,7 +109,7 @@ function writeReport(name: string, samples: Sample[]): void {
   );
 }
 
-test('capture Milky Way exit + Galaxy entry transitions', async ({ page }) => {
+test('capture Milky Way exit + Galaxy entry transitions', { tag: '@perf' }, async ({ page }) => {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   await page.goto('/');

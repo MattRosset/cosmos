@@ -200,7 +200,7 @@ test('M3 boundary switches are invisible against ordinary flight motion', async 
   }
 });
 
-test('M3 perf smoke: p95 frame < 50 ms, zero frames > 250 ms during the descent', async ({
+test('M3 perf smoke: p95 frame < 50 ms, zero frames > 250 ms during the descent', { tag: '@perf' }, async ({
   page,
 }) => {
   await page.goto('/?debug=m3');

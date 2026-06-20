@@ -118,8 +118,13 @@ jobs:
       # without an X server to glxtest against, even with software rendering. A
       # virtual X server fixes it; Chromium and WebKit don't need it but are
       # unaffected by running under one.
-      - name: Run E2E tests
-        run: xvfb-run -a pnpm --filter @cosmos/e2e test
+      # --grep-invert @perf: the blocking gate runs only DETERMINISTIC specs
+      # (correctness + work-budget caps: in-flight/draw-calls/points, switch
+      # sequences, errors). Wall-clock perf specs (@perf) are excluded — on a
+      # CPU-capped SwiftShader runner their frame-time numbers measure the runner,
+      # not the code. Run those on the reference machine via `pnpm test:perf`.
+      - name: Run E2E tests (deterministic gate)
+        run: xvfb-run -a pnpm --filter @cosmos/e2e exec playwright test --grep-invert @perf
 
       - name: Upload Playwright report
         if: failure()

@@ -37,7 +37,7 @@ async function waitReady(page: Page): Promise<void> {
   );
 }
 
-test('profile main-thread spans during breadcrumbs @ 1M', async ({ page }) => {
+test('profile main-thread spans during breadcrumbs @ 1M', { tag: '@perf' }, async ({ page }) => {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   await page.goto('/?debug=breadcrumb-profile');

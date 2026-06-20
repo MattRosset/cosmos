@@ -67,7 +67,7 @@ function summarize(r: PerfResult): void {
   );
 }
 
-test('rAF frame timing during Milky Way breadcrumbs @ 1M', async ({ page }) => {
+test('rAF frame timing during Milky Way breadcrumbs @ 1M', { tag: '@perf' }, async ({ page }) => {
   fs.mkdirSync(OUT_DIR, { recursive: true });
 
   await page.goto('/');
