@@ -43,6 +43,21 @@ is [`e2e/tests/boot-perf.spec.ts`](../../e2e/tests/boot-perf.spec.ts), which
 asserts directly on main-thread long tasks instead of trusting Lighthouse's
 model. See the `fix(ci)` commit for the full writeup.
 
+**Second finding, same image:** a CI run later failed 9 e2e specs at once
+(frame budgets blown across chromium/webkit/firefox, a Firefox WebGL2 check,
+a Firefox flythrough3 timeout, and a `soak3` in-flight-oscillation assertion).
+Re-running each failing spec individually in this image separated two causes:
+most were CPU contention on a noisy runner (the `soak3` one too — its
+in-flight count was pinned exactly at `maxInFlight: 6`, i.e. the queue never
+got a chance to drain, not a logic bug). But Firefox's failures were
+deterministic, not noisy: `canvas.getContext('webgl2')` *and* `'webgl'` both
+returned `null`, console showing `THREE.WebGLRenderer: ... WebGL creation
+failed: ... FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS`. Headless Firefox on
+Linux can't glxtest without an X server, even for software-only rendering —
+wrapping the command in `xvfb-run -a` fixed it (3/3 stable in this image).
+Real CI's `ubuntu-latest` ships `xvfb` preinstalled, so the workflow fix was
+just prefixing the e2e step with `xvfb-run -a` — no new install needed.
+
 ## 3. How to use it
 
 ```sh

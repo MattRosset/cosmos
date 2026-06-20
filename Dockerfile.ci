@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Google Chrome install (not a sandboxed/software-only browser) so Lighthouse
 # numbers match what CI actually sees instead of this machine's GPU.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates gnupg wget \
+    curl ca-certificates gnupg wget xvfb \
   && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && apt-get install -y --no-install-recommends nodejs \
   && wget -q -O /tmp/chrome.deb https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
@@ -23,7 +23,7 @@ WORKDIR /repo
 COPY . .
 RUN CI=true pnpm install --frozen-lockfile
 RUN pnpm --filter @cosmos/web build
-RUN pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium
+RUN pnpm --filter @cosmos/e2e exec playwright install --with-deps chromium firefox
 
 # No fixed purpose — override the command per docs/research/ci-docker-repro.md
 # (run unit tests, the boot-perf e2e gate, or lhci directly under runner-like
