@@ -115,10 +115,9 @@ jobs:
       #
       # xvfb-run: headless Firefox on Linux can't negotiate any GL context
       # (WebGL2 *and* WebGL1 both fail with FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)
-      # without an X server to glxtest against, even with software rendering —
-      # confirmed by reproducing it in a no-GPU Docker sandbox (see
-      # docs/research/ci-docker-repro.md). A virtual X server fixes it; Chromium
-      # and WebKit don't need it but are unaffected by running under one.
+      # without an X server to glxtest against, even with software rendering. A
+      # virtual X server fixes it; Chromium and WebKit don't need it but are
+      # unaffected by running under one.
       - name: Run E2E tests
         run: xvfb-run -a pnpm --filter @cosmos/e2e test
 
