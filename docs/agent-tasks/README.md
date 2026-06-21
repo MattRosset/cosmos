@@ -12,18 +12,25 @@ sections — they are part of the spec.
 1. Pick the **lowest-numbered** task whose **Status is `pending`** and whose **Blocked-by
    tasks are all `done`** (see the table below), skipping tasks marked `in-progress`.
    Set your task to `in-progress` (Status cell only) as your first action in the run.
-   Phase 0 was strictly sequential; **Phases 1, 2, and 3 run parallel lanes**
+   Phase 0 was strictly sequential; **Phases 1, 2, 3, and 4a run parallel lanes**
    (architecture §8.3) — multiple tasks may be unblocked at once, and that is
    intentional. Each lane touches disjoint packages, so never start a task whose
-   target package overlaps an `in-progress` task. TASK-015/TASK-029/TASK-040
-   (integration) and TASK-017/TASK-030/TASK-041 (gates) are single-lane: nothing
-   else runs in `apps/web`/`e2e` while they are in progress. **TASK-038
+   target package overlaps an `in-progress` task. TASK-015/TASK-029/TASK-040/TASK-052
+   (integration) and TASK-017/TASK-030/TASK-041/TASK-053 (gates) are single-lane:
+   nothing else runs in `apps/web`/`e2e` while they are in progress. **TASK-038
    (`streaming`) is also single-lane** — per architecture §7 it integrates two chunk
    producers + the loader and is assigned to the strongest agent/human pair; do not
    run other Phase 3 lanes concurrently with it (it is the §8.3 "streaming +
    context-switching, never parallelized" task). TASK-021 → TASK-022 are serialized
    (both write `apps/web/public/packs/` and `ATTRIBUTIONS.md`); TASK-034 writes
    `apps/web/public/packs/octree/` (disjoint from 021/022 — no serialization needed).
+   In Phase 4a, **TASK-045 → TASK-046** (constellations: tool then data) and
+   **TASK-049 → TASK-050** (app-state then ui) are serialized in-lane; TASK-043
+   (Gaia, `tools/pack-octree` + `apps/web/public/packs/octree-gaia-sample/`) and
+   TASK-045 (`tools/pack-constellations` + `apps/web/public/packs/constellations.json`)
+   write disjoint pack paths — no serialization between them. TASK-044 (`streaming`
+   v1.1) is an **additive read-only accessor**, not the heavy §7 single-lane that
+   TASK-038 was, but it is still the sensitive package — keep it its own lane.
 2. Read your task file plus its listed **Context Files**. The task file is self-contained
    for everything else. Create/modify **only** the files listed under its "Deliverables"
    heading (plus its test files).
@@ -92,6 +99,18 @@ sections — they are part of the spec.
 | [TASK-039](TASK-039-quality-tiers.md) | `scene-host` v1.2: PerformanceMonitor-driven adaptive quality tiers | TASK-031 | pending | lane (scene-host); thaw of `scene-host` API (allowed dep: drei) |
 | [TASK-040](TASK-040-m3-integration.md) | M3 integration: continuous Milky Way → Sol → Earth zoom, no loading screens | TASK-032–039 (all) | done | `task-040-galaxy-view` @ `5a41bcb`: M3 e2e green, galaxy breadcrumbs + streaming tier, breadcrumb freeze fix; manual sign-off 2026-06-18 |
 | [TASK-041](TASK-041-phase3-gate.md) | Phase 3 gate: recorded-flythrough perf + memory soak + WebKit/Firefox + M3 | TASK-040 | done | `main` @ `9e98e6b`: CI green across chromium/webkit/firefox; gates deterministic work-budget caps (perf + visual moved to reference-only — see task Closure note for the approved doctrine change); soak3 churn robustened; manual M3 matrix done 2026-06-20. **GATE: Phase 3 APIs frozen.** |
+| [TASK-042](TASK-042-core-types-phase4-thaw.md) | `core-types` Phase-4 thaw: atmosphere, nebula, overlay, tour, cinematic | TASK-041 | pending | the ONE Phase 3→4a thaw; additive new modules only; NO Gaia type (ADR-006 §4); refs ADR-005/006 |
+| [TASK-043](TASK-043-pack-gaia.md) | `tools/pack-octree` v2: real Gaia DR3 mag-cut → octree pack | TASK-042 | pending | lane (data tool); ADR-006; reuses frozen ADR-003 format; commits CI sample, full pack → CDN |
+| [TASK-044](TASK-044-streaming-coverage.md) | `streaming` v1.1: catalog-coverage-for-cut signal | TASK-042 | pending | lane; §7-sensitive (additive read-only accessor); procgen-fade primitive |
+| [TASK-045](TASK-045-pack-constellations.md) | `tools/pack-constellations`: IAU line list → committed JSON | TASK-042 | pending | lane (data tool); small committed pack |
+| [TASK-046](TASK-046-data-constellations.md) | `data` v4: constellation loader + segment/label resolution | TASK-042, 045 | pending | lane (data runtime; after 045); additive |
+| [TASK-047](TASK-047-render-fx.md) | `render-fx` v1: nebulae billboards + camera-relative line-set | TASK-042 | pending | lane (render); new package |
+| [TASK-048](TASK-048-render-planets-atmosphere.md) | `render-planets` v2: atmospheric scattering shell | TASK-042 | pending | lane (render); ADR-005; additive (terrain is Phase 4b) |
+| [TASK-049](TASK-049-app-state-overlays-tours.md) | `app-state` v3: tour store + overlay store | TASK-042 | pending | lane (state); additive |
+| [TASK-050](TASK-050-ui-overlays-tours.md) | `ui` v3: overlay toggles + label layer + tour chrome | TASK-049 | pending | lane (HUD; after 049); React only, no Three.js |
+| [TASK-051](TASK-051-nav-cinematic.md) | `nav` v5: cinematic spline + auto-orbit + letterbox | TASK-042 | pending | lane (nav); additive; strongest agent (context-aware paths) |
+| [TASK-052](TASK-052-m4a-integration.md) | M4a integration: Gaia tier-unification + atmosphere + overlays + tours + cinematic | TASK-043–051 (all) | pending | exclusive in `apps/web`/`e2e`; strongest agent (§8.3) |
+| [TASK-053](TASK-053-phase4a-gate.md) | Phase 4a gate: tier-unification budget win + M4a + perf/soak + matrix | TASK-052 | pending | **GATE: closes Phase 4a** (architecture §6 Phase 4 / M4, terrain deferred to 4b) |
 
 **GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
 `app-state`, `ui`, and `nav` v2 froze there. Phase 2 task files above are the
@@ -108,6 +127,19 @@ surface of `data` v3, the v4 surface of `nav`, and the v1.2 surface of `scene-ho
 freeze, and Phase 4 specs may be written. **TASK-041 is now `done` (2026-06-20): those
 Phase 3 APIs are frozen; the Phase 4 (Depth & Beauty) thaw is the next sanctioned
 change window.**
+
+**Phase 4a (Depth & Beauty, terrain deferred).** TASK-042 is the sole Phase 3→4a thaw
+(additive `core-types` modules: atmosphere, nebula, overlay, tour, cinematic — ADR-005/006);
+nothing else may change `core-types`. The Phase-4a task files TASK-042…053 are authored;
+every lane (TASK-043…051) is blocked transitively on TASK-042, and the gate (TASK-053) on
+the M4a integration (TASK-052). **Chunked planet terrain (architecture §6 "CDLOD, worker
+meshing") is intentionally DEFERRED to a separate Phase 4b pass** — it is two L-sized tasks
+against a hard bit-level contract (the §5.10 "scope trap #1") and gets its own planning
+pass + ADR (ADR-007) later. M4a is the §6 M4 milestone minus the "descend toward procedural
+terrain" clause (which moves to M4b). TASK-053 is the Phase 4a acceptance gate; when it is
+`done` the APIs of `render-fx`, `render-planets` v2 (atmosphere), `data` v4
+(constellations), `app-state`/`ui` v3, `nav` v5, `streaming` v1.1, and the Gaia/octree pack
+surface freeze, and **Phase 4b (terrain) specs may be written** (the next sanctioned thaw).
 
 ## Dependency graph
 
@@ -153,6 +185,24 @@ TASK-030 ─→ TASK-031 (core-types Phase-3 thaw, S; ADR-003/004)
 
 TASK-032…039 (all) ─→ TASK-040 M3 integration (exclusive)
 TASK-040 ──────────→ TASK-041 (GATE: closes Phase 3)
+
+Phase 4a (parallel lanes per §8.3 — disjoint packages; streaming additive per §7;
+terrain DEFERRED to Phase 4b):
+TASK-041 ─→ TASK-042 (core-types Phase-4 thaw, S; ADR-005/006)
+              ├─ lane: TASK-043 pack-octree v2 — real Gaia DR3 ingest (ADR-006)
+              ├─ lane: TASK-044 streaming v1.1 — catalog-coverage signal (§7 additive)
+              ├─ lane: TASK-045 pack-constellations ─→ TASK-046 data v4 (constellations)
+              ├─ lane: TASK-047 render-fx v1 (nebulae + line-set)   [new pkg]
+              ├─ lane: TASK-048 render-planets v2 (atmosphere, ADR-005)
+              ├─ lane: TASK-049 app-state v3 ─→ TASK-050 ui v3 (overlays/tours)
+              └─ lane: TASK-051 nav v5 (cinematic spline + auto-orbit)
+
+TASK-043…051 (all) ─→ TASK-052 M4a integration (exclusive)
+TASK-052 ──────────→ TASK-053 (GATE: closes Phase 4a)
+
+Phase 4b (terrain) — NOT YET AUTHORED: a later pass adds the CDLOD cube-sphere terrain
+thaw + procgen terrain + render-planets CDLOD + ADR-007 (architecture §6 "CDLOD, worker
+meshing"; §5.10 scope trap).
 ```
 
 ## Status values
