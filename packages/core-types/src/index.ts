@@ -13,3 +13,8 @@ export * from './procgen';
 export * from './streaming';
 export * from './quality';
 export * from './worker-rpc';
+export * from './atmosphere';
+export * from './nebula';
+export * from './overlay';
+export * from './tour';
+export * from './cinematic';
