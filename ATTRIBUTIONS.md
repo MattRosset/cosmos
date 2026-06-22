@@ -73,6 +73,22 @@ seeded PRNG keyed by host slug (see `tools/pack-exoplanets/src/synthesize.ts`).
 
 ---
 
+## Stellarium "modern_iau" Sky Culture — Constellation Lines
+
+**Source:** https://github.com/Stellarium/stellarium (`skycultures/modern_iau/index.json`)  
+**License:** CC BY-SA 4.0  
+**Attribution:** Stellarium contributors
+
+IAU constellation stick-figure line segments, keyed by Hipparcos (HIP) catalog number,
+are transcribed verbatim (code, name, HIP polylines) into the committed source list
+`tools/pack-constellations/src/constellation-lines.dat` and converted at build time
+into `apps/web/public/packs/constellations.json`. Endpoints are resolved to star
+positions at runtime by `@cosmos/data` against the loaded star source — no positions
+are stored in the pack. As a derivative of CC BY-SA 4.0 data, the pack is itself
+licensed CC BY-SA 4.0. See `tools/pack-constellations/README.md` to regenerate.
+
+---
+
 ## Solar System Scope Textures (2k)
 
 **Source:** https://www.solarsystemscope.com/textures/  

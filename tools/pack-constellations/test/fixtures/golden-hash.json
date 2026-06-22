@@ -1,0 +1,4 @@
+{
+  "description": "Golden hash for the committed constellation pack (TASK-045). Rebuilding from src/constellation-lines.dat MUST reproduce apps/web/public/packs/constellations.json byte-for-byte.",
+  "constellationsJsonSha256": "cef909bd51e0aea959f75f51c1e8868e90c06d22f75e031b196f5260c169f4ed"
+}
