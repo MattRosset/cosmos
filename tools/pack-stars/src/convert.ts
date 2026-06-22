@@ -34,7 +34,13 @@ function pickName(proper: string, bf: string, gl: string): string | undefined {
   return undefined;
 }
 
-function galacticPositionPc(
+/**
+ * ICRS RA/Dec (radians) + distance → galactic Cartesian position (same units as
+ * `dist`). This is the single source of truth for the catalog frame (ADR-001):
+ * pack-octree's Gaia ingest reuses it so HYG and Gaia land in the identical frame
+ * (ADR-006 §2 — do not re-derive the rotation elsewhere).
+ */
+export function galacticPositionPc(
   rarad: number,
   decrad: number,
   dist: number,

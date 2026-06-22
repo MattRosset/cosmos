@@ -382,10 +382,19 @@ importers:
       '@cosmos/core-types':
         specifier: workspace:*
         version: link:../../packages/core-types
+      '@cosmos/pack-stars':
+        specifier: workspace:*
+        version: link:../pack-stars
+      csv-parse:
+        specifier: ^5.5.6
+        version: 5.6.0
       zod:
         specifier: ^3.23.8
         version: 3.25.76
     devDependencies:
+      '@cosmos/data':
+        specifier: workspace:*
+        version: link:../../packages/data
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.21

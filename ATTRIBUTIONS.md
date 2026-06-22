@@ -18,6 +18,28 @@ domain by virtue of its source data. To regenerate the pack, see
 
 ---
 
+## Gaia DR3 Star Catalog
+
+**Source:** ESA Gaia mission, Data Release 3 (`gaiadr3.gaia_source`)  
+**URL:** https://gea.esac.esa.int/archive/  
+**License:** Free to use with attribution (Gaia data is released for public use)  
+**Attribution:** ESA/Gaia/DPAC
+
+This work has made use of data from the European Space Agency (ESA) mission *Gaia*
+(https://www.cosmos.esa.int/gaia), processed by the *Gaia* Data Processing and
+Analysis Consortium (DPAC, https://www.cosmos.esa.int/web/gaia/dpac/consortium).
+Funding for the DPAC has been provided by national institutions, in particular the
+institutions participating in the *Gaia* Multilateral Agreement.
+
+The bright magnitude-cut subset (`phot_g_mean_mag ≤ 12.5`, see
+`tools/pack-octree/src/gaia-query.adql`) is converted at build time into the
+galactic-Cartesian octree pack `octree-gaia-*`. The full ~2–3M-star pack and the
+raw query snapshot are **not** committed; a small region-clipped CI sample lives in
+`apps/web/public/packs/octree-gaia-sample/`. To regenerate, see
+`tools/pack-octree/README.md`.
+
+---
+
 ## JPL Approximate Planetary Ephemerides
 
 **Source:** E.M. Standish, "Keplerian Elements for Approximate Positions of the Major

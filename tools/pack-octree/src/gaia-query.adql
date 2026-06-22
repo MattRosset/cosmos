@@ -1,0 +1,19 @@
+-- Gaia DR3 bright subset — the EXACT query that produces the cached snapshot
+-- the build reads (ADR-006 §1). Run against the ESA Gaia Archive TAP/ADQL
+-- service (https://gea.esac.esa.int/tap-server/tap) as a manual refresh step;
+-- the network fetch is never performed in CI (§11 reproducibility).
+--
+-- Magnitude cut: phot_g_mean_mag <= 12.5, valid positive parallax with
+-- parallax_over_error >= 5. Yields ~2-3M sources (architecture §5.7 / §14).
+-- The selected columns are exactly what gaia-ingest.ts consumes.
+SELECT
+  source_id,
+  ra,
+  dec,
+  parallax,
+  phot_g_mean_mag,
+  bp_rp
+FROM gaiadr3.gaia_source
+WHERE phot_g_mean_mag <= 12.5
+  AND parallax > 0
+  AND parallax_over_error >= 5

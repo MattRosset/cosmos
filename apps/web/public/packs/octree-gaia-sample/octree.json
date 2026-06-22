@@ -1,0 +1,45 @@
+{
+  "octreeFormatVersion": 1,
+  "source": "gaia-dr3-bright",
+  "context": "galaxy",
+  "rootHalfExtentUnits": 65536,
+  "idPrefix": "gaia",
+  "tiles": [
+    {
+      "key": "0/0",
+      "isLeaf": true,
+      "childMask": 0,
+      "pointCount": 135,
+      "centerUnits": [
+        0,
+        0,
+        0
+      ],
+      "halfExtentUnits": 65536,
+      "binUrl": "tiles/0_0.bin",
+      "contentHashSha256": "ea2b590a772b7df29b4320e65ce031373d585ae1b9f9798bbbc3e66910a10385",
+      "buffers": {
+        "positionsPc": {
+          "byteOffset": 0,
+          "byteLength": 1620
+        },
+        "absMag": {
+          "byteOffset": 1620,
+          "byteLength": 540
+        },
+        "colorIndexBV": {
+          "byteOffset": 2160,
+          "byteLength": 540
+        },
+        "catalogIds": {
+          "byteOffset": 2700,
+          "byteLength": 540
+        },
+        "hipIds": {
+          "byteOffset": 3240,
+          "byteLength": 540
+        }
+      }
+    }
+  ]
+}

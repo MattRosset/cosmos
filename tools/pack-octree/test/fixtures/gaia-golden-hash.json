@@ -1,0 +1,11 @@
+{
+  "description": "Golden hashes for the committed Gaia CI sample pack (TASK-043). Rebuilding the sample from test/fixtures/gaia-dr3-mini.csv against apps/web/public/packs (HYG) MUST reproduce these byte-for-byte (ADR-006 §4).",
+  "octreeJsonSha256": "57a1c9e97ee8a4ea15f52f37db1466b87e2f3d16387de6fd6d243b4b58b4ec95",
+  "sidecarSha256": "ad4b6d7c922838371374d48a6e87fac611551300e065d3ee7d770b1d9c3d59ab",
+  "tiles": [
+    {
+      "key": "0/0",
+      "contentHashSha256": "ea2b590a772b7df29b4320e65ce031373d585ae1b9f9798bbbc3e66910a10385"
+    }
+  ]
+}
