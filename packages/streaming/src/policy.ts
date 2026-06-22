@@ -85,6 +85,23 @@ export interface StreamingPolicy {
   onChunk(cb: (e: ChunkLifecycleEvent) => void): () => void;
   setQualityTier(tier: QualityTier): void;
   readonly stats: StreamingStats;
+
+  /**
+   * Catalog coverage of the current visible cut, in [0,1]: the fraction of the
+   * chosen cut whose octree tiles are READY (decoded + mounted), with no pending or
+   * in-flight gaps. 1 ⇒ real catalog fully covers the view (procgen can fade to 0);
+   * 0 ⇒ no catalog coverage (procgen fully visible). Computed on the main thread in
+   * the same `update()` pass — zero extra allocation on a settled cut.
+   *
+   * Defined only for octree chunks; procgen chunks do not count toward coverage.
+   * A cut node counts as covered when it is ready OR a coarser ancestor tile is
+   * ready (the same coarse-before-fine coverage `buildCoverage()` already uses, so
+   * the catalog visibly fills that screen region). Contributions are weighted by
+   * projected screen area (pixel extent squared) so a large near tile counts far
+   * more than a tiny far one. Returns the value as of the last `update()`.
+   */
+  catalogCoverage(): number;
+
   dispose(): void;
 }
 
@@ -169,6 +186,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
   let _renderedPoints = 0;
   let _drawCalls = 0;
   let _gpuBytes = 0;
+  let _catalogCoverage = 0;
 
   let ctxMeters = CONTEXT_UNIT_METERS[origin.context];
 
@@ -425,24 +443,48 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     coverageList.push(c);
   }
 
-  function buildCoverage(): void {
+  function buildCoverage(viewportHeightPx: number): void {
+    // Area-weighted catalog coverage of the cut, accumulated in the same pass.
+    // Only octree targets count (procgen is the filler being superseded); each is
+    // weighted by its projected screen area so a large near tile dominates a tiny
+    // far one. Both accumulators are primitives — no allocation on a settled cut.
+    let cutWeight = 0;
+    let readyWeight = 0;
+
     for (let i = 0; i < targetList.length; i++) {
       const target = targetList[i]!;
+      const isOctree = target.kind === 'octree';
+      let area = 0;
+      if (isOctree) {
+        const px = projectedPixelExtent(
+          target.extentCurrent,
+          Math.max(target.distUnits, 1e-9),
+          viewportHeightPx,
+          STREAM_TAN_HALF_FOV,
+        );
+        area = px * px;
+        cutWeight += area;
+      }
+
       if (target.status === 'ready') {
         addCoverage(target);
+        if (isOctree) readyWeight += area;
         continue;
       }
-      if (target.kind !== 'octree') continue; // procgen has no coarser ancestor
+      if (!isOctree) continue; // procgen has no coarser ancestor
       let key: MortonKey | null = parentKey(target.id);
       while (key) {
         const anc = chunks.get(key);
         if (anc && anc.status === 'ready') {
           addCoverage(anc);
+          readyWeight += area; // ancestor catalog tile covers this screen region
           break;
         }
         key = parentKey(key);
       }
     }
+
+    _catalogCoverage = cutWeight > 0 ? readyWeight / cutWeight : 0;
   }
 
   // ---------------------------------------------------------------------------
@@ -528,7 +570,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     }
 
     // 4) coverage + budget degradation
-    buildCoverage();
+    buildCoverage(viewportHeightPx);
     enforceBudgets();
 
     // 5) LRU eviction once GPU memory exceeds budget (pin cut / coverage / camera node)
@@ -612,6 +654,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     },
     setQualityTier(t) { tier = t; },
     stats,
+    catalogCoverage() { return _catalogCoverage; },
     dispose() {
       if (disposed) return;
       disposed = true;

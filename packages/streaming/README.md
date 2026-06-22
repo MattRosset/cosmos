@@ -92,6 +92,31 @@ chunk (`Infinity` when nothing is loaded near the camera). Context units are sca
 to meters via `CONTEXT_UNIT_METERS`. The app glue (TASK-040) feeds it to
 `nav.setDistanceToNearestSurface`.
 
+## `catalogCoverage()`
+
+A scalar in `[0,1]`: how much of the current visible cut the **real catalog**
+(octree tiles) already covers. `1` ⇒ ready octree tiles fill the view, so the M4a
+render-tier unification can fade the procedural galaxy cloud to `0` (replacing M3's
+hard-coded `GAL_PROCGEN_FLOOR`); `0` ⇒ no catalog coverage, procgen fully visible.
+See [`phase4-render-tier-handoff.md`](../../docs/research/phase4-render-tier-handoff.md)
+§3 and ADR-006 §5.
+
+It is a **read-only accessor over the state `update()` already computes** — it does
+not traverse or fetch, and returns the value as of the last `update()`. Only octree
+chunks count; **procgen chunks never contribute** (procgen is the filler being
+superseded, not coverage). A cut node counts as covered when it is `ready` **or** a
+coarser ancestor tile is `ready` — the same coarse-before-fine rule `buildCoverage()`
+uses, since a ready ancestor visibly fills that screen region at a lower LOD.
+
+**Area weighting.** Each cut tile contributes its **projected screen area** —
+`projectedPixelExtent²` — not an equal vote, so a large near tile dominates a tiny
+far one. Coverage is `Σ area(ready cut tiles) ÷ Σ area(all cut tiles)`. A single huge
+near tile that is not yet ready therefore drags coverage well below `1` even when many
+tiny far tiles are ready (and below an equal-*count* case where the near tile is the
+one that is ready). The two accumulators are primitives folded into the existing cut
+pass, so a settled cut adds no allocation, and `catalogCoverage()` itself just reads
+the precomputed number.
+
 ## Allocation doctrine
 
 The steady-state `update()` path (unchanging cut, everything loaded) allocates
@@ -105,7 +130,8 @@ eviction frame. None occur on a settled cut.
 ## API
 
 `createStreamingPolicy(opts) → StreamingPolicy` with `update`, `visible`,
-`nearestBodyDistanceM`, `onChunk`, `setQualityTier`, `stats`, `dispose`. Pure
+`nearestBodyDistanceM`, `onChunk`, `setQualityTier`, `stats`, `catalogCoverage`,
+`dispose`. Pure
 helpers `projectedPixelExtent` / `screenSpaceError` (`sse.ts`), `selectLruVictims`
 (`lru.ts`), `advanceFade` (`crossfade.ts`), and `effectiveMaxPoints` /
 `estimateGpuBytes` (`budgets.ts`) are exported for reuse and testing.
