@@ -3,6 +3,7 @@ import {
   createSafeStorage,
   migrateBookmarks,
   migrateHistory,
+  migrateOverlay,
 } from '../src/persist-util';
 
 describe('createSafeStorage', () => {
@@ -126,5 +127,57 @@ describe('migrateHistory', () => {
   it('undefined version returns empty', () => {
     const result = migrateHistory([], 0);
     expect(result).toEqual([]);
+  });
+});
+
+describe('migrateOverlay', () => {
+  it('version 1 passes through valid flags', () => {
+    const flags = { constellations: true, labels: false, cinematic: true };
+    const result = migrateOverlay(flags, 1);
+    expect(result).toEqual(flags);
+  });
+
+  it('version 1 falls back to defaults for non-object input', () => {
+    const result = migrateOverlay('not an object', 1);
+    expect(result).toEqual({
+      constellations: false,
+      labels: false,
+      cinematic: false,
+    });
+  });
+
+  it('version 1 falls back per-field for invalid types', () => {
+    const result = migrateOverlay(
+      { constellations: 'yes', labels: true, cinematic: 1 },
+      1
+    );
+    expect(result).toEqual({
+      constellations: false,
+      labels: true,
+      cinematic: false,
+    });
+  });
+
+  it('future version warns and returns defaults', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const result = migrateOverlay({}, 99);
+    expect(result).toEqual({
+      constellations: false,
+      labels: false,
+      cinematic: false,
+    });
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown overlay schema version 99')
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('undefined version returns defaults', () => {
+    const result = migrateOverlay({}, 0);
+    expect(result).toEqual({
+      constellations: false,
+      labels: false,
+      cinematic: false,
+    });
   });
 });

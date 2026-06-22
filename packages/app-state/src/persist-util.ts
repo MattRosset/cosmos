@@ -1,5 +1,10 @@
 import type { BookmarkRecord } from '@cosmos/core-types';
 import type { HistoryEntry } from './history';
+interface OverlayFlags {
+  readonly constellations: boolean;
+  readonly labels: boolean;
+  readonly cinematic: boolean;
+}
 
 // Safe storage shim that handles localStorage unavailability (Node, SSR).
 export function createSafeStorage() {
@@ -98,4 +103,39 @@ export function migrateHistory(
     return [];
   }
   return [];
+}
+
+const OVERLAY_DEFAULTS: OverlayFlags = {
+  constellations: false,
+  labels: false,
+  cinematic: false,
+};
+
+export function migrateOverlay(
+  persisted: unknown,
+  version: number
+): OverlayFlags {
+  if (version === 1) {
+    if (!persisted || typeof persisted !== 'object') return OVERLAY_DEFAULTS;
+    const obj = persisted as Record<string, unknown>;
+    return {
+      constellations:
+        typeof obj.constellations === 'boolean'
+          ? obj.constellations
+          : OVERLAY_DEFAULTS.constellations,
+      labels:
+        typeof obj.labels === 'boolean' ? obj.labels : OVERLAY_DEFAULTS.labels,
+      cinematic:
+        typeof obj.cinematic === 'boolean'
+          ? obj.cinematic
+          : OVERLAY_DEFAULTS.cinematic,
+    };
+  }
+  if (version > 1) {
+    console.warn(
+      `Unknown overlay schema version ${version}, resetting to defaults`
+    );
+    return OVERLAY_DEFAULTS;
+  }
+  return OVERLAY_DEFAULTS;
 }

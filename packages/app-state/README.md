@@ -47,6 +47,32 @@ and dedupes consecutive visits. Persisted under `cosmos.history`, version 1.
 useHistoryStore.getState().push('sirius', '2026-06-12T10:00:00Z');
 ```
 
+## Tours & overlays (Phase 4)
+
+### `useTourStore` (not persisted)
+
+The active guided tour and playback position. A tour is an in-session activity —
+reloading the page does not resurrect a half-finished tour.
+
+```ts
+useTourStore.getState().start(tour); // active=tour, stepIndex=0, playing=true
+useTourStore.getState().next();      // advances; clamps at the last step
+useTourStore.getState().prev();      // clamps at 0
+useTourStore.getState().setPlaying(false); // pause
+useTourStore.getState().stop();      // active=null, stepIndex=-1, playing=false
+```
+
+### `useOverlayStore` (persisted)
+
+Which overlays are on: `constellations`, `labels`, `cinematic` (default false).
+Persisted to `localStorage` under `cosmos.overlay` with version 1 migration.
+
+```ts
+useOverlayStore.getState().setConstellations(true);
+useOverlayStore.getState().setLabels(true);
+useOverlayStore.getState().setCinematic(true);
+```
+
 ## Event bridge
 
 `bindSelectionToBus(bus)` emits `selection/changed` on every selection change.
