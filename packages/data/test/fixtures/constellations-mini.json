@@ -1,0 +1,11 @@
+{
+  "packFormatVersion": 1,
+  "source": "test-fixture",
+  "constellations": [
+    {
+      "code": "Tst",
+      "name": "Testellation",
+      "hipPairs": [32349, 91262, 71683, 32349, 91262, 999999]
+    }
+  ]
+}

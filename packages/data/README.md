@@ -87,6 +87,35 @@ named HYG star resolves to that HYG record (the HYG position is authoritative).
 | `nearestHostSystem(x,y,z)` | Nearest host by galaxy-frame parsecs; ≤ 10 Hz, allocates |
 | `hostPositionPc(systemId)` | HYG position if deduped, pack position otherwise |
 
+## Constellations (Phase 4)
+
+### `loadConstellationPack(manifestUrl, opts?): Promise<ConstellationPack>`
+
+Fetches and validates the IAU constellation pack (TASK-045 output). Throws
+`PackFormatError` when `packFormatVersion` differs from the loader's expected version
+(mirrors `loadStarPack`'s validation style).
+
+### `createConstellationSource(pack, stars): ConstellationSource`
+
+Resolves each constellation's `hipPairs` against a star source's `hipIndex`/
+`positionPcByIndex` accessors (additive members of `StarDataSource`). HIPs with no
+matching star are dropped silently (catalog coverage differs). The result:
+
+| Member | Notes |
+|---|---|
+| `constellations` | The raw `ConstellationLineSet[]` from the pack |
+| `segmentsPc()` | Cached `Float64Array`, length `6N`; absolute galaxy-frame parsecs `[ax,ay,az,bx,by,bz,…]`; built once, same identity on every call |
+| `segmentCodes()` | Parallel `string[]`, length `N`, the constellation code per segment |
+
+Endpoints are **absolute** f64 — the app rebases to camera-relative f32 at render time
+(ADR-001 §5); the renderer never sees absolute coordinates.
+
+### `labelCandidates(source, opts?): readonly LabelRecord[]`
+
+Named bodies from an indexed source (e.g. `StarDataSource`), ranked by `priority`
+(absolute magnitude — brighter ⇒ lower number ⇒ more important), capped at `opts.max`
+(default 50).
+
 ## Phase 1 simplification
 
 Decoding happens on the **main thread at load time** (one HYG pack, < 100 ms).

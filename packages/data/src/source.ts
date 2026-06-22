@@ -15,6 +15,10 @@ export interface StarDataSource {
   search(query: string, maxResults?: number): readonly StarRecord[];
   queryRegion(minPc: Vec3Pc, maxPc: Vec3Pc, maxCount: number): Uint32Array;
   nearestStarIndex(xPc: number, yPc: number, zPc: number): number;
+  /** Batch index for a Hipparcos number, or undefined when not present (TASK-046). */
+  hipIndex(hip: number): number | undefined;
+  /** Absolute galaxy-frame position (parsecs) for a batch index (TASK-046). */
+  positionPcByIndex(index: number): Vec3Pc;
 }
 
 interface NameSearchRow {
@@ -28,13 +32,17 @@ export class StarDataSourceImpl implements StarDataSource {
   private readonly _idIndex: Map<number, number>; // catalogId → batch index
   private readonly _nameSearchRows: readonly NameSearchRow[];
   private readonly _grid: SpatialGrid;
+  private readonly _hipIndex: Map<number, number>;
 
   constructor(batch: StarBatch, names: Record<string, string>) {
     this.batch = batch;
 
     this._idIndex = new Map();
+    this._hipIndex = new Map();
     for (let i = 0; i < batch.count; i++) {
       this._idIndex.set(batch.catalogIds[i]!, i);
+      const hip = batch.hipIds[i]!;
+      if (hip !== 0) this._hipIndex.set(hip, i);
     }
 
     this._names = new Map();
@@ -138,5 +146,18 @@ export class StarDataSourceImpl implements StarDataSource {
       yPc - oy,
       zPc - oz,
     );
+  }
+
+  hipIndex(hip: number): number | undefined {
+    return this._hipIndex.get(hip);
+  }
+
+  positionPcByIndex(index: number): Vec3Pc {
+    const [ox, oy, oz] = this.batch.originPc;
+    return [
+      ox + this.batch.positionsPc[index * 3]!,
+      oy + this.batch.positionsPc[index * 3 + 1]!,
+      oz + this.batch.positionsPc[index * 3 + 2]!,
+    ];
   }
 }

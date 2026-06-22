@@ -11,3 +11,10 @@ export type { OctreeNode, OctreeSource, LoadOctreeOptions } from './octree.js';
 // entry's `serveWorker`. Pure (no Three.js/DOM), the data counterpart to procgen's
 // `galaxyWorkerHandler`. `decodeTile` is the underlying main-thread decoder.
 export { octreeDecodeHandler, decodeTile } from './octree-decode.js';
+export { loadConstellationPack, createConstellationSource, labelCandidates } from './constellations.js';
+export type {
+  ConstellationPack,
+  ConstellationSource,
+  ConstellationStarSource,
+  LabelableSource,
+} from './constellations.js';
