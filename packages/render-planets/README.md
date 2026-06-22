@@ -62,6 +62,45 @@ ol.dispose();
 
 The position buffer is shared directly — no copy.
 
+## Atmosphere (Phase 4)
+
+`createAtmosphere(opts)` returns an inverted-shell mesh running the **O'Neil analytic
+single-scattering** shader (Sean O'Neil, *Accurate Atmospheric Scattering*, GPU Gems 2
+ch. 16) — explicitly *not* Bruneton precomputed scattering. See
+[ADR-005](../../docs/decisions/ADR-005-atmospheric-scattering.md).
+
+```ts
+import { createAtmosphere } from '@cosmos/render-planets';
+
+const atm = createAtmosphere({
+  planetRadiusUnits,  // planet surface radius in CONTEXT UNITS (e.g. AU)
+  params?,            // AtmosphereParams; absent fields fall back to ATMOSPHERE_DEFAULTS
+  widthSegments?,     // default 64
+  heightSegments?,    // default 48
+});
+
+scene.add(atm.object); // mount in the §10 transparent band: after the opaque planet,
+                       // before orbit lines
+
+// Per frame (all zero-alloc):
+atm.setRenderOffset([x, y, z]); // camera-relative shell-center position, context units
+atm.setStarDirection([x, y, z]); // unit vector planet→star
+atm.setExposure(v);
+atm.setOpacity(a);               // cross-fade [0,1]
+
+atm.dispose();
+```
+
+- **Shell:** sphere of radius `planetRadiusUnits × atmosphereRadiusScale` (default 1.025),
+  `side: THREE.BackSide` so the inner surface shows from inside or outside the shell.
+- **Material:** `transparent`, `depthWrite: false`, **additive** over the lit planet
+  (it adds in-scattered light). Rayleigh + Henyey-Greenstein-Mie phases, `uSamples = 5`
+  fixed in-scatter samples — no LUT, no marching loop.
+- **Defaults** come from `ATMOSPHERE_DEFAULTS` in `@cosmos/core-types` (single source of
+  truth); a partial `params` overrides only the fields it sets.
+- **Quality gating is the app's job** — this package never reads quality state. The app
+  mounts/unmounts the shell from `useQuality().atmosphereEnabled` (ADR-005 §5).
+
 ## Constraints
 
 - No React, no texture loading, no `coords` import.

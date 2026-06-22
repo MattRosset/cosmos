@@ -143,3 +143,52 @@ The task is DONE only when these pass in CI (visual baseline arrives with TASK-0
 - `packages/core-types/src/atmosphere.ts` (`AtmosphereParams`, `ATMOSPHERE_DEFAULTS`),
   `packages/scene-host/README.md` (how the app gates `atmosphereEnabled` — for context,
   not imported here)
+
+## Status: DONE (2026-06-22)
+
+`pnpm --filter @cosmos/render-planets test` → 66 passed (4 files), `atmosphere.ts` 100%
+coverage, existing tests unchanged. Typecheck clean. `pnpm verify` → exit 0 (22/22, boundary
+lint clean: `three` + `@cosmos/core-types` only, no React). Visual baseline arrives with
+TASK-053 as specified.
+
+## Implementation Notes (design decisions & why)
+
+These record where the implementation made an interpretive call on top of the ADR, so a
+future reader doesn't mistake them for drift (ADR-004 doctrine: deliberate, documented).
+
+- **Fold `Kr·(1/λ⁴)` into `uBetaRayleigh`, `Km` into `uBetaMie` — no `invWavelength`
+  uniform.** O'Neil's original code carries a separate `v3InvWavelength` and scalar
+  `Kr`/`Km`, reconstructing the per-channel coefficient in the shader. ADR-005 §3 instead
+  stores the *already-normalized* per-channel 1/λ⁴ ratios directly in `betaRayleigh`
+  (`[5.8e-3, 13.5e-3, 33.1e-3]`) and a grey `betaMie`. Reintroducing `invWavelength` would
+  duplicate that information in two places and add a uniform not in the §5 list. So the
+  shader treats `uBetaRayleigh`/`uBetaMie` as the final scattering coefficients: extinction
+  `= (βR + βM)·4π`, out-scatter `= βR·ESun` (Rayleigh) and `βM·ESun` (Mie). The uniform set
+  is then exactly the §5 names — nothing more.
+
+- **SkyFromSpace intersection variant (camera assumed outside the shell).** O'Neil ships two
+  entry shaders — one for a camera inside the atmosphere, one outside. The system/explore
+  view always observes planets from well outside the ~160 km shell, so the impl uses the
+  outside path: it solves the ray↔outer-sphere quadratic and starts integration at the near
+  hit. `fDet` is clamped with `max(0.0, …)` and the Mie-phase denominator with `max(0.0, …)`
+  so a grazing or inside-shell ray degrades to black rather than producing NaNs, instead of
+  branching to a second shader (keeps it one fixed-cost fragment, ADR-005 §1). A dedicated
+  ground-level "inside" path is a future refinement, not needed for the current camera.
+
+- **Placement via the `uRenderOffset` uniform, not `group.position`.** `planet-mesh` happens
+  to move its group transform and leaves `uRenderOffset` vestigial. Here the shader genuinely
+  needs the camera position in shell space (`-uRenderOffset`) for the ray origin, so
+  `setRenderOffset` drives the uniform and the vertex shader places the shell with
+  `position + uRenderOffset`. One source for both placement and the ray math; satisfies the
+  ADR-001 §5 floating-origin "no absolute-position uniform" rule.
+
+- **Geometry built at the atmosphere radius in context units** (not a unit sphere scaled via
+  `object.scale` as `planet-mesh` does). This makes the `position` attribute already
+  shell-center-relative in the exact units the O'Neil integral compares against
+  `uPlanetRadius`/`uAtmosphereRadius`, so the fragment needs no rescaling, and the shell
+  radius is directly assertable via `geometry.parameters.radius` in the test.
+
+- **HDR→LDR exposure tone curve `1 - exp(-exposure·hdr)` kept in-shader**, then composited
+  with `THREE.AdditiveBlending` (`src·srcAlpha + dst`), with `uOpacity` carried as the alpha
+  so the app's cross-fade scales the added in-scattered light. This matches O'Neil's exposure
+  step and the §10 "additive over the lit planet" requirement without a post pass.
