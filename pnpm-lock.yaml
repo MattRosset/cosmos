@@ -65,6 +65,9 @@ importers:
       '@cosmos/procgen':
         specifier: workspace:*
         version: link:../../packages/procgen
+      '@cosmos/render-fx':
+        specifier: workspace:*
+        version: link:../../packages/render-fx
       '@cosmos/render-galaxy':
         specifier: workspace:*
         version: link:../../packages/render-galaxy

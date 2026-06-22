@@ -25,6 +25,7 @@ import {
 } from '../glue/galaxy-assets';
 import { milkyWayArmGeometry } from '../glue/milky-way-gen';
 import { profileSpan } from '../glue/frame-profiler';
+import { procgenOpacityHolder } from '../glue/test-hook';
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -67,14 +68,6 @@ const HII_GLOW_COLOR: readonly [number, number, number] = [1.0, 0.35, 0.72];
 // layer fades out (layerFade→0) before the camera gets close enough to blow out.
 const CLOUD_EXPOSURE_BOOST = 4e5;
 
-// Galaxy-context procgen blend (parsecs from the Milky Way centre): ramps from a
-// partial cloud near Sol to the full spiral at the Milky Way vantage. The floor
-// keeps breadcrumb flights visually filled (no empty band below 18 kpc) while the
-// real HYG field still dominates the neighbourhood around Sol.
-const GAL_FADE_LO_PC = 18_000;
-const GAL_FADE_HI_PC = 45_000;
-/** Minimum procgen draw + opacity inside the galaxy (50% of the 1M cloud). */
-const GAL_PROCGEN_FLOOR = 0.5;
 /** Cap procgen draw while a breadcrumb goTo is moving — avoids 500k–1M point stalls. */
 const GAL_FLIGHT_DRAW_MAX = 0.2;
 /** Ease draw cap back to full after goTo ends (ms). */
@@ -391,17 +384,17 @@ export function GalaxyScene({
     }
     wasFlyingRef.current = flying;
 
-    // Streaming tier: active in universe + galaxy. Procgen ramps from GAL_PROCGEN_FLOOR
-    // near Sol to full at the Milky Way vantage; octree HYG tiles stay at full opacity.
+    // Streaming tier: active in universe + galaxy. ADR-006 §5 render-tier unification:
+    // inside the galaxy, procgen-cloud opacity = 1 − catalogCoverage(), so the cloud
+    // fades to nothing exactly as the real octree (HYG + Gaia) tiles cover the cut —
+    // replacing M3's hard-coded GAL_PROCGEN_FLOOR. At universe scale the impostor +
+    // coarse procgen are KEPT (handoff §3 / ADR-006 table), so no coverage fade there.
     let procgenBlend = 1;
-    if (ctx === 'galaxy' && ctrl) {
-      const p = ctrl.state.position.local;
-      const dist = Math.hypot(p[0], p[1], p[2]);
-      const t = smoothstep(GAL_FADE_LO_PC, GAL_FADE_HI_PC, dist);
-      procgenBlend = GAL_PROCGEN_FLOOR + (1 - GAL_PROCGEN_FLOOR) * t;
-    } else if (ctx === 'galaxy') {
-      procgenBlend = GAL_PROCGEN_FLOOR;
+    if (ctx === 'galaxy') {
+      const cov = streaming.catalogCoverage();
+      procgenBlend = Math.max(0, Math.min(1, 1 - cov));
     }
+    procgenOpacityHolder.current = procgenBlend;
 
     const drawFraction = Math.min(procgenBlend, drawCapRef.current);
     const opacityBlend = flying ? Math.min(1, procgenBlend * 1.15) : procgenBlend;

@@ -288,3 +288,32 @@ button.hud-breadcrumb-exit:disabled {
 .hud .cosmos-ui-bookmarks {
   bottom: 72px;
 }
+
+/*
+ * TASK-052 cinematic letterbox. App-owned chrome (the ui TourChrome/OverlayControls
+ * have their own styles in ui.css). The bars sit above the canvas but never capture
+ * input (pointer-events:none) and animate in/out so a tour/cinematic reads as film.
+ */
+.hud-letterbox {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+.hud-letterbox-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  background: #000;
+  transition: height 600ms ease;
+}
+.hud-letterbox-bar--top {
+  top: 0;
+}
+.hud-letterbox-bar--bottom {
+  bottom: 0;
+}
+.hud-letterbox--active .hud-letterbox-bar {
+  height: 10vh;
+}

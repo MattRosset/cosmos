@@ -6,6 +6,8 @@ import type { BodyId, StarBatch, UniversePosition } from '@cosmos/core-types';
 import type { OriginManager } from '@cosmos/coords';
 import type { StarDataSource, CombinedSource } from '@cosmos/data';
 import type { FlightController } from '@cosmos/nav';
+import type { StreamingPolicy } from '@cosmos/streaming';
+import type { ContextId } from '@cosmos/core-types';
 import { useSelectionStore, useSettingsStore } from '@cosmos/app-state';
 import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
@@ -58,11 +60,25 @@ function bodyIdOf(obj: Object3D | null): BodyId | null {
   return null;
 }
 
+/**
+ * Coverage threshold above which the monolithic HYG field is gated OFF (ADR-006
+ * §5.2): once the octree (HYG + Gaia) tiles cover this fraction of the cut, drawing
+ * the HYG `stars.bin` monolith too would draw the same catalog twice. Below it (far,
+ * or tiles not yet loaded) the monolith stays as the no-blank-frame fallback.
+ */
+const MONOLITH_COVERAGE_GATE = 0.9;
+
 interface StarSceneProps {
   readonly stars: StarDataSource;
   readonly combined: CombinedSource;
   readonly origin: OriginManager;
   readonly controllerRef: RefObject<FlightController | null>;
+  /**
+   * M4a streaming policy. When present, the HYG monolith is gated off in galaxy/
+   * universe context once `catalogCoverage()` shows the octree tiles cover the cut
+   * (ADR-006 §5.2). Absent (M2/ctxswitch/M3 debug paths) ⇒ monolith always drawn.
+   */
+  readonly streaming?: StreamingPolicy | undefined;
   /** Double-click on a body: select AND fly (host stars descend into the system). */
   readonly onActivate?: (id: BodyId) => void;
 }
@@ -78,6 +94,7 @@ export function StarScene({
   combined,
   origin,
   controllerRef,
+  streaming,
   onActivate,
 }: StarSceneProps) {
   const hygBatch = stars.batch;
@@ -139,6 +156,18 @@ export function StarScene({
 
   useFrameContext(() => {
     profileSpan('stars.render', () => {
+      // ADR-006 §5.2 monolith gate: hide the HYG `stars.bin` field once octree tiles
+      // (HYG + Gaia) cover the cut, so the catalog is never drawn twice near Sol.
+      // Gated only in galaxy/universe (where the octree draws); in 'system' the
+      // octree tier is off, so the field stays as the background. Exo hosts (not in
+      // the octree) always draw. Zero-alloc: a coverage read + a visibility flag.
+      if (streaming !== undefined) {
+        const ctx: ContextId = controllerRef.current?.contextId ?? origin.context;
+        const gated =
+          (ctx === 'galaxy' || ctx === 'universe') &&
+          streaming.catalogCoverage() >= MONOLITH_COVERAGE_GATE;
+        hygPoints.object.visible = !gated;
+      }
       hygPoints.setRenderOffset(origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch));
       exoPoints?.setRenderOffset(origin.toRenderSpace(EXO_ORIGIN, renderOffsetScratch));
     });

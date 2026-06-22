@@ -1,10 +1,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BodyId } from '@cosmos/core-types';
+import type { BodyId, UniversePosition } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
 import {
   loadStarPack,
   loadSystemsPack,
   loadOctreePack,
+  loadConstellationPack,
   createCombinedSource,
   type StarDataSource,
   type SystemsSource,
@@ -14,12 +15,21 @@ import {
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { SceneHost, type QualityController } from '@cosmos/scene-host';
 import type { StreamingPolicy } from '@cosmos/streaming';
-import { useSelectionStore, useHistoryStore, useHudStore } from '@cosmos/app-state';
+import {
+  useSelectionStore,
+  useHistoryStore,
+  useHudStore,
+  useTourStore,
+} from '@cosmos/app-state';
 import { Icon } from '@cosmos/ui';
 import { INITIAL_CAMERA, NavDriver } from './scene/NavDriver';
 import { StarScene } from './scene/StarScene';
 import { SystemScene } from './scene/SystemScene';
 import { GalaxyScene } from './scene/GalaxyScene';
+import { Overlays } from './scene/Overlays';
+import { combineOctreeSources } from './glue/octree-combined';
+import { buildOverlayData, type OverlayData } from './glue/overlays';
+import { GRAND_TOUR, buildFlyToSpline } from './glue/tours';
 import { Hud } from './hud/Hud';
 import { DebugHud } from './scene/DebugHud';
 import { DebugMarkers } from './scene/DebugMarkers';
@@ -79,6 +89,15 @@ const HYG_MANIFEST_URL = '/packs/manifest.json';
 const SOL_PACK_URL = '/packs/systems-sol.json';
 const EXO_PACK_URL = '/packs/systems-exo.json';
 const OCTREE_MANIFEST_URL = '/packs/octree/octree.json';
+/** Gaia DR3 octree sample (ADR-006); the full pack URL is a deploy-time config. */
+const GAIA_OCTREE_MANIFEST_URL = '/packs/octree-gaia-sample/octree.json';
+const CONSTELLATIONS_URL = '/packs/constellations.json';
+
+/** TASK-052 M4a debug gate (`?debug=m4a`): scripted descent with the M4a composition. */
+const DEBUG_M4A = new URLSearchParams(window.location.search).get('debug') === 'm4a';
+
+/** Auto-orbit radius (meters) for a tour dwell — the camera circles the framed target. */
+const TOUR_ORBIT_RADIUS_M = 1e13;
 
 interface Sources {
   readonly stars: StarDataSource;
@@ -87,6 +106,25 @@ interface Sources {
   readonly combined: CombinedSource;
   /** HYG octree (M3 streaming tier); absent in debug modes that don't stream. */
   readonly octree?: OctreeSource;
+  /**
+   * Combined HYG + Gaia octree (M4a, ADR-006 §5): the single source fed to the
+   * streaming policy so both catalogs share one cut + `catalogCoverage()`. Absent in
+   * M1/M2/M3 debug modes (which keep the HYG-only octree to preserve their baselines).
+   */
+  readonly octreeCombined?: OctreeSource;
+  /** Constellation lines + label candidates (M4a overlays); absent in older modes. */
+  readonly overlay?: OverlayData;
+}
+
+declare global {
+  interface Window {
+    /** Dev/E2E control surface (TASK-052): deterministic tier + tour control. */
+    __cosmosDev?: {
+      setTier(tier: 'high' | 'medium' | 'low' | null): void;
+      startTour(): void;
+      stopTour(): void;
+    };
+  }
 }
 
 type PackState =
@@ -97,6 +135,7 @@ type PackState =
 export function App() {
   if (DEBUG_JITTER) return <JitterApp />;
   if (DEBUG_CTXSWITCH) return <CtxSwitchApp />;
+  if (DEBUG_M4A) return <M4aApp />;
   if (DEBUG_M3) return <M3App />;
   if (DEBUG_FLYTHROUGH3 || DEBUG_SOAK3) return <StreamingProbeApp kind={DEBUG_SOAK3 ? 'soak3' : 'flythrough3'} />;
   return DEBUG_MARKERS ? <DebugApp /> : <StarApp />;
@@ -341,6 +380,173 @@ function M3App() {
         origin={origin}
         controllerRef={controllerHolder}
       />
+      {mountedSystem ? (
+        <SystemScene
+          system={mountedSystem.system}
+          origin={origin}
+          packUrl={mountedSystem.packUrl}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+    </SceneHost>
+  );
+}
+
+/**
+ * TASK-052 M4a gate (`?debug=m4a`): the M3 scripted descent (M3DescentProbe) run
+ * against the M4a composition — the COMBINED HYG + Gaia octree streamed through one
+ * policy, the coverage-driven procgen fade + monolith gate (GalaxyScene/StarScene),
+ * the educational overlays, and the Earth atmosphere (quality-gated in SystemScene).
+ * It exists separately from `?debug=m3` so the M3 baselines stay frozen; the e2e
+ * (m4a.spec.ts) drives tier (via `window.__cosmosDev.setTier`) + overlay/tour stores
+ * against the SHIPPED pipeline. The clock is paused so orbital motion cannot
+ * contaminate the descent.
+ */
+function M4aApp() {
+  const [pack, setPack] = useState<PackState>({ status: 'loading' });
+  const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
+
+  useEffect(() => {
+    installTimeGlue();
+    clock.setPaused(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadStarPack(HYG_MANIFEST_URL),
+      loadSystemsPack(SOL_PACK_URL),
+      loadSystemsPack(EXO_PACK_URL),
+      loadOctreePack(OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadOctreePack(GAIA_OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadConstellationPack(CONSTELLATIONS_URL),
+    ]).then(
+      ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
+        if (cancelled) return;
+        const combined = createCombinedSource(stars, [sol, exo]);
+        const octreeCombined = combineOctreeSources([octree, gaiaOctree]);
+        const overlay = buildOverlayData(constellationPack, stars);
+        setPack({
+          status: 'ready',
+          sources: { stars, sol, exo, combined, octree, octreeCombined, overlay },
+        });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setPack({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    testHook.ready = pack.status === 'ready';
+  }, [pack]);
+
+  const tree = useMemo(() => createScaleFrameTree(), []);
+  const origin = useMemo(() => createOriginManager(tree, M3_START), [tree]);
+  const { milkyWay } = useMemo(() => makeLocalGroup(), []);
+
+  const handleController = useCallback((controller: FlightController) => {
+    controllerHolder.current = controller;
+    mirrorControllerState();
+  }, []);
+
+  const handleContextSwitch = useCallback((e: ContextSwitchEvent) => {
+    setMountedSystemId(e.to === 'system' ? e.anchorId : null);
+    mirrorControllerState();
+  }, []);
+
+  const sources = pack.status === 'ready' ? pack.sources : null;
+
+  const streaming = useMemo<StreamingPolicy | null>(() => {
+    if (sources?.octreeCombined === undefined) return null;
+    return createMilkyWayStreaming({ origin, octree: sources.octreeCombined, milkyWay });
+  }, [origin, sources, milkyWay]);
+
+  useEffect(() => {
+    streamingHolder.current = streaming;
+    return () => {
+      if (streamingHolder.current === streaming) streamingHolder.current = null;
+    };
+  }, [streaming]);
+
+  const qcRef = useRef<QualityController | null>(null);
+  useEffect(() => {
+    window.__cosmosDev = {
+      setTier: (tier) => qcRef.current?.setTier(tier),
+      startTour: () => useTourStore.getState().start(GRAND_TOUR),
+      stopTour: () => useTourStore.getState().stop(),
+    };
+    return () => {
+      delete window.__cosmosDev;
+    };
+  }, []);
+
+  const handleQc = useCallback(
+    (qc: QualityController) => {
+      qcRef.current = qc;
+      if (streaming === null) return;
+      wireQuality(streaming, (tier) => {
+        testHook.qualityTier = tier;
+      })(qc);
+    },
+    [streaming],
+  );
+
+  const mountedSystem = useMemo(() => {
+    if (sources === null) return null;
+    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
+    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
+    if (system === undefined) return null;
+    const packUrl =
+      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+    return { system, packUrl };
+  }, [sources, mountedSystemId]);
+
+  if (pack.status !== 'ready' || streaming === null) return null;
+
+  return (
+    <SceneHost
+      epochProvider={epochProvider}
+      initialQualityTier="high"
+      onQualityController={handleQc}
+    >
+      <color attach="background" args={['#02030a']} />
+      <M3DescentProbe
+        origin={origin}
+        tree={tree}
+        combined={pack.sources.combined}
+        milkyWay={milkyWay}
+        onController={handleController}
+        onContextSwitch={handleContextSwitch}
+      />
+      <GalaxyScene
+        streaming={streaming}
+        origin={origin}
+        controllerRef={controllerHolder}
+        milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+      />
+      <StarScene
+        stars={pack.sources.stars}
+        combined={pack.sources.combined}
+        origin={origin}
+        controllerRef={controllerHolder}
+        streaming={streaming}
+      />
+      {pack.sources.overlay ? (
+        <Overlays
+          origin={origin}
+          overlay={pack.sources.overlay}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
       {mountedSystem ? (
         <SystemScene
           system={mountedSystem.system}
@@ -740,7 +946,9 @@ function StarApp() {
       clearTimeout(timer);
       timer = setTimeout(() => {
         const s = useHudStore.getState();
-        if (s.searchOpen || s.bookmarksOpen) {
+        // Keep the chrome up while a panel is open OR a guided tour is running, so the
+        // tour card + cinematic letterbox don't vanish mid-tour with no pointer input.
+        if (s.searchOpen || s.bookmarksOpen || useTourStore.getState().active !== null) {
           schedule();
           return;
         }
@@ -774,8 +982,9 @@ function StarApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // All packs load in parallel at startup (§6 M3: no loading screen between scale
-  // tiers AFTER ready). The octree decodes through the shared worker pool.
+  // All packs load in parallel at startup (§6 M3/M4a: no loading screen between scale
+  // tiers AFTER ready). Both octrees decode through the shared worker pool; the Gaia
+  // pack is loaded alongside HYG (ADR-006 §4) — same loader, no parallel path.
   useEffect(() => {
     let cancelled = false;
     setPack({ status: 'loading' });
@@ -784,11 +993,19 @@ function StarApp() {
       loadSystemsPack(SOL_PACK_URL),
       loadSystemsPack(EXO_PACK_URL),
       loadOctreePack(OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadOctreePack(GAIA_OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadConstellationPack(CONSTELLATIONS_URL),
     ]).then(
-      ([stars, sol, exo, octree]) => {
+      ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
         if (cancelled) return;
         const combined = createCombinedSource(stars, [sol, exo]);
-        setPack({ status: 'ready', sources: { stars, sol, exo, combined, octree } });
+        // ADR-006 §5: HYG + Gaia stream through ONE policy (one cut, one coverage).
+        const octreeCombined = combineOctreeSources([octree, gaiaOctree]);
+        const overlay = buildOverlayData(constellationPack, stars);
+        setPack({
+          status: 'ready',
+          sources: { stars, sol, exo, combined, octree, octreeCombined, overlay },
+        });
       },
       (err: unknown) => {
         if (!cancelled) {
@@ -843,11 +1060,13 @@ function StarApp() {
   // combined source; rebuild it when the packs (re)load.
   const sources = pack.status === 'ready' ? pack.sources : null;
 
-  // M3 streaming policy — built once the octree pack is ready, sharing the module
-  // worker pool. Published to the test hook holder for the ≤ 4 Hz stats mirror.
+  // M4a streaming policy — built once the octree packs are ready, sharing the module
+  // worker pool. Fed the COMBINED HYG + Gaia octree (ADR-006 §5) so one cut +
+  // catalogCoverage() drives the procgen fade and the monolith gate. Published to the
+  // test hook holder for the ≤ 4 Hz stats mirror.
   const streaming = useMemo<StreamingPolicy | null>(() => {
-    if (sources?.octree === undefined) return null;
-    return createMilkyWayStreaming({ origin, octree: sources.octree, milkyWay });
+    if (sources?.octreeCombined === undefined) return null;
+    return createMilkyWayStreaming({ origin, octree: sources.octreeCombined, milkyWay });
   }, [origin, sources, milkyWay]);
 
   // Publish to the test-hook holder for the ≤ 4 Hz stats mirror. The policy lives
@@ -890,6 +1109,7 @@ function StarApp() {
   // hook (§9). Stable across renders for the same streaming policy.
   const handleQc = useCallback(
     (qc: QualityController) => {
+      qcRef.current = qc; // dev/E2E tier override reaches it via window.__cosmosDev
       if (streaming === null) return;
       wireQuality(streaming, (tier) => {
         testHook.qualityTier = tier;
@@ -919,6 +1139,89 @@ function StarApp() {
     },
     [goto],
   );
+
+  // ── Guided tour (TASK-052, §5.12) ─────────────────────────────────────────────
+  // Resolve a tour step target to a galaxy-context world position the spline flies to.
+  const resolveTargetUP = useCallback(
+    (id: BodyId): UniversePosition | null => {
+      if (sources === null) return null;
+      const body = sources.combined.getBody(id);
+      if (body !== undefined && body.kind === 'star') {
+        const p = body.positionPc;
+        return { context: 'galaxy', local: [p[0], p[1], p[2]] };
+      }
+      // A planet target ⇒ fly to its host system's galaxy position.
+      const sys = sources.sol.systemOfBody(id) ?? sources.exo.systemOfBody(id);
+      const hostId = sys?.star.id ?? id;
+      const hp = sources.combined.hostPositionPc(hostId);
+      if (hp !== undefined) return { context: 'galaxy', local: [hp[0], hp[1], hp[2]] };
+      return null;
+    },
+    [sources],
+  );
+
+  // Fly the camera to a tour step: a cinematic spline frames the target, then (if the
+  // step requests it) auto-orbits during the dwell (nav v5, §5.3). Splines carry
+  // UniversePositions so the path survives a context switch.
+  const flyToStep = useCallback(
+    (stepIndex: number) => {
+      const ctrl = controllerHolder.current;
+      const tour = useTourStore.getState().active;
+      if (ctrl === null || tour === null || stepIndex < 0 || stepIndex >= tour.steps.length) {
+        return;
+      }
+      const step = tour.steps[stepIndex]!;
+      const target = resolveTargetUP(step.targetId);
+      if (target === null) return;
+      const pos = ctrl.state.position;
+      if (pos.context !== target.context) return; // tour flies at galaxy scale
+      const from: UniversePosition = {
+        context: pos.context,
+        local: [pos.local[0], pos.local[1], pos.local[2]],
+      };
+      const spline = buildFlyToSpline(`tour-${tour.id}-${stepIndex}`, from, target, {
+        letterbox: true,
+      });
+      ctrl.playSpline(spline, {
+        onEnd: (completed) => {
+          if (completed && step.orbit === true) {
+            ctrl.orbitBody({ center: target, radiusM: TOUR_ORBIT_RADIUS_M });
+          }
+        },
+      });
+    },
+    [resolveTargetUP],
+  );
+
+  const handleTourExit = useCallback(() => {
+    controllerHolder.current?.cancelCinematic();
+  }, []);
+
+  // Drive step-0 flight when the tour STARTS (next/prev flights come from TourChrome's
+  // onStepChange → flyToStep, so we only act on the inactive→active transition here to
+  // avoid double-firing).
+  useEffect(() => {
+    let wasActive = useTourStore.getState().active !== null;
+    return useTourStore.subscribe((s) => {
+      const isActive = s.active !== null;
+      if (isActive && !wasActive) flyToStep(s.stepIndex);
+      wasActive = isActive;
+    });
+  }, [flyToStep]);
+
+  // Dev/E2E control surface: deterministic tier override + tour start/stop. `qcRef` is
+  // populated when SceneHost hands us the quality controller.
+  const qcRef = useRef<QualityController | null>(null);
+  useEffect(() => {
+    window.__cosmosDev = {
+      setTier: (tier) => qcRef.current?.setTier(tier),
+      startTour: () => useTourStore.getState().start(GRAND_TOUR),
+      stopTour: () => useTourStore.getState().stop(),
+    };
+    return () => {
+      delete window.__cosmosDev;
+    };
+  }, []);
 
   // Esc: pop up one level — exit the system if inside, else clear the selection.
   // G: frame (zoom-to-fit) the current system. (Not F — KeyF is "move down" in the
@@ -987,8 +1290,16 @@ function StarApp() {
             combined={pack.sources.combined}
             origin={origin}
             controllerRef={controllerHolder}
+            streaming={streaming ?? undefined}
             onActivate={handleGoTo}
           />
+          {pack.sources.overlay ? (
+            <Overlays
+              origin={origin}
+              overlay={pack.sources.overlay}
+              controllerRef={controllerHolder}
+            />
+          ) : null}
           {mountedSystem ? (
             <SystemScene
               system={mountedSystem.system}
@@ -1038,9 +1349,18 @@ function StarApp() {
             </div>
             {pack.status === 'ready' ? (
               <div className="dim">
-                M2 — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) ·
-                Sol + {pack.sources.exo.systems.length} exoplanet systems
+                M4a — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) +
+                Gaia field · Sol + {pack.sources.exo.systems.length} exoplanet systems
               </div>
+            ) : null}
+            {pack.status === 'ready' ? (
+              <button
+                type="button"
+                className="hud-tour-start"
+                onClick={() => useTourStore.getState().start(GRAND_TOUR)}
+              >
+                ▶ Guided tour
+              </button>
             ) : null}
           </div>
           {pack.status === 'ready' && goto ? (
@@ -1052,6 +1372,8 @@ function StarApp() {
               onSyncToNow={syncClockToNow}
               onCapture={goto.capture}
               onGoToBookmark={goto.goToBookmark}
+              onTourStepChange={flyToStep}
+              onTourExit={handleTourExit}
             />
           ) : null}
         </div>

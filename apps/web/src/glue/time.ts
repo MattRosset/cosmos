@@ -5,6 +5,7 @@ import type { EpochProvider } from '@cosmos/scene-host';
 import {
   controllerHolder,
   mirrorControllerState,
+  mirrorOverlayState,
   mirrorStreamingStats,
   testHook,
 } from './test-hook';
@@ -65,6 +66,7 @@ export function installTimeGlue(): void {
     testHook.epochJD = clock.epochJD;
     if (controllerHolder.current) mirrorControllerState();
     mirrorStreamingStats();
+    mirrorOverlayState();
   }, 250);
 }
 

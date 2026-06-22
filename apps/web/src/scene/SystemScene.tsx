@@ -1,4 +1,4 @@
-import { useEffect, useMemo, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
@@ -16,16 +16,22 @@ import { packElements, propagateBatch, orbitPolylineAu } from '@cosmos/orbits';
 import {
   createPlanetMesh,
   createOrbitLine,
+  createAtmosphere,
   type PlanetMesh,
   type OrbitLine,
+  type Atmosphere,
 } from '@cosmos/render-planets';
-import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
+import { PRIORITY_RENDER, useFrameContext, useQuality } from '@cosmos/scene-host';
+import { useSettingsStore } from '@cosmos/app-state';
 import { systemFeed, systemPickGroup, deactivateSystemFeed } from '../glue/system-feed';
+import { atmosphereHolder } from '../glue/test-hook';
 
 const AU_METERS = CONTEXT_UNIT_METERS.system;
 const J2000_EPOCH_JD = 2451545.0;
 const TWO_PI = Math.PI * 2;
 const ORBIT_SEGMENTS = 256;
+/** The one body that carries an atmosphere shell for M4a (ADR-005 §5: one atmosphere). */
+const ATMOSPHERE_BODY_ID: BodyId = 'sol:earth';
 
 /** System origin (host star) — constant UniversePosition for the render offset. */
 const SYSTEM_ORIGIN: UniversePosition = { context: 'system', local: [0, 0, 0] };
@@ -38,6 +44,8 @@ const starDirScratch: [number, number, number] = [0, 0, 0];
 const originRenderScratch: [number, number, number] = [0, 0, 0];
 const systemLocalScratch: [number, number, number] = [0, 0, 0];
 const systemPosScratch: UniversePosition = { context: 'system', local: systemLocalScratch };
+const atmOffScratch: [number, number, number] = [0, 0, 0];
+const atmStarDirScratch: [number, number, number] = [0, 0, 0];
 
 interface BodyEntry {
   readonly bodyId: BodyId;
@@ -62,6 +70,10 @@ interface BuiltScene {
   readonly renderOffAu: Float64Array;
   /** Count of entries carrying Keplerian elements (the propagated prefix). */
   readonly elemCount: number;
+  /** Index of the atmosphere body (Earth) in `entries`, or -1 if absent. */
+  readonly atmosphereIndex: number;
+  /** Atmosphere body surface radius in system units (AU), for the shell scale. */
+  readonly atmosphereRadiusUnits: number;
 }
 
 interface SystemSceneProps {
@@ -98,6 +110,24 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
   const gl = useThree((s) => s.gl);
   const rootGroup = useMemo(() => new THREE.Group(), []);
   const builtRef = useMemo(() => ({ current: null as BuiltScene | null }), []);
+
+  // ADR-005 §5 atmosphere quality gate: the shell is MOUNTED only at the 'high' tier
+  // (atmosphereEnabled), absent at medium/low. useQuality re-renders on tier change.
+  const atmosphereEnabled = useQuality().atmosphereEnabled;
+  // Bumped when the async build completes so the atmosphere effect (which reads the
+  // imperatively-built scene) re-runs once entries exist.
+  const [builtVersion, setBuiltVersion] = useState(0);
+  const atmRef = useRef<Atmosphere | null>(null);
+
+  // Exposure relay for the additive atmosphere shell (transient — no Canvas re-render).
+  const exposureRef = useRef(useSettingsStore.getState().exposure);
+  useEffect(() => {
+    const apply = (e: number): void => {
+      exposureRef.current = e;
+    };
+    apply(useSettingsStore.getState().exposure);
+    return useSettingsStore.subscribe((s) => apply(s.exposure));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -200,6 +230,9 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
       });
 
       const packed = packElements(ordered.slice(0, elemCount).map((b) => b.elements!));
+      const atmosphereIndex = ordered.findIndex((b) => b.id === ATMOSPHERE_BODY_ID);
+      const atmosphereRadiusUnits =
+        atmosphereIndex >= 0 ? (ordered[atmosphereIndex]!.radiusKm * 1000) / AU_METERS : 0;
       built = {
         entries,
         packed,
@@ -207,6 +240,8 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
         absAu: new Float64Array(ordered.length * 3),
         renderOffAu: new Float64Array(ordered.length * 3),
         elemCount,
+        atmosphereIndex,
+        atmosphereRadiusUnits,
       };
 
       // Publish the shared feed (NavDriver surface speed + goto live positions).
@@ -222,6 +257,7 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
       systemFeed.active = true;
       systemPickGroup.current = rootGroup;
       builtRef.current = built;
+      if (!cancelled) setBuiltVersion((v) => v + 1);
     })();
 
     return () => {
@@ -229,6 +265,28 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
       disposeBuilt();
     };
   }, [system, origin, gl, packUrl, rootGroup, builtRef]);
+
+  // Atmosphere mount/unmount (ADR-005 §5): created only when the built scene has the
+  // atmosphere body AND the tier enables it; disposed (truly absent) otherwise. The
+  // §10 transparent band is respected — the additive shell renders after the opaque
+  // planet (depthWrite:false). `atmosphereHolder` mirrors mount state to the test hook.
+  useEffect(() => {
+    const b = builtRef.current;
+    if (b === null || b.atmosphereIndex < 0 || !atmosphereEnabled) {
+      atmosphereHolder.current = false;
+      return;
+    }
+    const atm = createAtmosphere({ planetRadiusUnits: b.atmosphereRadiusUnits });
+    rootGroup.add(atm.object);
+    atmRef.current = atm;
+    atmosphereHolder.current = true;
+    return () => {
+      rootGroup.remove(atm.object);
+      atm.dispose();
+      atmRef.current = null;
+      atmosphereHolder.current = false;
+    };
+  }, [atmosphereEnabled, builtVersion, rootGroup, builtRef]);
 
   useFrameContext((ctx) => {
     const b = builtRef.current;
@@ -300,6 +358,27 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
           e.line.setRenderOffset(originRenderScratch);
         }
       }
+    }
+
+    // Atmosphere shell follows the Earth mesh: same camera-relative offset + star
+    // direction, additive over the lit planet (ADR-005 §5). Zero-alloc per frame.
+    const atm = atmRef.current;
+    if (atm !== null && b.atmosphereIndex >= 0) {
+      const ai = b.atmosphereIndex;
+      atmOffScratch[0] = b.renderOffAu[ai * 3]!;
+      atmOffScratch[1] = b.renderOffAu[ai * 3 + 1]!;
+      atmOffScratch[2] = b.renderOffAu[ai * 3 + 2]!;
+      atm.setRenderOffset(atmOffScratch);
+      const ex = b.absAu[ai * 3]!;
+      const ey = b.absAu[ai * 3 + 1]!;
+      const ez = b.absAu[ai * 3 + 2]!;
+      const elen = Math.hypot(ex, ey, ez) || 1;
+      atmStarDirScratch[0] = -ex / elen;
+      atmStarDirScratch[1] = -ey / elen;
+      atmStarDirScratch[2] = -ez / elen;
+      atm.setStarDirection(atmStarDirScratch);
+      atm.setExposure(exposureRef.current);
+      atm.setOpacity(1);
     }
   }, PRIORITY_RENDER);
 

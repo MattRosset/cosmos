@@ -17,6 +17,7 @@
     "@cosmos/nav": "workspace:*",
     "@cosmos/orbits": "workspace:*",
     "@cosmos/procgen": "workspace:*",
+    "@cosmos/render-fx": "workspace:*",
     "@cosmos/render-galaxy": "workspace:*",
     "@cosmos/render-planets": "workspace:*",
     "@cosmos/render-stars": "workspace:*",
