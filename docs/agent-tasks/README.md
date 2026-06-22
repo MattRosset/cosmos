@@ -105,7 +105,7 @@ sections — they are part of the spec.
 | [TASK-045](TASK-045-pack-constellations.md) | `tools/pack-constellations`: IAU line list → committed JSON | TASK-042 | done | lane (data tool); small committed pack; shipped c5a9773 2026-06-22 |
 | [TASK-046](TASK-046-data-constellations.md) | `data` v4: constellation loader + segment/label resolution | TASK-042, 045 | done | lane (data runtime; after 045); additive; shipped 8a41a83 2026-06-22 |
 | [TASK-047](TASK-047-render-fx.md) | `render-fx` v1: nebulae billboards + camera-relative line-set | TASK-042 | done | new package; 31 tests, 100% stmt cov, verify green; shipped bd73d8d 2026-06-22 |
-| [TASK-048](TASK-048-render-planets-atmosphere.md) | `render-planets` v2: atmospheric scattering shell | TASK-042 | done | lane (render); ADR-005 O'Neil; additive; 66 tests, atmosphere.ts 100% cov, verify green; shipped 2026-06-22 |
+| [TASK-048](TASK-048-render-planets-atmosphere.md) | `render-planets` v2: atmospheric scattering shell | TASK-042 | done | lane (render); ADR-005 O'Neil; additive; 66 tests, atmosphere.ts 100% cov, verify green; shipped 289c010 2026-06-22 |
 | [TASK-049](TASK-049-app-state-overlays-tours.md) | `app-state` v3: tour store + overlay store | TASK-042 | pending | lane (state); additive |
 | [TASK-050](TASK-050-ui-overlays-tours.md) | `ui` v3: overlay toggles + label layer + tour chrome | TASK-049 | pending | lane (HUD; after 049); React only, no Three.js |
 | [TASK-051](TASK-051-nav-cinematic.md) | `nav` v5: cinematic spline + auto-orbit + letterbox | TASK-042 | pending | lane (nav); additive; strongest agent (context-aware paths) |
