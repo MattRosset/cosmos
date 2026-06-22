@@ -30,3 +30,5 @@ export {
 } from './galaxy-switch.js';
 export type { LocalGroupParams } from './local-group.js';
 export { generateLocalGroup } from './local-group.js';
+// Cinematic camera mode (v5 — TASK-051)
+export { catmullRomCentripetal, DEFAULT_ORBIT_RATE_PER_SEC } from './cinematic.js';

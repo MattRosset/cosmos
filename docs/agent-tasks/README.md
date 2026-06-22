@@ -108,7 +108,7 @@ sections — they are part of the spec.
 | [TASK-048](TASK-048-render-planets-atmosphere.md) | `render-planets` v2: atmospheric scattering shell | TASK-042 | done | lane (render); ADR-005 O'Neil; additive; 66 tests, atmosphere.ts 100% cov, verify green; shipped 289c010 2026-06-22 |
 | [TASK-049](TASK-049-app-state-overlays-tours.md) | `app-state` v3: tour store + overlay store | TASK-042 | done | lane (state); additive; tour-store.ts + overlay-store.ts, 19 new tests, verify green |
 | [TASK-050](TASK-050-ui-overlays-tours.md) | `ui` v3: overlay toggles + label layer + tour chrome | TASK-049 | done | lane (HUD; after 049); React only, no Three.js; OverlayControls + LabelLayer + TourChrome, 18 new tests, verify green |
-| [TASK-051](TASK-051-nav-cinematic.md) | `nav` v5: cinematic spline + auto-orbit + letterbox | TASK-042 | pending | lane (nav); additive; strongest agent (context-aware paths) |
+| [TASK-051](TASK-051-nav-cinematic.md) | `nav` v5: cinematic spline + auto-orbit + letterbox | TASK-042 | done | lane (nav); additive; centripetal Catmull-Rom spline + auto-orbit + letterbox flag, reuses goTo cancel/rebase/context-switch discipline; 14 new cinematic tests (67 nav tests), verify green |
 | [TASK-052](TASK-052-m4a-integration.md) | M4a integration: Gaia tier-unification + atmosphere + overlays + tours + cinematic | TASK-043–051 (all) | pending | exclusive in `apps/web`/`e2e`; strongest agent (§8.3) |
 | [TASK-053](TASK-053-phase4a-gate.md) | Phase 4a gate: tier-unification budget win + M4a + perf/soak + matrix | TASK-052 | pending | **GATE: closes Phase 4a** (architecture §6 Phase 4 / M4, terrain deferred to 4b) |
 

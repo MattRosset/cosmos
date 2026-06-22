@@ -143,6 +143,56 @@ flight.setSystemAnchor(null);                        // clears → exits next up
 - Orientation is **untouched** by a switch (axes are identical across contexts;
   only the unit changes). An in-flight `goTo` survives the switch unchanged.
 
+### Cinematic mode (v5 — TASK-051)
+
+Spline-driven camera playback for tours and intros (architecture §5.3 / §5.12).
+Additive over the v1–v4 API: a cinematic obeys the **same motion discipline as
+`goTo`** — pausable, cancels on user input, survives a rebase and a context
+switch.
+
+```ts
+import type { CameraSpline } from '@cosmos/core-types';
+
+// Play a Catmull-Rom path. Keyframes carry UniversePositions, so the path is
+// interpolated IN THE ACTIVE CONTEXT'S FRAME and survives context switches.
+flight.playSpline(spline, { onEnd: (completed) => {/* true=done, false=cancelled */} });
+
+// Auto-orbit a world point (the §5.3 sub-mode — a tour dwell uses this):
+flight.orbitBody({
+  center: { context: 'system', local: [0, 0, 0] },
+  radiusM: 1.5e11,        // ~1 AU
+  ratePerSec: 0.1,        // optional; default DEFAULT_ORBIT_RATE_PER_SEC (0.1 rad/s)
+});
+
+flight.pauseCinematic();  // freeze the path clock (a tour's pause drives this)
+flight.resumeCinematic(); // continue from the same parameter
+flight.cancelCinematic(); // stop → free flight (like cancelGoTo)
+
+flight.cinematicActive;   // boolean — spline OR orbit playing
+flight.letterboxActive;   // true while a `letterbox` spline plays (chrome reads this)
+```
+
+**Interpolation:** position and look-at are interpolated with **centripetal**
+Catmull-Rom (`alpha = 0.5`, Barry–Goldman form — `catmullRomCentripetal` is
+exported). Centripetal spacing is chosen over uniform to avoid the cusps /
+self-intersections uniform CR produces at unevenly spaced keyframes (the §5.3
+"linear/teleporting spline at scale boundaries" trap). The four control
+keyframes are reconverted to render space **every frame** via
+`origin.toRenderSpace`, so a path animates in whatever context the camera is in
+and crosses a galaxy⇄system / universe⇄galaxy boundary (or a floating-origin
+rebase) with no discontinuity.
+
+**Orientation** slews to the interpolated look-at quaternion-only (no Euler — the
+existing rule), with a 200 ms time constant. **Auto-orbit** circles `center` in
+the context's XY plane at `radiusM` (converted to context units each frame) and
+faces the center.
+
+**Cancellation / exclusivity:** any WASD/RF key or pointer drag past the 2 px
+deadzone cancels playback and resumes free flight that same frame (the `goTo`
+cancel path). Cinematic and `goTo` are mutually exclusive — `playSpline` /
+`orbitBody` cancel any in-flight `goTo` first. The per-frame cinematic `update()`
+path is allocation-free (module-scoped scratch).
+
 ## Frame loop
 
 Subscribe via `useFlightController` at `PRIORITY_NAV` (-200). The host must call

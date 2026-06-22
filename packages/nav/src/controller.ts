@@ -1,12 +1,14 @@
 import {
   CONTEXT_UNIT_METERS,
   type BodyId,
+  type CameraSpline,
   type ContextId,
   type UniversePosition,
 } from '@cosmos/core-types';
 import type { OriginManager, RebaseEvent } from '@cosmos/coords';
 import { createInputHandler, type InputHandler } from './input.js';
 import { computeGoToK } from './goto.js';
+import { catmullRomCentripetal, DEFAULT_ORBIT_RATE_PER_SEC } from './cinematic.js';
 import {
   resolveContextSwitchPolicy,
   shouldEnterSystem,
@@ -97,6 +99,22 @@ export interface FlightController {
    */
   setGalaxyAnchor(anchor: GalaxyAnchor | null): void;
   readonly galaxyAnchor: GalaxyAnchor | null;
+
+  // ── Cinematic camera mode (v5 — TASK-051) ──────────────────────────────────
+  /** Start cinematic spline playback. Behaves like goTo: damped, cancels on input. */
+  playSpline(spline: CameraSpline, opts?: { onEnd?(completed: boolean): void }): void;
+  /** Auto-orbit the given world point at a fixed radius/rate (the §5.3 sub-mode). */
+  orbitBody(opts: { center: UniversePosition; radiusM: number; ratePerSec?: number }): void;
+  /** Freeze cinematic playback in place (resumable). */
+  pauseCinematic(): void;
+  /** Resume from the frozen path parameter. */
+  resumeCinematic(): void;
+  /** Stop cinematic playback and return to free flight (like cancelGoTo). */
+  cancelCinematic(): void;
+  /** True while a spline or auto-orbit is playing. */
+  readonly cinematicActive: boolean;
+  /** True while a spline with `letterbox` is playing (the chrome reads this). */
+  readonly letterboxActive: boolean;
 }
 
 // ── Internal state ──────────────────────────────────────────────────────────
@@ -111,6 +129,31 @@ interface GoToState {
   endCallbacks: Array<(completed: boolean) => void>;
 }
 
+// ── Cinematic state (TASK-051) ────────────────────────────────────────────────
+
+interface SplineState {
+  readonly kind: 'spline';
+  readonly spline: CameraSpline;
+  /** Path clock, ms from start. Frozen while paused. */
+  tMs: number;
+  paused: boolean;
+  readonly letterbox: boolean;
+  onEnd: ((completed: boolean) => void) | null;
+}
+
+interface OrbitState {
+  readonly kind: 'orbit';
+  readonly center: UniversePosition;
+  readonly radiusM: number;
+  readonly ratePerSec: number;
+  /** Accumulated orbit angle, radians. Frozen while paused. */
+  angle: number;
+  paused: boolean;
+  onEnd: ((completed: boolean) => void) | null;
+}
+
+type CinematicState = SplineState | OrbitState;
+
 // ── Constants ────────────────────────────────────────────────────────────────
 
 const DEFAULT_SPEED_SCALE = 1.0;
@@ -119,6 +162,8 @@ const DEFAULT_MAX_SPEED = 1e7;
 const DEFAULT_DAMPING_HALF_LIFE_MS = 90;
 const LOOK_SENSITIVITY = 0.002;
 const MAX_PITCH = Math.PI / 2 - 1e-4;
+/** Orientation slew time constant for cinematic look-at (ms) — fast but smooth. */
+const CINEMATIC_LOOK_TC_MS = 200;
 
 // ── Module-scoped scratch (free-flight path) ─────────────────────────────────
 
@@ -167,6 +212,28 @@ const galAnchorMeasureScratch: UniversePosition = {
 };
 const galCtxRenderScratch: [number, number, number] = [0, 0, 0];
 
+// ── Module-scoped scratch (cinematic path — no allocations in update) ─────────
+// The four Catmull-Rom control points (and look-at controls) are reconverted to
+// render space every frame via toRenderSpace, so the path always animates in the
+// active context's frame and survives a rebase/context switch (§5.3).
+const cineP0: [number, number, number] = [0, 0, 0];
+const cineP1: [number, number, number] = [0, 0, 0];
+const cineP2: [number, number, number] = [0, 0, 0];
+const cineP3: [number, number, number] = [0, 0, 0];
+const cineL0: [number, number, number] = [0, 0, 0];
+const cineL1: [number, number, number] = [0, 0, 0];
+const cineL2: [number, number, number] = [0, 0, 0];
+const cineL3: [number, number, number] = [0, 0, 0];
+/** Interpolated camera point, render-space relative to the current camera. */
+const cinePosScratch: [number, number, number] = [0, 0, 0];
+/** Interpolated look-at point, render-space relative to the current camera. */
+const cineLookScratch: [number, number, number] = [0, 0, 0];
+/** Auto-orbit center, render-space relative to the current camera. */
+const cineCenterScratch: [number, number, number] = [0, 0, 0];
+const cineAxisScratch: [number, number, number] = [0, 0, 0];
+const cineQDeltaScratch: [number, number, number, number] = [0, 0, 0, 1];
+const cineQTempScratch: [number, number, number, number] = [0, 0, 0, 1];
+
 /** Test hook: module-scoped scratch used by update() — same identity every frame. */
 export const UPDATE_SCRATCH = {
   pos: posScratch,
@@ -178,6 +245,9 @@ export const UPDATE_SCRATCH = {
   ctxRender: ctxRenderScratch,
   galAnchor: galAnchorLocalScratch,
   galRender: galCtxRenderScratch,
+  cinePos: cinePosScratch,
+  cineLook: cineLookScratch,
+  cineP1,
 } as const;
 
 // Dev-only precondition guard (architecture §5.3). Bundlers set
@@ -350,6 +420,7 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
   let distanceToNearestSurface = 1;
   let speedUnitsPerS = 0;
   let activeGoTo: GoToState | null = null;
+  let cinematic: CinematicState | null = null;
 
   // Context switching (TASK-027)
   const policy = resolveContextSwitchPolicy(opts.contextSwitchPolicy);
@@ -779,11 +850,278 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     // planet: no automatic switching
   }
 
+  // ── Cinematic camera mode (TASK-051) ───────────────────────────────────────
+
+  function fireCinematicEnd(state: CinematicState, completed: boolean): void {
+    const cb = state.onEnd;
+    if (cb !== null) cb(completed);
+  }
+
+  /** Stop the camera dead (shared by every cinematic stop/replace path). */
+  function haltMotion(): void {
+    velScratch[0] = 0;
+    velScratch[1] = 0;
+    velScratch[2] = 0;
+    speedUnitsPerS = 0;
+  }
+
+  function startCinematic(next: CinematicState): void {
+    // Cinematic and goTo are mutually exclusive — a new cinematic cancels any
+    // in-flight goTo (reuses the existing cancel path; goTo itself is unchanged).
+    cancelGoTo();
+    if (cinematic !== null) {
+      const prev = cinematic;
+      cinematic = null;
+      fireCinematicEnd(prev, false);
+    }
+    haltMotion();
+    cinematic = next;
+  }
+
+  function playSpline(
+    spline: CameraSpline,
+    opts?: { onEnd?(completed: boolean): void },
+  ): void {
+    if (spline.keyframes.length === 0) {
+      opts?.onEnd?.(true);
+      return;
+    }
+    startCinematic({
+      kind: 'spline',
+      spline,
+      tMs: 0,
+      paused: false,
+      letterbox: spline.letterbox === true,
+      onEnd: opts?.onEnd ?? null,
+    });
+  }
+
+  function orbitBody(opts: {
+    center: UniversePosition;
+    radiusM: number;
+    ratePerSec?: number;
+  }): void {
+    startCinematic({
+      kind: 'orbit',
+      center: opts.center,
+      radiusM: opts.radiusM,
+      ratePerSec: opts.ratePerSec ?? DEFAULT_ORBIT_RATE_PER_SEC,
+      angle: 0,
+      paused: false,
+      onEnd: null,
+    });
+  }
+
+  function pauseCinematic(): void {
+    if (cinematic !== null) cinematic.paused = true;
+  }
+
+  function resumeCinematic(): void {
+    if (cinematic !== null) cinematic.paused = false;
+  }
+
+  function cancelCinematic(): void {
+    if (cinematic === null) return;
+    const state = cinematic;
+    cinematic = null;
+    haltMotion();
+    fireCinematicEnd(state, false);
+  }
+
+  /**
+   * Slew the orientation toward a render-space facing direction (relative to the
+   * camera). Quaternion-only (no Euler — §5.3), exponential approach with the
+   * given time constant. Mirrors the goTo slew but on its own scratch so the two
+   * paths never alias.
+   */
+  function slewLookToward(dx: number, dy: number, dz: number, dtMs: number): void {
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-30) return;
+    const inv = 1 / len;
+    const tx = dx * inv;
+    const ty = dy * inv;
+    const tz = dz * inv;
+
+    rotateVecByQuat(orientation, FORWARD_LOCAL, forwardScratch);
+    const dot = clamp(
+      forwardScratch[0] * tx + forwardScratch[1] * ty + forwardScratch[2] * tz,
+      -1,
+      1,
+    );
+    if (dot >= 1 - 1e-10) return;
+
+    let axLen: number;
+    if (dot < -1 + 1e-10) {
+      cineAxisScratch[0] = 1;
+      cineAxisScratch[1] = 0;
+      cineAxisScratch[2] = 0;
+      axLen = 1;
+    } else {
+      cineAxisScratch[0] = forwardScratch[1] * tz - forwardScratch[2] * ty;
+      cineAxisScratch[1] = forwardScratch[2] * tx - forwardScratch[0] * tz;
+      cineAxisScratch[2] = forwardScratch[0] * ty - forwardScratch[1] * tx;
+      axLen = Math.hypot(cineAxisScratch[0], cineAxisScratch[1], cineAxisScratch[2]);
+      if (axLen > 1e-20) {
+        const invAx = 1 / axLen;
+        cineAxisScratch[0] *= invAx;
+        cineAxisScratch[1] *= invAx;
+        cineAxisScratch[2] *= invAx;
+      }
+    }
+    if (axLen <= 1e-20) return;
+
+    const alpha = 1 - Math.exp(-dtMs / CINEMATIC_LOOK_TC_MS);
+    const fullAngle = Math.acos(dot);
+    quatFromAxisAngle(cineAxisScratch, fullAngle * alpha, cineQDeltaScratch);
+    quatMultiply(cineQDeltaScratch, orientation, cineQTempScratch);
+    orientation[0] = cineQTempScratch[0];
+    orientation[1] = cineQTempScratch[1];
+    orientation[2] = cineQTempScratch[2];
+    orientation[3] = cineQTempScratch[3];
+    quatNormalize(orientation);
+  }
+
+  /**
+   * Move the camera onto an interpolated render-space point (relative to the
+   * current camera), then face `lookRel`. Shared tail of the spline and orbit
+   * frames. `posRel`/`lookRel` are camera-relative in current-context units.
+   */
+  function applyCinematicFrame(
+    posRel: readonly [number, number, number],
+    lookRel: readonly [number, number, number],
+    dtMs: number,
+    dt: number,
+  ): void {
+    posScratch[0] += posRel[0];
+    posScratch[1] += posRel[1];
+    posScratch[2] += posRel[2];
+
+    // Face from the NEW camera toward the look point: both are relative to the
+    // OLD camera, so the new facing vector is lookRel − posRel.
+    slewLookToward(
+      lookRel[0] - posRel[0],
+      lookRel[1] - posRel[1],
+      lookRel[2] - posRel[2],
+      dtMs,
+    );
+
+    const universePos: UniversePosition = {
+      context: origin.context,
+      local: [posScratch[0], posScratch[1], posScratch[2]],
+    };
+    const rebase = origin.setCameraPosition(universePos);
+    if (rebase) applyRebase(rebase);
+
+    const stepUnits = Math.hypot(posRel[0], posRel[1], posRel[2]);
+    speedUnitsPerS = dt > 0 ? stepUnits / dt : 0;
+  }
+
+  /** Single spline-playback tick — called from update() while cinematic.kind==='spline'. */
+  function updateSplineFrame(dtMs: number, dt: number): void {
+    const state = cinematic as SplineState;
+    const kfs = state.spline.keyframes;
+    const n = kfs.length;
+    const endMs = kfs[n - 1]!.timeMs;
+
+    if (!state.paused) state.tMs += dtMs;
+    const arrived = state.tMs >= endMs;
+    const t = arrived ? endMs : state.tMs;
+
+    if (n === 1) {
+      // Degenerate single-keyframe "spline": dolly straight onto it.
+      origin.toRenderSpace(kfs[0]!.at, cinePosScratch);
+      origin.toRenderSpace(kfs[0]!.lookAt, cineLookScratch);
+    } else {
+      // Locate the active segment [i, i+1] (timeMs is monotonic increasing).
+      let i = 0;
+      while (i < n - 2 && t > kfs[i + 1]!.timeMs) i += 1;
+      const segDur = kfs[i + 1]!.timeMs - kfs[i]!.timeMs;
+      const u = segDur > 0 ? clamp((t - kfs[i]!.timeMs) / segDur, 0, 1) : 0;
+
+      const i0 = i > 0 ? i - 1 : i;
+      const i1 = i;
+      const i2 = i + 1;
+      const i3 = i + 2 < n ? i + 2 : i + 1;
+
+      // Reconvert the 4 control keyframes into the current context's render
+      // space every frame — this is what makes the path animate in the active
+      // frame and survive a rebase / context switch (§5.3).
+      origin.toRenderSpace(kfs[i0]!.at, cineP0);
+      origin.toRenderSpace(kfs[i1]!.at, cineP1);
+      origin.toRenderSpace(kfs[i2]!.at, cineP2);
+      origin.toRenderSpace(kfs[i3]!.at, cineP3);
+      catmullRomCentripetal(cineP0, cineP1, cineP2, cineP3, u, cinePosScratch);
+
+      origin.toRenderSpace(kfs[i0]!.lookAt, cineL0);
+      origin.toRenderSpace(kfs[i1]!.lookAt, cineL1);
+      origin.toRenderSpace(kfs[i2]!.lookAt, cineL2);
+      origin.toRenderSpace(kfs[i3]!.lookAt, cineL3);
+      catmullRomCentripetal(cineL0, cineL1, cineL2, cineL3, u, cineLookScratch);
+    }
+
+    applyCinematicFrame(cinePosScratch, cineLookScratch, dtMs, dt);
+
+    if (arrived) {
+      const finished = cinematic!;
+      cinematic = null;
+      haltMotion();
+      fireCinematicEnd(finished, true);
+    }
+  }
+
+  /** Single auto-orbit tick — called from update() while cinematic.kind==='orbit'. */
+  function updateOrbitFrame(dtMs: number, dt: number): void {
+    const state = cinematic as OrbitState;
+    if (!state.paused) state.angle += state.ratePerSec * dt;
+
+    origin.toRenderSpace(state.center, cineCenterScratch);
+    const radiusUnits = state.radiusM / CONTEXT_UNIT_METERS[origin.context];
+
+    // Camera offset from the center, in the orbit plane (XY of the context).
+    const ox = Math.cos(state.angle) * radiusUnits;
+    const oy = Math.sin(state.angle) * radiusUnits;
+
+    // Desired camera point, render-space relative to the current camera.
+    cinePosScratch[0] = cineCenterScratch[0] + ox;
+    cinePosScratch[1] = cineCenterScratch[1] + oy;
+    cinePosScratch[2] = cineCenterScratch[2];
+
+    // Look point is the center itself.
+    cineLookScratch[0] = cineCenterScratch[0];
+    cineLookScratch[1] = cineCenterScratch[1];
+    cineLookScratch[2] = cineCenterScratch[2];
+
+    applyCinematicFrame(cinePosScratch, cineLookScratch, dtMs, dt);
+  }
+
   function update(dtMs: number): void {
     const dt = dtMs / 1000;
     const inputState = input.state;
 
     input.accumulatePointerDelta();
+
+    // Cinematic mode (TASK-051): yields to the user instantly like goTo — any
+    // translate key or look drag past the 2 px deadzone cancels and resumes free
+    // flight this same frame.
+    if (cinematic !== null) {
+      const hasTranslate =
+        inputState.forward ||
+        inputState.back ||
+        inputState.left ||
+        inputState.right ||
+        inputState.up ||
+        inputState.down;
+      const hasLook = inputState.lookDeltaX !== 0 || inputState.lookDeltaY !== 0;
+      if (hasTranslate || hasLook) {
+        cancelCinematic();
+      } else {
+        if (cinematic.kind === 'spline') updateSplineFrame(dtMs, dt);
+        else updateOrbitFrame(dtMs, dt);
+        input.consumeLookDelta();
+        maybeSwitchContext();
+        return;
+      }
+    }
 
     // GoTo cancellation: any translate key or look drag > 2 px deadzone
     if (activeGoTo !== null) {
@@ -910,6 +1248,17 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     setGalaxyAnchor,
     get galaxyAnchor() {
       return galaxyAnchor;
+    },
+    playSpline,
+    orbitBody,
+    pauseCinematic,
+    resumeCinematic,
+    cancelCinematic,
+    get cinematicActive() {
+      return cinematic !== null;
+    },
+    get letterboxActive() {
+      return cinematic !== null && cinematic.kind === 'spline' && cinematic.letterbox;
     },
   };
 }
