@@ -80,7 +80,17 @@ function slope(ys: readonly number[]): number {
   return den === 0 ? 0 : num / den;
 }
 
-test('soak3: heap plateaus while the streaming tier actively loads and releases', async ({
+/**
+ * TASK-053 — the soak runs twice: `soak3` (the M3 composition, the inherited
+ * baseline) and `soak4` (the M4a composition — combined HYG+Gaia octree + the
+ * constellation/nebula/label overlays + Earth atmosphere, the new leak suspects).
+ * Both publish the same `__soak3Result` shape and must satisfy the same plateau +
+ * churn rule; soak4 is the one that proves the M4a mounts dispose on context exit.
+ */
+const SOAK_MODES = ['soak3', 'soak4'] as const;
+
+for (const mode of SOAK_MODES) {
+test(`${mode}: heap plateaus while the streaming tier actively loads and releases`, async ({
   page,
 }) => {
   test.setTimeout(260_000);
@@ -88,7 +98,7 @@ test('soak3: heap plateaus while the streaming tier actively loads and releases'
   const pageErrors: string[] = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
 
-  await page.goto('/?debug=soak3');
+  await page.goto(`/?debug=${mode}`);
   await page.waitForSelector('canvas');
   await waitReady(page);
 
@@ -100,7 +110,7 @@ test('soak3: heap plateaus while the streaming tier actively loads and releases'
   const heap = result.heapSamples;
   const c = result.churn;
   console.log(
-    `[soak3] loops=${result.loops} dur=${(result.durationMs / 1000).toFixed(0)}s ` +
+    `[${mode}] loops=${result.loops} dur=${(result.durationMs / 1000).toFixed(0)}s ` +
       `heapSamples=${heap.length} heap[0]=${heap[0] ?? 0} heap[-1]=${heap[heap.length - 1] ?? 0} ` +
       `churn(req=${c.requestsIssued} inFlight=${c.inFlightMin}..${c.inFlightMax} ` +
       `loaded=${c.loadedMin}..${c.loadedMax} renderedMax=${c.renderedMax})`,
@@ -117,7 +127,7 @@ test('soak3: heap plateaus while the streaming tier actively loads and releases'
   const meanHeap = half.reduce((a, b) => a + b, 0) / half.length;
   const fittedRise = slope(half) * (half.length - 1);
   const relativeRise = fittedRise / meanHeap;
-  console.log(`[soak3] second-half fittedRise=${(relativeRise * 100).toFixed(1)}% of mean heap`);
+  console.log(`[${mode}] second-half fittedRise=${(relativeRise * 100).toFixed(1)}% of mean heap`);
   expect(
     relativeRise,
     'heap plateaus: second-half linear trend rises < 10% of mean heap',
@@ -145,3 +155,4 @@ test('soak3: heap plateaus while the streaming tier actively loads and releases'
 
   expect(pageErrors, 'no uncaught errors during the soak').toHaveLength(0);
 });
+}

@@ -1,11 +1,19 @@
 /**
  * Main-thread span profiler for breadcrumb freeze diagnosis.
  * Enable: `?debug=breadcrumb-profile` — results on `window.__breadcrumbProfile`.
+ *
+ * TASK-053: the `?debug=flythrough4` tier-unification probe also activates the
+ * profiler so its recorded descent attributes per-segment frame time to the
+ * `profileSpan` spans (BUG-4 universe-view lag). It folds the span stats onto its
+ * own `__flythrough4Result.profile` instead of `__breadcrumbProfile`.
  */
 
 export const BREADCRUMB_PROFILE =
   typeof window !== 'undefined' &&
-  new URLSearchParams(window.location.search).get('debug') === 'breadcrumb-profile';
+  (() => {
+    const debug = new URLSearchParams(window.location.search).get('debug');
+    return debug === 'breadcrumb-profile' || debug === 'flythrough4';
+  })();
 
 export interface ProfileFrameRecord {
   readonly totalMs: number;

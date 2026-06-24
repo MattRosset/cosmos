@@ -89,6 +89,23 @@ jobs:
       - name: Streaming LOD/evict gate (§5.8)
         run: pnpm --filter @cosmos/streaming test
 
+      # ── Phase 4a acceptance gate (TASK-053, §6 M4a / ADR-006 §5.4) ───────────
+      # The render-tier-unification lanes, named explicitly so a skipped or cached
+      # unit job cannot mask them in the milestone-closing run. pack-octree is
+      # re-listed here for its Gaia ingest mode (ADR-006 §1–§4); render-fx covers
+      # the nebula/line-set; render-planets covers the atmosphere shell.
+      - name: Octree pack Gaia-mode determinism gate (ADR-006 §1–§4)
+        run: pnpm --filter @cosmos/pack-octree test
+
+      - name: Constellation pack determinism gate (TASK-045)
+        run: pnpm --filter @cosmos/pack-constellations test
+
+      - name: Render-fx gate (nebula + constellation line-set, ADR-005/§5.11)
+        run: pnpm --filter @cosmos/render-fx test
+
+      - name: Render-planets gate (atmosphere shell, ADR-005 §5)
+        run: pnpm --filter @cosmos/render-planets test
+
       # Lighthouse a11y/SEO/best-practices report (informational only — see
       # boot-perf.spec.ts below for why performance is no longer gated here).
       # continue-on-error: under no-GPU CPU-capped CI, Lighthouse's own trace
@@ -109,9 +126,11 @@ jobs:
 
       # Full e2e suite across the chromium + webkit + firefox matrix, incl. the
       # TASK-030 context-switch gate (ctxswitch) and the TASK-041 Phase 3 gates
-      # (flythrough3 perf on all three projects, soak3 memory plateau on chromium):
-      # smoke, flythrough, m1, m2, m3, jitter, ctxswitch, flythrough3, soak3,
-      # context-loss.
+      # (flythrough3 perf on all three projects, soak3 memory plateau on chromium)
+      # and the TASK-053 Phase 4a gates (flythrough4 tier-unification budget on all
+      # three projects, soak4 M4a-mount plateau on chromium, m4a feature spec):
+      # smoke, flythrough, m1, m2, m3, m4a, jitter, ctxswitch, flythrough3,
+      # flythrough4, soak3, soak4, context-loss.
       #
       # xvfb-run: headless Firefox on Linux can't negotiate any GL context
       # (WebGL2 *and* WebGL1 both fail with FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)

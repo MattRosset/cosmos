@@ -65,7 +65,7 @@ export default defineConfig({
       // the flythrough's frame-time + cap clauses run here (no screenshots; the heap
       // assertion is chromium-only since WebKit lacks performance.memory).
       name: 'webkit',
-      testMatch: '**/{smoke,flythrough3}.spec.ts',
+      testMatch: '**/{smoke,flythrough3,flythrough4}.spec.ts',
       use: {
         ...devices['Desktop Safari'],
         viewport: { width: 1280, height: 720 },
@@ -76,7 +76,7 @@ export default defineConfig({
       // TASK-041: Firefox joins the §6 cross-browser matrix on the same scope as
       // WebKit — smoke + flythrough3 (perf-relaxed). Heap assertion is chromium-only.
       name: 'firefox',
-      testMatch: '**/{smoke,flythrough3}.spec.ts',
+      testMatch: '**/{smoke,flythrough3,flythrough4}.spec.ts',
       use: {
         ...devices['Desktop Firefox'],
         viewport: { width: 1280, height: 720 },

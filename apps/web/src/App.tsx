@@ -20,6 +20,7 @@ import {
   useHistoryStore,
   useHudStore,
   useTourStore,
+  useOverlayStore,
 } from '@cosmos/app-state';
 import { Icon } from '@cosmos/ui';
 import { INITIAL_CAMERA, NavDriver } from './scene/NavDriver';
@@ -37,6 +38,7 @@ import { JitterProbe } from './scene/JitterProbe';
 import { CtxSwitchProbe, CTX_START } from './scene/CtxSwitchProbe';
 import { M3DescentProbe, M3_START } from './scene/M3DescentProbe';
 import { Flythrough3Probe } from './scene/Flythrough3Probe';
+import { Flythrough4Probe } from './scene/Flythrough4Probe';
 import { SoakProbe } from './scene/SoakProbe';
 import {
   FLYTHROUGH3_START,
@@ -71,8 +73,28 @@ const DEBUG_M3 = new URLSearchParams(window.location.search).get('debug') === 'm
 const DEBUG_FLYTHROUGH3 =
   new URLSearchParams(window.location.search).get('debug') === 'flythrough3';
 
+/**
+ * TASK-053 tier-unification budget gate (`?debug=flythrough4`, ADR-006 §5.4).
+ * Replays the SAME committed path as flythrough3 against the M4a composition
+ * (combined HYG+Gaia octree, coverage-faded procgen, gated monolith, overlays,
+ * atmosphere). `?baseline=m3` records the HYG-only baseline composition instead,
+ * so the near-Sol segment is a like-for-like M3↔M4a comparison. The span profiler
+ * is active so the universe segment attributes its frame time (BUG-4).
+ */
+const DEBUG_FLYTHROUGH4 =
+  new URLSearchParams(window.location.search).get('debug') === 'flythrough4';
+const FLYTHROUGH4_BASELINE =
+  new URLSearchParams(window.location.search).get('baseline') === 'm3';
+
 /** TASK-041 memory-soak gate (`?debug=soak3`, §5.8); `?loops=N` overrides the count. */
 const DEBUG_SOAK3 = new URLSearchParams(window.location.search).get('debug') === 'soak3';
+/**
+ * TASK-053 M4a memory-soak gate (`?debug=soak4`, §5.8). Same loop as soak3 but with
+ * the M4a mounts (combined HYG+Gaia octree, constellation lines + nebula fields +
+ * labels overlay, Earth atmosphere on the system leg) — the new mounts are the leak
+ * suspects (must dispose on context exit). `?loops=N` overrides the count.
+ */
+const DEBUG_SOAK4 = new URLSearchParams(window.location.search).get('debug') === 'soak4';
 const SOAK3_LOOPS = (() => {
   const raw = new URLSearchParams(window.location.search).get('loops');
   const n = raw !== null ? Number.parseInt(raw, 10) : NaN;
@@ -136,6 +158,8 @@ export function App() {
   if (DEBUG_JITTER) return <JitterApp />;
   if (DEBUG_CTXSWITCH) return <CtxSwitchApp />;
   if (DEBUG_M4A) return <M4aApp />;
+  if (DEBUG_FLYTHROUGH4) return <Flythrough4ProbeApp baseline={FLYTHROUGH4_BASELINE} />;
+  if (DEBUG_SOAK4) return <Soak4ProbeApp />;
   if (DEBUG_M3) return <M3App />;
   if (DEBUG_FLYTHROUGH3 || DEBUG_SOAK3) return <StreamingProbeApp kind={DEBUG_SOAK3 ? 'soak3' : 'flythrough3'} />;
   return DEBUG_MARKERS ? <DebugApp /> : <StarApp />;
@@ -524,6 +548,339 @@ function M4aApp() {
         tree={tree}
         combined={pack.sources.combined}
         milkyWay={milkyWay}
+        onController={handleController}
+        onContextSwitch={handleContextSwitch}
+      />
+      <GalaxyScene
+        streaming={streaming}
+        origin={origin}
+        controllerRef={controllerHolder}
+        milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+      />
+      <StarScene
+        stars={pack.sources.stars}
+        combined={pack.sources.combined}
+        origin={origin}
+        controllerRef={controllerHolder}
+        streaming={streaming}
+      />
+      {pack.sources.overlay ? (
+        <Overlays
+          origin={origin}
+          overlay={pack.sources.overlay}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+      {mountedSystem ? (
+        <SystemScene
+          system={mountedSystem.system}
+          origin={origin}
+          packUrl={mountedSystem.packUrl}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+    </SceneHost>
+  );
+}
+
+/**
+ * TASK-053 tier-unification budget gate (`?debug=flythrough4`, ADR-006 §5.4). Loads
+ * the full M4a packs (HYG octree + Gaia octree + constellations) and the M4a
+ * composition (coverage-faded procgen, gated HYG monolith, overlays, Earth
+ * atmosphere) and replays the SAME committed flythrough path through a self-measuring
+ * probe. The default run streams the COMBINED HYG+Gaia octree (the M4a tier); the
+ * `baseline=m3` run streams the HYG-only octree through the same scenes (the M3 tier)
+ * so the near-Sol segment is a like-for-like comparison on the identical path. The
+ * frozen clock + epoch are shared with flythrough3 so Earth's waypoint is identical.
+ */
+function Flythrough4ProbeApp({ baseline }: { baseline: boolean }): React.JSX.Element | null {
+  const [pack, setPack] = useState<PackState>({ status: 'loading' });
+  const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
+
+  useEffect(() => {
+    installTimeGlue();
+    clock.setEpochJD(FLYTHROUGH3_EPOCH_JD); // frozen epoch → deterministic Earth waypoint.
+    clock.setPaused(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadStarPack(HYG_MANIFEST_URL),
+      loadSystemsPack(SOL_PACK_URL),
+      loadSystemsPack(EXO_PACK_URL),
+      loadOctreePack(OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadOctreePack(GAIA_OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadConstellationPack(CONSTELLATIONS_URL),
+    ]).then(
+      ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
+        if (cancelled) return;
+        const combined = createCombinedSource(stars, [sol, exo]);
+        const octreeCombined = combineOctreeSources([octree, gaiaOctree]);
+        const overlay = buildOverlayData(constellationPack, stars);
+        setPack({
+          status: 'ready',
+          sources: { stars, sol, exo, combined, octree, octreeCombined, overlay },
+        });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setPack({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    testHook.ready = pack.status === 'ready';
+  }, [pack]);
+
+  const tree = useMemo(() => createScaleFrameTree(), []);
+  const origin = useMemo(() => createOriginManager(tree, FLYTHROUGH3_START), [tree]);
+  const { milkyWay } = useMemo(() => makeLocalGroup(), []);
+
+  const handleController = useCallback((controller: FlightController) => {
+    controllerHolder.current = controller;
+    mirrorControllerState();
+  }, []);
+
+  const handleContextSwitch = useCallback((e: ContextSwitchEvent) => {
+    setMountedSystemId(e.to === 'system' ? e.anchorId : null);
+    mirrorControllerState();
+  }, []);
+
+  const sources = pack.status === 'ready' ? pack.sources : null;
+
+  // baseline=m3 streams the HYG-only octree (the M3 tier); the default streams the
+  // combined HYG+Gaia octree (the M4a tier). Same scenes either way → like-for-like.
+  const streaming = useMemo<StreamingPolicy | null>(() => {
+    if (sources === null) return null;
+    const octree = baseline ? sources.octree : sources.octreeCombined;
+    if (octree === undefined) return null;
+    return createMilkyWayStreaming({ origin, octree, milkyWay });
+  }, [origin, sources, milkyWay, baseline]);
+
+  useEffect(() => {
+    streamingHolder.current = streaming;
+    return () => {
+      if (streamingHolder.current === streaming) streamingHolder.current = null;
+    };
+  }, [streaming]);
+
+  const handleQc = useCallback(
+    (qc: QualityController) => {
+      if (streaming === null) return;
+      wireQuality(streaming, (tier) => {
+        testHook.qualityTier = tier;
+      })(qc);
+    },
+    [streaming],
+  );
+
+  const mountedSystem = useMemo(() => {
+    if (sources === null) return null;
+    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
+    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
+    if (system === undefined) return null;
+    const packUrl =
+      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+    return { system, packUrl };
+  }, [sources, mountedSystemId]);
+
+  if (pack.status !== 'ready' || streaming === null) return null;
+
+  return (
+    <SceneHost
+      epochProvider={epochProvider}
+      initialQualityTier="high"
+      onQualityController={handleQc}
+    >
+      <color attach="background" args={['#02030a']} />
+      <BreadcrumbFrameProfiler />
+      <Flythrough4Probe
+        origin={origin}
+        tree={tree}
+        combined={pack.sources.combined}
+        milkyWay={milkyWay}
+        streaming={streaming}
+        variant={baseline ? 'm3' : 'm4a'}
+        profileActive={DEBUG_BREADCRUMB_PROFILE || DEBUG_FLYTHROUGH4}
+        onController={handleController}
+        onContextSwitch={handleContextSwitch}
+      />
+      <GalaxyScene
+        streaming={streaming}
+        origin={origin}
+        controllerRef={controllerHolder}
+        milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+      />
+      <StarScene
+        stars={pack.sources.stars}
+        combined={pack.sources.combined}
+        origin={origin}
+        controllerRef={controllerHolder}
+        // baseline=m3 reproduces the M3 tier: NO streaming prop ⇒ the HYG monolith
+        // is always drawn (the redundant near-Sol layer the unification removes). The
+        // default (m4a) passes streaming ⇒ the monolith is coverage-gated off.
+        streaming={baseline ? undefined : streaming}
+      />
+      {pack.sources.overlay ? (
+        <Overlays
+          origin={origin}
+          overlay={pack.sources.overlay}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+      {mountedSystem ? (
+        <SystemScene
+          system={mountedSystem.system}
+          origin={origin}
+          packUrl={mountedSystem.packUrl}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+    </SceneHost>
+  );
+}
+
+/**
+ * TASK-053 M4a memory-soak gate (`?debug=soak4`, §5.8 / §6). Loops the committed
+ * flythrough path back and forth (SoakProbe) against the M4a composition — the
+ * combined HYG+Gaia octree, the constellation/nebula/label overlays (toggled ON so
+ * the new mounts actually exist), and the Earth atmosphere on the system leg. Each
+ * down-and-back cycle mounts these on entry and must dispose them on context exit;
+ * a leak compounds over the loop. Publishes the same `window.__soak3Result` shape so
+ * the soak3 spec can assert the heap plateau + churn for the M4a mounts too.
+ */
+function Soak4ProbeApp(): React.JSX.Element | null {
+  const [pack, setPack] = useState<PackState>({ status: 'loading' });
+  const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
+
+  useEffect(() => {
+    installTimeGlue();
+    clock.setEpochJD(FLYTHROUGH3_EPOCH_JD);
+    clock.setPaused(true);
+    // Turn the overlays ON so the nebula/line-set/label mounts exist across the soak
+    // (they are the M4a leak suspects). Restore on unmount.
+    const o = useOverlayStore.getState();
+    const prev = { constellations: o.constellations, labels: o.labels };
+    o.setConstellations(true);
+    o.setLabels(true);
+    return () => {
+      const s = useOverlayStore.getState();
+      s.setConstellations(prev.constellations);
+      s.setLabels(prev.labels);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadStarPack(HYG_MANIFEST_URL),
+      loadSystemsPack(SOL_PACK_URL),
+      loadSystemsPack(EXO_PACK_URL),
+      loadOctreePack(OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadOctreePack(GAIA_OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadConstellationPack(CONSTELLATIONS_URL),
+    ]).then(
+      ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
+        if (cancelled) return;
+        const combined = createCombinedSource(stars, [sol, exo]);
+        const octreeCombined = combineOctreeSources([octree, gaiaOctree]);
+        const overlay = buildOverlayData(constellationPack, stars);
+        setPack({
+          status: 'ready',
+          sources: { stars, sol, exo, combined, octree, octreeCombined, overlay },
+        });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setPack({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    testHook.ready = pack.status === 'ready';
+  }, [pack]);
+
+  const tree = useMemo(() => createScaleFrameTree(), []);
+  const origin = useMemo(() => createOriginManager(tree, FLYTHROUGH3_START), [tree]);
+  const { milkyWay } = useMemo(() => makeLocalGroup(), []);
+
+  const handleController = useCallback((controller: FlightController) => {
+    controllerHolder.current = controller;
+    mirrorControllerState();
+  }, []);
+
+  const handleContextSwitch = useCallback((e: ContextSwitchEvent) => {
+    setMountedSystemId(e.to === 'system' ? e.anchorId : null);
+    mirrorControllerState();
+  }, []);
+
+  const sources = pack.status === 'ready' ? pack.sources : null;
+
+  const streaming = useMemo<StreamingPolicy | null>(() => {
+    if (sources?.octreeCombined === undefined) return null;
+    return createMilkyWayStreaming({ origin, octree: sources.octreeCombined, milkyWay });
+  }, [origin, sources, milkyWay]);
+
+  useEffect(() => {
+    streamingHolder.current = streaming;
+    return () => {
+      if (streamingHolder.current === streaming) streamingHolder.current = null;
+    };
+  }, [streaming]);
+
+  const handleQc = useCallback(
+    (qc: QualityController) => {
+      if (streaming === null) return;
+      wireQuality(streaming, (tier) => {
+        testHook.qualityTier = tier;
+      })(qc);
+    },
+    [streaming],
+  );
+
+  const mountedSystem = useMemo(() => {
+    if (sources === null) return null;
+    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
+    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
+    if (system === undefined) return null;
+    const packUrl =
+      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+    return { system, packUrl };
+  }, [sources, mountedSystemId]);
+
+  if (pack.status !== 'ready' || streaming === null) return null;
+
+  return (
+    <SceneHost
+      epochProvider={epochProvider}
+      initialQualityTier="high"
+      onQualityController={handleQc}
+    >
+      <color attach="background" args={['#02030a']} />
+      <SoakProbe
+        origin={origin}
+        tree={tree}
+        combined={pack.sources.combined}
+        milkyWay={milkyWay}
+        streaming={streaming}
+        loops={SOAK3_LOOPS}
         onController={handleController}
         onContextSwitch={handleContextSwitch}
       />
@@ -1233,7 +1590,11 @@ function StarApp() {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
       if (e.key === 'Escape') {
-        if (controllerHolder.current?.contextId === 'system') {
+        // Cinematic letterbox is a modal-ish view; Esc exits it first so it is never
+        // a dead-end if the toggle is hard to reach (BUG-3, TASK-052).
+        if (useOverlayStore.getState().cinematic) {
+          useOverlayStore.getState().setCinematic(false);
+        } else if (controllerHolder.current?.contextId === 'system') {
           goto?.exitSystem();
         } else if (useSelectionStore.getState().selectedId !== null) {
           useSelectionStore.getState().select(null);
