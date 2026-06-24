@@ -79,20 +79,87 @@ export const NEBULA_FIELDS: readonly NebulaField[] = FIELD_SPECS.map((spec) => (
   layers: buildLayers(spec),
 }));
 
-/** Soft radial alpha sprite for the nebula billboards (caller-owned, §5.11). */
+/**
+ * Cloudy alpha sprite for the nebula billboards (caller-owned, §5.11). A fractal
+ * (fBm value-noise) field windowed by a soft radial falloff — NOT a plain radial
+ * gradient. The fractal detail is what makes the stacked layers read as volumetric
+ * cloud rather than a pile of identical bokeh discs (BUG-1, TASK-052); it also makes
+ * the shader's per-layer UV rotation actually vary each layer (rotating a radially
+ * symmetric gradient is a no-op, so the old sprite repeated every layer). Deterministic
+ * (mulberry32 seed) so reloads are reproducible (§8.6).
+ */
 export function createNebulaNoiseTexture(): THREE.CanvasTexture {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
+  const img = ctx.createImageData(size, size);
+
+  // --- value-noise lattice (deterministic) + fBm sampler ----------------------
+  const rand = mulberry32(0x9e3779b1);
+  const GRID = 12; // lattice cells across the sprite (wraps for tileability)
+  const lattice = new Float32Array((GRID + 1) * (GRID + 1));
+  for (let y = 0; y <= GRID; y++) {
+    for (let x = 0; x <= GRID; x++) {
+      // Wrap the far edge to the near edge so the noise tiles seamlessly.
+      lattice[y * (GRID + 1) + x] = x === GRID || y === GRID
+        ? lattice[(y % GRID) * (GRID + 1) + (x % GRID)]!
+        : rand();
+    }
+  }
+  const smooth = (t: number): number => t * t * (3 - 2 * t);
+  const valueNoise = (u: number, v: number): number => {
+    const gx = u * GRID;
+    const gy = v * GRID;
+    const x0 = Math.floor(gx);
+    const y0 = Math.floor(gy);
+    const fx = smooth(gx - x0);
+    const fy = smooth(gy - y0);
+    const i = (xx: number, yy: number): number => lattice[(yy % GRID) * (GRID + 1) + (xx % GRID)]!;
+    const a = i(x0, y0);
+    const b = i(x0 + 1, y0);
+    const c = i(x0, y0 + 1);
+    const d = i(x0 + 1, y0 + 1);
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+  };
+  const fbm = (u: number, v: number): number => {
+    let amp = 0.6;
+    let freq = 1;
+    let sum = 0;
+    let norm = 0;
+    for (let o = 0; o < 5; o++) {
+      sum += amp * valueNoise((u * freq) % 1, (v * freq) % 1);
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return sum / norm;
+  };
+
   const c = size / 2;
-  const grad = ctx.createRadialGradient(c, c, size * 0.05, c, c, c);
-  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
-  grad.addColorStop(0.5, 'rgba(255,255,255,0.35)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = (x - c) / c;
+      const dy = (y - c) / c;
+      const r = Math.min(1, Math.hypot(dx, dy));
+      const n = fbm(x / size, y / size);
+      // Subtract a radial bias from the noise so the silhouette is RAGGED, not a clean
+      // disc: near the centre the bias is ~0 (cloud shows), toward the edge the bias
+      // climbs so only the brightest noise peaks survive — filaments that fade out at
+      // different radii in different directions. This is what kills the "bokeh circle"
+      // read (BUG-1). High contrast (×2.4) gives bright wisps + dark voids.
+      const bias = r * r * 1.5;
+      const alpha = Math.max(0, Math.min(1, (n - 0.34) * 2.4 - bias));
+      const idx = (y * size + x) * 4;
+      img.data[idx] = 255;
+      img.data[idx + 1] = 255;
+      img.data[idx + 2] = 255;
+      img.data[idx + 3] = Math.round(alpha * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.LinearSRGBColorSpace;
   tex.needsUpdate = true;

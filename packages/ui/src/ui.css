@@ -527,7 +527,11 @@
   display: flex;
   gap: 4px;
   padding: 6px;
-  z-index: 90;
+  /* Above the cinematic letterbox (.hud-letterbox z-index 90) so the toggles —
+   * incl. the "Cinematic" button itself — stay visible/clickable while the bars
+   * are in; otherwise the top bar paints over them and cinematic can't be exited
+   * (BUG-3, TASK-052 integration). */
+  z-index: 101;
   font-size: 0.82rem;
   background: var(--hud-surface);
   border: 1px solid var(--hud-border);

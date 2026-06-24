@@ -127,7 +127,14 @@ class OctreeSourceImpl implements OctreeSource {
     const tile = node.manifest;
     const binUrl = resolveRelativeUrl(this._manifestUrl, tile.binUrl);
 
-    const binRes = await this._fetchImpl(binUrl, signal ? { signal } : undefined);
+    // Call through a local (unbound) reference, NOT `this._fetchImpl(...)`: the real
+    // browser `fetch` throws "Illegal invocation" when invoked with a receiver other
+    // than the global (here the OctreeSourceImpl instance). The manifest fetch in
+    // loadOctreePack already calls it this way; tile loads must match or every tile
+    // load rejects (BUG-6). A unit-test fetch mock doesn't enforce the receiver, so
+    // this was invisible until run against a real browser.
+    const fetchImpl = this._fetchImpl;
+    const binRes = await fetchImpl(binUrl, signal ? { signal } : undefined);
     if (!binRes.ok) {
       throw new Error(`Failed to fetch tile ${key}: ${binRes.status} ${binRes.statusText}`);
     }
