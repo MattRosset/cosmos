@@ -111,6 +111,12 @@ sections — they are part of the spec.
 | [TASK-051](TASK-051-nav-cinematic.md) | `nav` v5: cinematic spline + auto-orbit + letterbox | TASK-042 | done | lane (nav); additive; centripetal Catmull-Rom spline + auto-orbit + letterbox flag, reuses goTo cancel/rebase/context-switch discipline; 14 new cinematic tests (67 nav tests), verify green |
 | [TASK-052](TASK-052-m4a-integration.md) | M4a integration: Gaia tier-unification + atmosphere + overlays + tours + cinematic | TASK-043–051 (all) | done | exclusive in `apps/web`/`e2e`. Combined HYG+Gaia octree fed to one streaming policy (app glue, since `createStreamingPolicy` takes one `octree`); coverage-driven procgen fade replaces `GAL_PROCGEN_FLOOR`; HYG monolith gated by `catalogCoverage()`; Earth atmosphere quality-gated; render-fx nebulae + constellation line-set + ≤10 Hz label projection; committed grand tour + cinematic letterbox. `?debug=m4a` mode + `e2e/m4a.spec.ts` added; `__cosmos` extended. `pnpm verify` 22/22 green, bundle 360/1228 kB. NOTE: m4a e2e + screenshot baselines need CI sign-off (chromium/WebGL); manual desktop checklist pending. NOTE: TASK-044 was already shipped (93f9182) though its row read `pending` — corrected below. |
 | [TASK-053](TASK-053-phase4a-gate.md) | Phase 4a gate: tier-unification budget win + M4a + perf/soak + matrix | TASK-052 | pending | **GATE: closes Phase 4a** (architecture §6 Phase 4 / M4, terrain deferred to 4b) |
+| [TASK-054](TASK-054-core-types-error-thaw.md) | `core-types` thaw: `AppError` taxonomy + `ChunkLifecycleEvent.error` phase | — | pending | Hardening track; the ONE core-types thaw (additive; ship `error?` optional to stay self-contained — see task §Acceptance note) |
+| [TASK-055](TASK-055-diagnostics-sink.md) | `diagnostics` v1: central `reportError` sink + dev overlay + `assertInvariant` | TASK-054 | pending | new leaf pkg; Sentry-free; framework-agnostic |
+| [TASK-056](TASK-056-app-boundary-sentry.md) | `apps/web`: ErrorBoundary (DOM+scene) + global handlers + Sentry transport | TASK-055 | pending | kills white-screen; Sentry behind the sink, gated on `VITE_SENTRY_DSN`; new dep `@sentry/react` (apps/web only) |
+| [TASK-057](TASK-057-streaming-error-phase.md) | `streaming` v1.2: `error` phase + abort/fail split + backoff + error counters | TASK-054, TASK-055 | pending | §7-sensitive **single lane**; fixes the BUG-6 silent-storm class structurally |
+| [TASK-058](TASK-058-assert-adoption.md) | dev-assert adoption + invariant checks in the silent swallows | TASK-055, TASK-057 | pending | storage/epoch/octree-combine sites + `__cosmos` error read surface |
+| [TASK-059](TASK-059-error-gate.md) | Error gate: scripted flythrough asserts `errorCount===0` + coverage>0 | TASK-054–058 (all) | pending | **GATE: closes Hardening track**; deterministic counter-based, SwiftShader-safe |
 
 **GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
 `app-state`, `ui`, and `nav` v2 froze there. Phase 2 task files above are the
@@ -140,6 +146,19 @@ terrain" clause (which moves to M4b). TASK-053 is the Phase 4a acceptance gate; 
 `done` the APIs of `render-fx`, `render-planets` v2 (atmosphere), `data` v4
 (constellations), `app-state`/`ui` v3, `nav` v5, `streaming` v1.1, and the Gaia/octree pack
 surface freeze, and **Phase 4b (terrain) specs may be written** (the next sanctioned thaw).
+
+**Hardening track (Error Handling & Observability) — cross-cutting, out-of-band.**
+TASK-054…059 are NOT a roadmap phase; they are a cross-cutting hardening track motivated by
+the recurring silent-error class (`../research/error-handling-audit.md`: BUG-6 illegal-fetch
+storm, BUG-8 dropped source — both invisible through every gate). The track may run alongside
+the Phase-4a close, but **TASK-054 is its own explicitly-sanctioned `core-types` thaw window**
+(additive `errors` module + `ChunkLifecycleEvent.error` phase only — nothing else in
+`core-types` may change), separate from the Phase 3→4a and the future 4b thaws. It re-freezes
+`core-types` the moment TASK-054 lands. TASK-057 is a `streaming` v1.2 surface bump (the
+package's own additive thaw: the `error` lifecycle phase + `errorCount`/`failedChunks` stats)
+and is **§7 single-lane** — never run it next to another streaming task. TASK-059 is the
+track's acceptance gate; when it is `done` the silent-error class is gated shut and the
+`diagnostics` API + the streaming v1.2 surface freeze.
 
 ## Dependency graph
 
@@ -203,6 +222,14 @@ TASK-052 ──────────→ TASK-053 (GATE: closes Phase 4a)
 Phase 4b (terrain) — NOT YET AUTHORED: a later pass adds the CDLOD cube-sphere terrain
 thaw + procgen terrain + render-planets CDLOD + ADR-007 (architecture §6 "CDLOD, worker
 meshing"; §5.10 scope trap).
+
+Hardening track (Error Handling & Observability — cross-cutting; not a roadmap phase):
+TASK-054 (core-types thaw: AppError + ChunkLifecycleEvent.error) ──┐
+TASK-055 (diagnostics: reportError sink + dev overlay + assert) ───┤  (054 ∥ 055 disjoint)
+              ├─ TASK-056 apps/web: ErrorBoundary + global handlers + Sentry  (needs 055)
+              ├─ single-lane: TASK-057 streaming v1.2: error phase + backoff  (needs 054+055; §7)
+              └─ TASK-058 dev-assert adoption in the silent swallows          (needs 055+057)
+TASK-054…058 (all) ─→ TASK-059 error gate (exclusive in apps/web/e2e; closes the track)
 ```
 
 ## Status values
