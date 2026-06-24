@@ -99,6 +99,73 @@ export function isHygDuplicate(g: Pick<GaiaStar, 'x' | 'y' | 'z' | 'absMag'>, hy
   return false;
 }
 
+/**
+ * Magnitude-sorted HYG index with cached direction lengths. Dedup is the build's
+ * bottleneck: the naïve `isHygDuplicate` scans all ~109k HYG stars per Gaia source —
+ * O(gaia × hyg), ~31 min on the full ~3M catalog. The `|Δmag| ≤ DEDUP_MAG` guard rejects
+ * almost every pair, so we instead binary-search the magnitude window once. EXACT: the
+ * stars iterated are precisely those `isHygDuplicate`'s mag guard would keep, the dup
+ * decision is order-independent (first angular hit ⇒ true), so the drop set — and the
+ * byte-reproducible output — is identical (covered by the golden-hash test).
+ */
+interface HygMagIndex {
+  readonly mags: Float64Array; // ascending
+  readonly xs: Float64Array;
+  readonly ys: Float64Array;
+  readonly zs: Float64Array;
+  readonly lens: Float64Array; // |(x,y,z)|, all > 0
+}
+
+function buildHygMagIndex(hyg: readonly HygStar[]): HygMagIndex {
+  const usable = hyg
+    .map((h) => ({ h, len: Math.hypot(h.x, h.y, h.z) }))
+    .filter((e) => e.len > 0)
+    .sort((a, b) => a.h.absMag - b.h.absMag);
+  const n = usable.length;
+  const mags = new Float64Array(n);
+  const xs = new Float64Array(n);
+  const ys = new Float64Array(n);
+  const zs = new Float64Array(n);
+  const lens = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    const e = usable[i]!;
+    mags[i] = e.h.absMag;
+    xs[i] = e.h.x;
+    ys[i] = e.h.y;
+    zs[i] = e.h.z;
+    lens[i] = e.len;
+  }
+  return { mags, xs, ys, zs, lens };
+}
+
+/** First index `i` with `mags[i] >= target` (mags ascending). */
+function lowerBound(mags: Float64Array, target: number): number {
+  let lo = 0;
+  let hi = mags.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (mags[mid]! < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** Indexed equivalent of {@link isHygDuplicate}; identical result, windowed scan. */
+function isHygDuplicateIndexed(
+  g: Pick<GaiaStar, 'x' | 'y' | 'z' | 'absMag'>,
+  idx: HygMagIndex,
+): boolean {
+  const gLen = Math.hypot(g.x, g.y, g.z);
+  if (gLen === 0) return false;
+  const { mags, xs, ys, zs, lens } = idx;
+  const hiMag = g.absMag + DEDUP_MAG;
+  for (let i = lowerBound(mags, g.absMag - DEDUP_MAG); i < mags.length && mags[i]! <= hiMag; i++) {
+    const cos = (g.x * xs[i]! + g.y * ys[i]! + g.z * zs[i]!) / (gLen * lens[i]!);
+    if (cos >= DEDUP_COS) return true;
+  }
+  return false;
+}
+
 export interface ParsedSnapshot {
   readonly rows: readonly GaiaSourceRow[];
 }
@@ -158,6 +225,7 @@ export function ingestGaia(
   options: { readonly sample?: boolean } = {},
 ): GaiaStar[] {
   const sample = options.sample ?? false;
+  const hygIndex = buildHygMagIndex(hyg);
   const stars: GaiaStar[] = [];
   let catalogId = 0;
   for (const row of rows) {
@@ -166,7 +234,7 @@ export function ingestGaia(
     if (sample && Math.hypot(converted.x, converted.y, converted.z) > SAMPLE_MAX_DIST_PC) {
       continue;
     }
-    if (isHygDuplicate(converted, hyg)) continue;
+    if (isHygDuplicateIndexed(converted, hygIndex)) continue;
     stars.push({ ...converted, catalogId: catalogId++ });
   }
   return stars;

@@ -214,11 +214,18 @@ export function buildOctree(
   return manifest;
 }
 
-function collectLeafPoints(node: OctreeNode): number[] {
-  if (!node.children) return node.starIndices.slice();
-  const pts: number[] = [];
-  for (const child of node.children) {
-    if (child) pts.push(...collectLeafPoints(child));
+function collectLeafPoints(node: OctreeNode, out: number[] = []): number[] {
+  // Accumulate into `out` rather than `pts.push(...collectLeafPoints(child))`: the
+  // spread expands an entire subtree's indices into call arguments, which overflows
+  // V8's argument limit ("Maximum call stack size exceeded") once a node carries
+  // ~1M+ points (e.g. the root of the full Gaia catalog). The output is identical;
+  // only the construction avoids the spread.
+  if (!node.children) {
+    for (let i = 0; i < node.starIndices.length; i++) out.push(node.starIndices[i]!);
+    return out;
   }
-  return pts;
+  for (const child of node.children) {
+    if (child) collectLeafPoints(child, out);
+  }
+  return out;
 }
