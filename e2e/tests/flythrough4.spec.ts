@@ -20,13 +20,14 @@ import * as path from 'node:path';
  *   - every project (incl. CI): the §5.8 caps hold over the whole descent —
  *     in-flight ≤ 6, rendered points ≤ 2M, draw calls ≤ 300; AND the procgen cloud
  *     fades (procgenOpacity → ~0) where the catalog covers the cut (coverage → ~1).
- *   - the NEAR-SOL drop (the unification win): near-Sol renderedPoints + drawCalls
- *     are ≤ the committed M3 baseline (flythrough4-m3-baseline.json). The baseline
- *     is recorded by the SAME probe with `?baseline=m3` (the M3 tier on the same
- *     path). Until the baseline is recorded (`nearSol` null), this clause logs the
- *     M4a numbers and is skipped, so the harness is runnable before the baseline
- *     exists. The baseline is the M3 tier (`?baseline=m3`), recorded separately and
- *     committed to flythrough4-m3-baseline.json (it must NOT be the m4a numbers).
+ *   - the NEAR-SOL drop (the unification win): near-Sol TOTAL scene draw calls + points
+ *     (`gl.info.render`) are ≤ the committed M3 baseline (flythrough4-m3-baseline.json).
+ *     Scene totals, NOT the streaming-only stats, because the redundant layer M4a removes
+ *     is the HYG monolith StarScene draws outside the streaming policy — M3 keeps it, M4a
+ *     culls it once the octree covers the cut. The baseline is recorded by the SAME probe
+ *     with `?baseline=m3` (the M3 tier on the same path). Until it is recorded (`nearSol`
+ *     null), this clause logs the M4a numbers and is skipped, so the harness is runnable
+ *     before the baseline exists (it must be the M3 tier, NOT the m4a numbers).
  *
  * WHY frame time is not a CI gate here: same as flythrough3 — CI runs SwiftShader,
  * where wall-clock measures the runner, not the code. The deterministic work-budget
@@ -35,8 +36,13 @@ import * as path from 'node:path';
  */
 
 const RESULT_TIMEOUT_MS = 60_000;
+// Resolve relative to THIS spec file, not process.cwd(): CI runs playwright with cwd =
+// the e2e package dir (`pnpm --filter @cosmos/e2e exec …`), so a cwd-based path resolved
+// to `e2e/apps/web/…` → ENOENT and the test threw on every browser. __dirname is e2e/tests.
 const BASELINE_PATH = path.join(
-  process.cwd(),
+  __dirname,
+  '..',
+  '..',
   'apps',
   'web',
   'src',
@@ -54,6 +60,8 @@ interface SegmentStats {
   peakDrawCalls: number;
   peakInFlight: number;
   peakLoadedChunks: number;
+  peakSceneDrawCalls: number;
+  peakScenePoints: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -95,7 +103,10 @@ declare global {
 
 interface BaselineFile {
   _recorded: boolean;
-  nearSol: { peakRenderedPoints: number | null; peakDrawCalls: number | null };
+  // The near-Sol drop compares TOTAL scene work (gl.info.render), which includes the HYG
+  // monolith M3 always draws and M4a culls. The streaming-only peakRenderedPoints/Draws
+  // could not see the monolith, so they are kept for logging only, not the gate.
+  nearSol: { peakSceneDrawCalls: number | null; peakScenePoints: number | null };
   caps: { inFlightMax: number; renderedPointsMax: number; drawCallsMax: number };
 }
 
@@ -114,7 +125,8 @@ function logSegments(result: Flythrough4Result): void {
     console.log(
       `[flythrough4:${key}] frames=${s.frames} p50=${s.p50.toFixed(1)} p95=${s.p95.toFixed(1)} ` +
         `max=${s.maxFrameMs.toFixed(1)} long=${s.longFrames} ` +
-        `pts=${s.peakRenderedPoints} draws=${s.peakDrawCalls} inFlight=${s.peakInFlight} ` +
+        `streamPts=${s.peakRenderedPoints} streamDraws=${s.peakDrawCalls} ` +
+        `scenePts=${s.peakScenePoints} sceneDraws=${s.peakSceneDrawCalls} inFlight=${s.peakInFlight} ` +
         `req=${s.requestsIssued} cov=${s.minCoverage.toFixed(2)}..${s.maxCoverage.toFixed(2)} ` +
         `procgen=${s.minProcgenOpacity.toFixed(2)}..${s.maxProcgenOpacity.toFixed(2)}`,
     );
@@ -197,40 +209,44 @@ test('flythrough4: near-Sol budgets drop vs M3 baseline; procgen fades where cat
     'procgen opacity fades below the retired M3 floor where the catalog covers',
   ).toBeLessThan(0.5);
 
-  // The NEAR-SOL drop (the unification win) — near-Sol = max over toSol + toEarth.
-  const nearSolPoints = Math.max(
-    result.segments.toSol.peakRenderedPoints,
-    result.segments.toEarth.peakRenderedPoints,
-  );
-  const nearSolDraws = Math.max(
-    result.segments.toSol.peakDrawCalls,
-    result.segments.toEarth.peakDrawCalls,
-  );
+  // The NEAR-SOL drop (the unification win) — measured on the `toSol` segment only.
+  // Compared on TOTAL scene work (gl.info.render), NOT the streaming-only stats: the
+  // redundant layer M4a removes is the HYG monolith, which StarScene draws outside the
+  // streaming policy. M3 keeps it always; M4a culls it once the octree covers the cut
+  // (StarScene MONOLITH_COVERAGE_GATE). That gate fires in GALAXY context — i.e. the
+  // `toSol` approach segment. `toEarth` is SYSTEM context, where the monolith renders as
+  // the background field in BOTH tiers, so folding it in via max() would wash the win out
+  // (measured: m3 toSol scenePts 109,971 → m4a toSol 572, a clean cull; m4a toEarth
+  // re-draws ~109,970 in both). So the drop is asserted on toSol, where it is unambiguous.
+  const nearSolSceneDraws = result.segments.toSol.peakSceneDrawCalls;
+  const nearSolScenePoints = result.segments.toSol.peakScenePoints;
+  const nearSolStreamPoints = result.segments.toSol.peakRenderedPoints;
 
   const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) as BaselineFile;
   if (
     baseline._recorded &&
-    baseline.nearSol.peakRenderedPoints !== null &&
-    baseline.nearSol.peakDrawCalls !== null
+    baseline.nearSol.peakSceneDrawCalls !== null &&
+    baseline.nearSol.peakScenePoints !== null
   ) {
     console.log(
-      `[flythrough4] near-Sol M4a pts=${nearSolPoints} draws=${nearSolDraws} ` +
-        `vs M3 baseline pts=${baseline.nearSol.peakRenderedPoints} draws=${baseline.nearSol.peakDrawCalls}`,
+      `[flythrough4] near-Sol M4a sceneDraws=${nearSolSceneDraws} scenePts=${nearSolScenePoints} ` +
+        `(streamPts=${nearSolStreamPoints}) vs M3 baseline sceneDraws=${baseline.nearSol.peakSceneDrawCalls} ` +
+        `scenePts=${baseline.nearSol.peakScenePoints}`,
     );
     expect(
-      nearSolPoints,
-      'near-Sol rendered points ≤ M3 baseline (ADR-006 §5.4 drop)',
-    ).toBeLessThanOrEqual(baseline.nearSol.peakRenderedPoints);
+      nearSolSceneDraws,
+      'near-Sol total scene draw calls ≤ M3 baseline (ADR-006 §5.4 drop — monolith culled)',
+    ).toBeLessThanOrEqual(baseline.nearSol.peakSceneDrawCalls);
     expect(
-      nearSolDraws,
-      'near-Sol draw calls ≤ M3 baseline (ADR-006 §5.4 drop)',
-    ).toBeLessThanOrEqual(baseline.nearSol.peakDrawCalls);
+      nearSolScenePoints,
+      'near-Sol total scene points ≤ M3 baseline (ADR-006 §5.4 drop — monolith culled)',
+    ).toBeLessThanOrEqual(baseline.nearSol.peakScenePoints);
   } else {
     console.log(
       `[flythrough4] M3 baseline NOT recorded — near-Sol drop clause SKIPPED. ` +
-        `M4a near-Sol pts=${nearSolPoints} draws=${nearSolDraws}. ` +
+        `M4a near-Sol sceneDraws=${nearSolSceneDraws} scenePts=${nearSolScenePoints}. ` +
         `Record the baseline: open ?debug=flythrough4&baseline=m3, copy max(toSol,toEarth) ` +
-        `peakRenderedPoints/peakDrawCalls into flythrough4-m3-baseline.json, set _recorded=true.`,
+        `peakSceneDrawCalls/peakScenePoints into flythrough4-m3-baseline.json, set _recorded=true.`,
     );
   }
 

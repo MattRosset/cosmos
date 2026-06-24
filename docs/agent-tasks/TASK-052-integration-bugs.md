@@ -11,42 +11,46 @@ Status legend: `open` · `fixed` · `improved` · `deferred`
 
 | Bug | What | Status | Owner area / notes |
 |-----|------|--------|--------------------|
-| **6** | Octree tiles never load (`fetch` Illegal invocation) → coverage 0 | ✅ **fixed + verified** (not committed) | `packages/data` — **frozen pkg → own reviewed commit** |
-| **3** | Cinematic view can't be closed (button covered) | ✅ **fixed + verified** | `ui.css` z-index + `App.tsx` Esc |
-| **1** | Nebulae render as flat green bokeh discs | 🟡 **improved** (provisional) | `glue/nebulae.ts`; fine polish → **separate task** |
+| **6** | Octree tiles never load (`fetch` Illegal invocation) → coverage 0 | ✅ **fixed + committed** (`f8e6d89`) | `packages/data`; re-measured on the scripted path → coverage 1.0, tiles load, procgen fades (validated) |
+| **3** | Cinematic view can't be closed (button covered) | ✅ **fixed + committed** (`f8e6d89`) | `ui.css` z-index + `App.tsx` Esc |
+| **1** | Nebulae render as flat green bokeh discs | 🟡 **improved + committed** (`f8e6d89`) | `glue/nebulae.ts`; fine polish → **separate task** |
 | **2** | Guided tour gets stuck / Saturn won't move | ⏳ **open** | app glue; decision made (Option B) |
-| **4** | Universe view laggy | ⏳ **open** | GPU fill-rate; re-measure after BUG-6 |
+| **4** | Universe view laggy | ⏳ **open — root cause MEASURED** | GPU fill-rate (procgen cloud overdraw, tier-independent); fix = count-LOD in `render-galaxy` (frozen). See §BUG-4 |
+| **G** | flythrough4 gate is broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ⏳ **open — blocks CI** | the gate the TASK-053 agent shipped; never ran in CI until 2026-06-24 push. See §Gate health |
 | **5** | Labels jitter when camera moves | ⏳ **open** | label projection cadence |
 | **7** | Labels never render in the DOM (e2e) | ⏳ **open** | label gating; investigate with BUG-5 |
 | **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
 | **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ⏳ **open** | `coverage()`≡1 trivial → `procgenBlend`=0; see `docs/research/gaia-visibility-real-pack-and-perf.md` |
 | **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ⏳ **open** | loaded-tile count unbounded + push-down per-tile cost; see gaia research doc |
 
-## Working-tree state (this session, NOT committed)
+## Committed state (2026-06-24)
 
-On branch `main`. Uncommitted changes relevant to these bugs:
-- `packages/data/src/octree.ts` — **BUG-6 fix** (frozen pkg; wants its own reviewed commit).
-- `packages/ui/src/ui.css` — **BUG-3** z-index (frozen pkg; CSS-only, no API change).
-- `apps/web/src/App.tsx` — **BUG-3** Esc handler (also carries the TASK-053 agent's
-  flythrough4/soak4 debug-mode wiring).
-- `apps/web/src/glue/nebulae.ts` — **BUG-1** sprite (provisional improvement).
-- Plus the TASK-053 gate agent's harness: `Flythrough4Probe.tsx`,
-  `flythrough4-m3-baseline.json`, `e2e/tests/flythrough4.spec.ts`, `soak3.spec.ts`,
-  `frame-profiler.ts`, `playwright.config.ts`, `.github/workflows/ci.yml`.
-- `pnpm verify` is GREEN with all of the above. No temporary diagnostic hooks remain.
+BUG-1/3/6 + the TASK-053 gate harness are committed on `main` and pushed (5 commits:
+`f8e6d89` fix m4a, `bde7dbd` perf pack-octree, `b473317` test phase-4a, `129299d` docs,
+`86c3fd3` chore gitignore). `pnpm verify` + `check:bundle` were green before commit.
+**flythrough4.spec.ts ran in CI for the first time on this push** — see §Gate health.
 
-## Recommended next steps
+## Recommended next steps (priority order, decided 2026-06-24)
 
-1. **BUG-2** (tour) — most self-contained; decision already made (Option B): rewrite the
-   tour steps to distinct stars + add `dwellMs` auto-advance. App glue, no frozen pkg.
-2. **BUG-5 + BUG-7** (labels) — investigate together (same projection path); resolve the
-   "jitters in app vs never-renders in e2e" tension.
-3. **Re-measure BUG-4** — the BUG-6 fix should have cut near-Sol overdraw; re-record the
-   TASK-053 `flythrough4` baseline (the agent's numbers were taken with the catalog tier
-   dead) and profile GPU fill-rate.
-4. **Commit BUG-6** as its own reviewed commit (frozen `data` pkg) — branch off `main`.
-5. **Separate task:** nebula visual polish (see BUG-1 deferred list).
-6. **Separate task (already decided):** full guided-tour redesign after the bug sweep.
+**P1 — make the flythrough4 gate correct & green (Gate health C1+C2+C3 TOGETHER).**
+CI is red *now* on the just-pushed flythrough4 spec, and the three sub-issues are
+chained: fixing the path (C1) exposes that real M4a (~1.11M) exceeds the degenerate
+baseline (1M); re-recording the baseline (C2) still fails because the metric misses the
+monolith (C3). Sub-order: C1 (path, trivial) → C3 (decide the metric so the unification
+win is visible) → C2 (re-record the baseline with the corrected metric). A broken/mis-
+measuring gate is worse than none (false signal) — fix the gate root cause, not the
+symptom ([[ci-test-infra-philosophy]]).
+
+**P2 — BUG-4 real fix: count-LOD the procgen cloud at universe scale.** The actual perf
+bug and the most visible (40ms→~16ms target), but it does NOT block CI (known perf, not a
+regression), is the biggest, and touches `render-galaxy` (frozen) → its own reviewed
+commit/task ([[frozen-package-defects]]). Keep it out of the P1 test-plumbing batch.
+
+**Then (unchanged, after P1/P2):**
+- **BUG-2** (tour) — most self-contained; Option B (distinct-star steps + `dwellMs`).
+- **BUG-5 + BUG-7** (labels) — together (same projection path).
+- **Separate task:** nebula visual polish (BUG-1 deferred list).
+- **Separate task (decided):** full guided-tour redesign.
 
 ---
 
@@ -102,17 +106,58 @@ On branch `main`. Uncommitted changes relevant to these bugs:
 - **Suspect area:** TASK-051 cinematic mode letterbox, TASK-050 overlay/tour chrome z-order.
 
 ## BUG-4 — Universe view is laggy
-- **Status:** open — MEASURED by the TASK-053 gate agent. **Root cause = GPU fill-rate,
-  NOT CPU.** Per-frame `profileSpan` accounts for only ~1 ms of a ~33 ms universe frame
-  (universe p50 33 ms vs system p50 16 ms; dominant CPU span `streaming.update` ~0.6 ms
-  avg). No main-thread JS hot path. The cost is **overdraw**: the 1,000,000-point additive
-  procgen Milky Way billboard (single draw call) + the additive nebula fields at universe
-  scale. SwiftShader (CI) exaggerates it; WebKit on a real GL ran a flat 16 ms p50.
-- **Fix direction:** reduce overdraw at universe scale — e.g. shrink/cap the procgen cloud
-  point size or count when far out, gate nebula additive layers harder by distance/tier,
-  or LOD the procgen cloud. Profile **GPU/fill-rate** (not CPU spans) to confirm the win.
-- **Suspect area:** procgen Milky Way cloud (`glue/milky-way-gen.ts`, `render-galaxy`),
-  nebula additive layers (`render-fx` / `glue/nebulae.ts`), quality tiers.
+- **Status:** open — root cause **MEASURED twice**. **GPU fill-rate, NOT CPU.**
+- **Re-measurement (2026-06-24, real-browser Chromium, BUG-6 fix in place).** Ran the
+  flythrough4 probe in both tiers on the identical scripted path. Per-segment p50:
+
+  | segment | M3 p50 | M4a p50 | pts | draws | coverage | procgen |
+  |---------|--------|---------|-----|-------|----------|---------|
+  | toGalaxy (universe) | **44.3 ms** | **40.0 ms** | 1.11M | 10 | 1.00 | **1.00** |
+  | toSol | 16.6 ms | 16.8 ms | 1.11M | 10 | 1.00 | 0.00 |
+  | toEarth | 16.6 ms | 16.7 ms | 1.11M | 10 | 1.00 | 1.00 |
+
+  Span profile (M4a, whole run, n=453 frames): `streaming.update` total 92 ms (avg
+  0.20 ms), `nav.update` 18 ms, `galaxy.render` 9 ms — **every CPU span sums to <0.3 ms
+  per frame.** So the 40–44 ms universe frames are pure GPU.
+- **Confirmed facts:**
+  1. The lag is **tier-independent** — M3 (44 ms) and M4a (40 ms) are equally slow in the
+     universe segment. It is NOT a tier-unification problem; it is the shared galaxy
+     composition. (toSol/toEarth are a healthy ~16 ms in both.)
+  2. In `toGalaxy`, `procgen=1.00` while `coverage=1.00` — the coverage-driven fade does
+     NOT apply in the universe context (correct: from outside, the procgen cloud *is* the
+     galaxy). So the cloud renders at full there by design and cannot simply be removed.
+  3. The procgen point SIZE is already clamped (`uMaxPointPx`, `galaxy.vert.glsl.ts`), so
+     the overdraw is from the **count** (1M overlapping additive points filling the disc),
+     not oversized points.
+- **Fix direction (P2):** **count-LOD** the procgen cloud when far out (universe scale) —
+  draw a fraction of the 1M points / a coarser cloud while the silhouette still reads;
+  optionally gate the additive nebula layers harder by distance. The point-size clamp is
+  not the lever. Verify on SwiftShader (CI exaggerates fill cost), not just real GL.
+- **Touches `render-galaxy` (frozen)** → own reviewed commit/task ([[frozen-package-defects]]).
+- **Suspect area:** procgen Milky Way cloud (`render-galaxy`, the cloud emit in the
+  streaming policy / glue), nebula additive layers (`render-fx` / `glue/nebulae.ts`).
+
+## Gate health — flythrough4 acceptance gate is broken 3 ways (NEW, 2026-06-24)
+The TASK-053 agent's `e2e/tests/flythrough4.spec.ts` ran in CI for the FIRST time on the
+2026-06-24 push (it was untracked until committed in `b473317`). Re-measurement surfaced
+three chained defects — **none fix in isolation**, so P1 resolves all three together.
+- **C1 · path bug (breaks CI now).** `BASELINE_PATH` (spec line ~39) is built from
+  `process.cwd()` assuming the repo root, but CI runs `pnpm --filter @cosmos/e2e exec
+  playwright …` with cwd = `e2e/`, so it resolves to `e2e/apps/web/src/scene/…` →
+  **`ENOENT` at `fs.readFileSync`** → the test throws on all 3 browsers. Fix: resolve the
+  path relative to the spec file (`__dirname`/`import.meta.url`), not `process.cwd()`.
+- **C2 · degenerate baseline.** The committed `flythrough4-m3-baseline.json` (`nearSol`
+  1,000,000 pts / 1 draw) was recorded 2026-06-22 **with BUG-6 present** — octree dead,
+  so it is the procgen cloud only. With BUG-6 fixed the real near-Sol is ~1.11M / 10 draws,
+  so fixing C1 alone makes the gate FAIL (1.11M > 1M). Must re-record.
+- **C3 · metric misses the win.** The near-Sol gate asserts `renderedPoints ≤ M3 baseline`,
+  but the redundant layer the unification removes is the **HYG monolith drawn by StarScene**,
+  which is NOT counted in `streaming.stats.renderedPoints`. Measured: M3 near-Sol 1,113,495
+  vs M4a 1,113,630 — M4a is **135 pts HIGHER** (exactly the 135-star Gaia CI sample the
+  combined octree adds), same draw count. So as written, the gate cannot see the saving and
+  trends the wrong way. Decision needed: count the monolith in the probe's near-Sol metric
+  (so M3's redundant layer shows up), or re-target the gate to a metric that captures the
+  unification (e.g. total scene draw calls including the monolith). Then re-record (C2).
 
 ## BUG-5 — Labels jitter when camera moves
 - **Status:** open

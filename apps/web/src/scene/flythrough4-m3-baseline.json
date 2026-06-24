@@ -1,17 +1,18 @@
 {
-  "_comment": "TASK-053 / ADR-006 §5.4 — committed M3 baseline for the near-Sol tier-unification budget gate. Recorded by running the SAME probe in baseline mode against the M3 tier (HYG-only octree + always-on HYG monolith + procgen) on the identical committed flythrough3 path. The M4a run (combined HYG+Gaia octree, gated monolith, coverage-faded procgen) must come in AT OR BELOW these near-Sol numbers despite Gaia adding stars to the field — proving fewer redundant layers (ADR-006 §5.4 rule 4).",
-  "_howToRecord": "Start the preview server (pnpm --filter @cosmos/web preview --port 4173), open http://localhost:4173/?debug=flythrough4&baseline=m3 in Chromium with --use-angle=swiftshader, wait for window.__flythrough4Result, then copy result.segments.toSol.{peakRenderedPoints,peakDrawCalls} and result.segments.toEarth.{...} into nearSol below (take the max of toSol+toEarth for each metric — that is the inner 'near Sol' segment). e2e/tests/flythrough4.spec.ts records this automatically when run with UPDATE_BASELINE=1.",
+  "_comment": "TASK-053 / ADR-006 §5.4 — committed M3 baseline for the near-Sol tier-unification budget gate. Recorded by running the SAME probe in baseline mode (?debug=flythrough4&baseline=m3) against the M3 tier (HYG-only octree + ALWAYS-ON HYG monolith + procgen) on the identical committed flythrough3 path. The M4a run (combined HYG+Gaia octree, monolith culled once the octree covers the cut, coverage-faded procgen) must come in AT OR BELOW these near-Sol TOTAL-SCENE numbers — proving fewer redundant layers (ADR-006 §5.4 rule 4).",
+  "_metric": "nearSol is TOTAL scene work (gl.info.render: calls + points), NOT the streaming-only stats. The redundant layer the unification removes is the HYG monolith, which StarScene draws OUTSIDE the streaming policy; the streaming-only renderedPoints/drawCalls cannot see it (M4a would even read slightly HIGHER, by the 135-star Gaia sample the combined octree adds). gl.info.render captures the whole composition, so M3 (monolith on) reads above M4a (monolith culled near Sol).",
+  "_howToRecord": "Rebuild web (pnpm --filter @cosmos/web build), then run the probe in baseline mode against the preview build with SwiftShader and read window.__flythrough4Result. Copy max(segments.toSol, segments.toEarth) of peakSceneDrawCalls and peakScenePoints into nearSol below and set _recorded=true. NOTE: scene draw/point counts are GL-backend-independent (they are three.js JS counters), so a real-GPU browser records the same numbers as SwiftShader — only frame timing differs by backend.",
   "path": "flythrough3-path.json",
   "epochJD": 2451545.0,
   "_recorded": true,
-  "_recordedNote": "Recorded 2026-06-22 on chromium+SwiftShader via ?debug=flythrough4&baseline=m3. CAVEAT (NEW finding, see TASK-053 report): on this scripted descent the octree contributes ZERO rendered points and catalogCoverage stays 0 in BOTH the M3 and M4a tiers — octree tiles arrive out-of-cut and release the same frame, so the 1,000,000 points / 1 draw call below is the PROCGEN Milky Way cloud, not catalog tiles. The near-Sol M3↔M4a budget comparison is therefore degenerate (equal, both procgen-only) until the octree-never-covers-the-cut defect is fixed. Re-record after that fix lands.",
+  "_recordedNote": "Re-recorded 2026-06-24 on chromium via ?debug=flythrough4&baseline=m3 with BUG-6 fixed and the gl.info.render scene metric. M3 toSol: sceneDraws=40, scenePts=109,971 (the always-on HYG monolith dominates scenePts). M4a toSol for comparison: sceneDraws=39, scenePts=572 — the monolith is culled once the octree covers the cut, a clean drop on both metrics. The prior baseline (1000000 pts / 1 draw, 2026-06-22) was degenerate (BUG-6 present + streaming-only metric blind to the monolith) and is retired.",
   "nearSol": {
-    "_comment": "max over the toSol + toEarth segments (the inner, near-Sol path).",
-    "peakRenderedPoints": 1000000,
-    "peakDrawCalls": 1
+    "_comment": "the toSol (galaxy-context) approach segment — where the monolith coverage-gate fires. TOTAL scene work (gl.info.render). NOT max(toSol,toEarth): toEarth is system context and redraws the monolith in both tiers, washing the win out.",
+    "peakSceneDrawCalls": 40,
+    "peakScenePoints": 109971
   },
   "caps": {
-    "_comment": "Inherited §5.8 hard caps — these gate regardless of the relative comparison and never relax (TASK-053 forbidden actions).",
+    "_comment": "Inherited §5.8 hard caps — these gate the streaming budget regardless of the relative comparison and never relax (TASK-053 forbidden actions).",
     "inFlightMax": 6,
     "renderedPointsMax": 2000000,
     "drawCallsMax": 300

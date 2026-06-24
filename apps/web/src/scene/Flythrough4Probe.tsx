@@ -76,6 +76,16 @@ export interface SegmentStats {
   readonly peakDrawCalls: number;
   readonly peakInFlight: number;
   readonly peakLoadedChunks: number;
+  /**
+   * Peak TOTAL scene draw calls / points (`gl.info.render`) while in this segment —
+   * the WHOLE composition, incl. the HYG monolith that StarScene draws outside the
+   * streaming stats. This is the metric the §5.4 near-Sol drop compares (BUG-4 gate
+   * fix): M3 always draws the monolith (+1 call, +~109k pts), M4a culls it once the
+   * octree covers the cut, so M4a's near-Sol scene totals come in BELOW M3's. The
+   * streaming-only peakRenderedPoints/peakDrawCalls above cannot see the monolith.
+   */
+  readonly peakSceneDrawCalls: number;
+  readonly peakScenePoints: number;
   /** Total tile requests issued while in this segment (streaming churn). */
   readonly requestsIssued: number;
   /** catalogCoverage range over the segment. */
@@ -146,6 +156,8 @@ interface SegmentAccum {
   peakDrawCalls: number;
   peakInFlight: number;
   peakLoadedChunks: number;
+  peakSceneDrawCalls: number;
+  peakScenePoints: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -163,6 +175,8 @@ function newSegmentAccum(): SegmentAccum {
     peakDrawCalls: 0,
     peakInFlight: 0,
     peakLoadedChunks: 0,
+    peakSceneDrawCalls: 0,
+    peakScenePoints: 0,
     requestsIssued: 0,
     minCoverage: Infinity,
     maxCoverage: 0,
@@ -184,6 +198,8 @@ function finalizeSegment(a: SegmentAccum): SegmentStats {
     peakDrawCalls: a.peakDrawCalls,
     peakInFlight: a.peakInFlight,
     peakLoadedChunks: a.peakLoadedChunks,
+    peakSceneDrawCalls: a.peakSceneDrawCalls,
+    peakScenePoints: a.peakScenePoints,
     requestsIssued: a.requestsIssued,
     minCoverage: a.minCoverage === Infinity ? 0 : a.minCoverage,
     maxCoverage: a.maxCoverage,
@@ -284,6 +300,11 @@ export function Flythrough4Probe({
 
     // 1. Manual render (positive-priority useFrame disabled R3F auto-render).
     gl.render(scene, camera);
+    // TOTAL scene draw work for THIS frame (gl.info.render auto-resets per render()).
+    // Captures the whole composition — incl. the HYG monolith StarScene draws outside
+    // the streaming stats — so the §5.4 near-Sol drop can see the unification (BUG-4).
+    const sceneDrawCalls = gl.info.render.calls;
+    const scenePoints = gl.info.render.points;
 
     // 2. Raw frame time (whole run).
     const now = performance.now();
@@ -348,6 +369,8 @@ export function Flythrough4Probe({
       a.peakDrawCalls = Math.max(a.peakDrawCalls, st.drawCalls);
       a.peakInFlight = Math.max(a.peakInFlight, st.inFlight);
       a.peakLoadedChunks = Math.max(a.peakLoadedChunks, st.loadedChunks);
+      a.peakSceneDrawCalls = Math.max(a.peakSceneDrawCalls, sceneDrawCalls);
+      a.peakScenePoints = Math.max(a.peakScenePoints, scenePoints);
       a.requestsIssued += st.requestsThisFrame;
       a.minCoverage = Math.min(a.minCoverage, coverage);
       a.maxCoverage = Math.max(a.maxCoverage, coverage);
