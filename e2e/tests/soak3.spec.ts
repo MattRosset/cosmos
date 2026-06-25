@@ -14,18 +14,17 @@ import { test, expect, type Page } from '@playwright/test';
  * PASS rule (memory-stable, §5.8 "memory plateaus"):
  *   - the heap PLATEAUS: a linear regression over the SECOND HALF of the samples
  *     rises by a small fraction of the mean heap (no monotonic growth); and
- *   - eviction keeps pace: the tier issues FAR MORE tile requests than the in-flight
- *     cap (so the bounded queue fills and drains many times over), yet the ready set
- *     stays bounded and the heap is flat — i.e. it loads and releases, "not just
- *     growing" (§5.8).
+ *   - eviction keeps pace: the ready tile set oscillates (loadedMin < loadedMax) as the
+ *     camera loops in and out, yet the heap stays flat — i.e. it loads and releases,
+ *     "not just growing" (§5.8).
  *
- * Why not assert `loadedChunks` oscillation directly (the spec's literal wording):
- * in this fast scripted path octree tiles arrive already out-of-cut and are
- * released the same frame, so the ready count stays pinned at the one persistent
- * galaxy chunk (observed: loadedChunks ≡ 1 while ~14k requests fire and inFlight
- * swings 1↔6). The churn summary is the signal that genuinely moves and proves the
- * same thing — load↔release cycling, not accumulation. Chromium-only:
- * `performance.memory` does not exist on WebKit/Firefox (those projects skip this).
+ * Churn proxy = `loadedChunks` oscillation. NOTE this was inverted by the BUG-6 fix
+ * (TASK-052): before it, octree tiles never loaded (fetch threw) and were re-requested
+ * ~6/frame, so loadedChunks stayed pinned at the one persistent galaxy chunk while a huge
+ * request storm fired — the old gate keyed on `requestsIssued`. With BUG-6 fixed, tiles
+ * load and persist in a bounded cache, so requestsIssued is small (~8) and loadedChunks is
+ * the signal that genuinely moves (observed 2↔10). Chromium-only: `performance.memory`
+ * does not exist on WebKit/Firefox (those projects skip this).
  */
 
 const RESULT_TIMEOUT_MS = 220_000;
@@ -133,25 +132,26 @@ test(`${mode}: heap plateaus while the streaming tier actively loads and release
     'heap plateaus: second-half linear trend rises < 10% of mean heap',
   ).toBeLessThan(0.1);
 
-  // ACTIVE LOAD↔RELEASE (deterministic, contention-robust): the tier issues far more
-  // tile requests than the in-flight cap, so the bounded queue must fill and drain
-  // many times over — that cycling, together with the flat heap above, IS the
-  // load↔release churn. The throughput≫depth check replaces the old
-  // `inFlightMax > inFlightMin` snapshot, which was fragile: under CPU contention the
-  // queue stays saturated across the whole sampling window, pinning inFlightMin ==
-  // inFlightMax == cap (observed 6 == 6) even while loading/releasing is healthy.
-  expect(
-    c.requestsIssued,
-    'streaming issued many tile requests (active load, not idle)',
-  ).toBeGreaterThan(result.loops * 20);
+  // ACTIVE LOAD↔RELEASE (deterministic): the camera loops in and out, so the ready tile
+  // set both GROWS on approach and SHRINKS on exit — loadedMin < loadedMax. Together with
+  // the flat heap above, that oscillation IS the load↔release churn (not idle, not growth).
+  //
+  // This proxy changed with the BUG-6 fix (TASK-052). BEFORE it, octree tiles never loaded
+  // — `fetch` threw Illegal invocation, every tile rejected and was re-requested ~6/frame —
+  // so loadedChunks stayed pinned (≡1) while a ~14k-request STORM fired; the old gate keyed
+  // on that storm (`requestsIssued > loops*20`). With BUG-6 fixed, tiles actually load and
+  // persist in a bounded cache: requestsIssued is now small (≈ unique tiles, ~8) and the
+  // genuine churn signal is the ready-set oscillation the old comment said was pinned. So we
+  // assert that directly now, plus a liveness floor and engaged concurrency.
+  expect(c.requestsIssued, 'streaming issued tile requests (not idle)').toBeGreaterThan(0);
   expect(
     c.inFlightMax,
     'in-flight concurrency engaged (> the persistent chunk)',
   ).toBeGreaterThanOrEqual(2);
   expect(
-    c.requestsIssued,
-    'in-flight queue cycled many times over its depth (load/release churn)',
-  ).toBeGreaterThan(c.inFlightMax * 10);
+    c.loadedMax,
+    'ready tile set grows then shrinks over the loop (load↔release churn)',
+  ).toBeGreaterThan(c.loadedMin);
 
   expect(pageErrors, 'no uncaught errors during the soak').toHaveLength(0);
 });
