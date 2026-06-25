@@ -21,7 +21,7 @@ Status legend: `open` · `fixed` · `improved` · `deferred`
 | **5** | Labels jitter when camera moves | ⏳ **open** | label projection cadence |
 | **7** | Labels never render in the DOM (e2e) | ✅ **fixed** | Root cause: boot orientation frames none of the (distant, scattered) labelled giants → 0 in-frustum, not a gating bug. e2e now reorients via `__cosmosDev.focusFirstLabel`; also fixed a latent behind-camera phantom-label bug in the projection. App glue only. See §BUG-7 |
 | **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
-| **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ⏳ **open** | `coverage()`≡1 trivial → `procgenBlend`=0; see `docs/research/gaia-visibility-real-pack-and-perf.md` |
+| **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ✅ **fixed + committed** (`77db8ed`) | procgen fade now DISTANCE-driven, not `1−coverage` (which saturates ≡1 inside the galaxy-scale octree). Verified: spiral visible at the parked ~49 kpc vantage; CI green. Known follow-up: spiral pops in on arrival (off during flight to protect flythrough4 §5.4) — the §6 deferred item. See `docs/galaxy-rendering-model.md` + `docs/research/galaxy-procgen-coverage-regression.md` |
 | **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ⏳ **open** | loaded-tile count unbounded + push-down per-tile cost; see gaia research doc |
 
 ## Committed state (2026-06-24)

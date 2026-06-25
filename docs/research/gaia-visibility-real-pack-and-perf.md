@@ -36,8 +36,9 @@ Status: working tree, **not committed**. `pnpm verify` green.
   has data*, deduped — they are complementary, not "one replaces the other".
 - The committed `octree-gaia-sample` is **135 stars** (a CI test fixture), not Gaia. The real
   bright subset is **~4.7M**. We can build real packs locally with `tools/pack-octree`.
-- The procgen Milky Way **never shows now** (empty overview / "Milky Way → black") because
-  `catalogCoverage()` saturates to 1 trivially → `procgenBlend = 1 − coverage = 0`. → **BUG-9**, open.
+- The procgen Milky Way **never showed** (empty overview / "Milky Way → black") because
+  `catalogCoverage()` saturates to 1 trivially → `procgenBlend = 1 − coverage = 0`. → **BUG-9**,
+  ✅ **FIXED** (`77db8ed`): procgen fade is now distance-driven, not coverage-driven (§3).
 - The full ~3M pack **overwhelms the streaming/renderer** (cut explodes to hundreds of tiles
   → CPU/GPU saturate → hang on move). → **BUG-10**, open. The render point-budget works
   (≤2M drawn); the *number of loaded tiles* is what is unbounded.
@@ -100,9 +101,20 @@ to `octree-combined.ts`), wired into `pnpm verify`.
 
 ---
 
-## 3. BUG-9 — procgen Milky Way never renders (OPEN)
+## 3. BUG-9 — procgen Milky Way never renders (FIXED — `77db8ed`, 2026-06-25)
 
-**Symptom:** the spiral arm is gone everywhere; the "Milky Way" (overview) vantage is black/empty.
+**Resolution:** the procgen fade is now **distance-driven** in `GalaxyScene`, independent of
+the trivially-saturated `catalogCoverage()` — exactly the fix direction outlined below. Sol
+is the galaxy-frame origin, so `distanceFade(18 kpc..45 kpc)` gives procgen OFF near Sol and
+full at the ~49 kpc vantage. Verified: the spiral is visible parked at the Milky Way vantage;
+CI green (m4a/flythrough4 gates pass — the `flying` branch keeps the near-Sol budget intact).
+Note: the screen-relative-coverage idea (below, "OR make coverage reflect screen-fill") was
+also tried and **disproven** — coverage still read 1.000 at 49 kpc because the octree is
+galaxy-scale-boxed. Full write-up: `docs/research/galaxy-procgen-coverage-regression.md`;
+the durable model: `docs/galaxy-rendering-model.md`. Known follow-up: the spiral pops in on
+arrival (off during the outbound flight) — deferred, entangled with the flythrough4 §5.4 gate.
+
+**Symptom (original):** the spiral arm is gone everywhere; the "Milky Way" (overview) vantage is black/empty.
 
 **Root cause (measured live):** procgen opacity = `1 − catalogCoverage()`
 ([GalaxyScene.tsx](../../apps/web/src/scene/GalaxyScene.tsx)). `catalogCoverage()` measures
