@@ -396,13 +396,19 @@ export function GalaxyScene({
     }
     wasFlyingRef.current = flying;
 
-    // Streaming tier: active in universe + galaxy. ADR-006 §5 render-tier unification:
-    // inside the galaxy, procgen-cloud opacity = 1 − catalogCoverage(), so the cloud
-    // fades to nothing exactly as the real octree (HYG + Gaia) tiles cover the cut —
-    // replacing M3's hard-coded GAL_PROCGEN_FLOOR. A distance guard ALSO suppresses the
-    // cloud near Sol so the heavy 1M-point cloud never draws on top of the catalog at
-    // home when the coverage signal is weak (sample pack / tiles still loading). At
-    // universe scale the impostor + coarse procgen are KEPT (handoff §3 / ADR-006 table).
+    // Streaming tier: active in universe + galaxy. ADR-006 §5 wanted the procgen cloud
+    // to fade by catalogCoverage() (procgen yields as the real octree tiles cover the
+    // cut). That signal is UNUSABLE inside the galaxy with the current data: the octree
+    // is galaxy-scale-boxed (rootHalfExtent ≈ 65 kpc) but its stars are Sol-local, so
+    // far out the cut collapses to a few COARSE tiles whose geometric boxes fill the
+    // screen → coverage saturates to ~1 at every distance → `1 − cov` permanently vetoes
+    // the spiral. That made the whole Milky Way INVISIBLE at the ~49 kpc vantage (BUG).
+    // Distance is the reliable driver here (Sol is the galaxy-frame origin, so
+    // distFromCenter is 0 at home and large far out): smoothstep gives procgen OFF near
+    // Sol (catalog owns the view) and full far out (impostor + coarse spiral, ADR-006
+    // table). During a goTo flight we keep the conservative coverage∧distance blend +
+    // the GAL_FLIGHT_DRAW_MAX cap, so the near-Sol flight budget (flythrough4 §5.4) is
+    // unchanged; the full spiral resolves once the camera parks at the vantage.
     let procgenBlend = 1;
     if (ctx === 'galaxy') {
       const cov = streaming.catalogCoverage();
@@ -411,7 +417,7 @@ export function GalaxyScene({
         const p = ctrl.state.position.local;
         const distFromCenterPc = Math.hypot(p[0], p[1], p[2]);
         const distanceFade = smoothstep(GAL_FADE_LO_PC, GAL_FADE_HI_PC, distFromCenterPc);
-        procgenBlend = Math.min(coverageFade, distanceFade);
+        procgenBlend = flying ? Math.min(coverageFade, distanceFade) : distanceFade;
       } else {
         procgenBlend = coverageFade;
       }
