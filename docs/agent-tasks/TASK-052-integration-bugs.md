@@ -15,38 +15,44 @@ Status legend: `open` · `fixed` · `improved` · `deferred`
 | **3** | Cinematic view can't be closed (button covered) | ✅ **fixed + committed** (`f8e6d89`) | `ui.css` z-index + `App.tsx` Esc |
 | **1** | Nebulae render as flat green bokeh discs | 🟡 **improved + committed** (`f8e6d89`) | `glue/nebulae.ts`; fine polish → **separate task** |
 | **2** | Guided tour gets stuck / Saturn won't move | ⏳ **open** | app glue; decision made (Option B) |
-| **4** | Universe view laggy | ⏳ **open — root cause MEASURED** | GPU fill-rate (procgen cloud overdraw, tier-independent); fix = count-LOD in `render-galaxy` (frozen). See §BUG-4 |
-| **G** | flythrough4 gate is broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ⏳ **open — blocks CI** | the gate the TASK-053 agent shipped; never ran in CI until 2026-06-24 push. See §Gate health |
+| **4** | Universe view laggy | ⏳ **open — root cause MEASURED; fix is P2** | GPU fill-rate (procgen cloud overdraw, tier-independent); fix = count-LOD in `render-galaxy` (frozen). Gate now measures it correctly (G). See §BUG-4 |
+| **G** | flythrough4 gate broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ✅ **fixed + committed** (`ec51eeb`) | C1 path→`__dirname`, C3 metric→`gl.info.render` on toSol, C2 baseline re-recorded. Green on chromium+webkit+firefox in CI. See §Gate health |
+| **S** | soak3/soak4 churn gate broke (`requestsIssued>100` → got 8) | ✅ **fixed + committed** (`4d13f77`) | side-effect of the BUG-6 fix: tiles load+cache instead of re-request storm. Proxy re-targeted to `loadedMax>loadedMin`. See §Gate health |
 | **5** | Labels jitter when camera moves | ⏳ **open** | label projection cadence |
-| **7** | Labels never render in the DOM (e2e) | ⏳ **open** | label gating; investigate with BUG-5 |
+| **7** | Labels never render in the DOM (e2e) | ⏳ **open — SOLE remaining CI red** | `m4a.spec.ts:172` overlays fail; label gating; investigate with BUG-5 |
 | **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
 | **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ⏳ **open** | `coverage()`≡1 trivial → `procgenBlend`=0; see `docs/research/gaia-visibility-real-pack-and-perf.md` |
 | **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ⏳ **open** | loaded-tile count unbounded + push-down per-tile cost; see gaia research doc |
 
 ## Committed state (2026-06-24)
 
-BUG-1/3/6 + the TASK-053 gate harness are committed on `main` and pushed (5 commits:
-`f8e6d89` fix m4a, `bde7dbd` perf pack-octree, `b473317` test phase-4a, `129299d` docs,
-`86c3fd3` chore gitignore). `pnpm verify` + `check:bundle` were green before commit.
-**flythrough4.spec.ts ran in CI for the first time on this push** — see §Gate health.
+On `main`, pushed:
+- `f8e6d89` fix m4a (BUG-1/3/6), `bde7dbd` perf pack-octree, `b473317` test phase-4a,
+  `129299d` docs, `86c3fd3` chore gitignore.
+- `ec51eeb` **P1 — flythrough4 gate correct & green** (Gate health C1+C2+C3).
+- `4d13f77` **soak3/soak4 churn proxy fix** (Gate health S).
 
-## Recommended next steps (priority order, decided 2026-06-24)
+**CI status after these:** the only remaining red is **BUG-7** (`m4a.spec.ts:172` overlays —
+labels never render in the DOM). flythrough4 (×3 browsers), soak3, soak4 are all green;
+`verify` green. The first CI run of flythrough4/soak4 (the 2026-06-24 push) surfaced 6
+failures; P1 + S cleared 5, leaving BUG-7.
 
-**P1 — make the flythrough4 gate correct & green (Gate health C1+C2+C3 TOGETHER).**
-CI is red *now* on the just-pushed flythrough4 spec, and the three sub-issues are
-chained: fixing the path (C1) exposes that real M4a (~1.11M) exceeds the degenerate
-baseline (1M); re-recording the baseline (C2) still fails because the metric misses the
-monolith (C3). Sub-order: C1 (path, trivial) → C3 (decide the metric so the unification
-win is visible) → C2 (re-record the baseline with the corrected metric). A broken/mis-
-measuring gate is worse than none (false signal) — fix the gate root cause, not the
-symptom ([[ci-test-infra-philosophy]]).
+## Recommended next steps (priority order, updated 2026-06-24)
+
+**DONE — P1 (gate correct & green, `ec51eeb`) + S (soak churn proxy).** See §Gate health.
+
+**Next to GREEN CI — BUG-7** (`m4a.spec.ts:172`): the sole remaining e2e failure. Labels/
+constellation toggles drive the store but no label elements reach the DOM/HUD. Investigate
+with BUG-5 (same projection path) — the user DID see labels jitter in-app, so this may be
+test-env/timing or a real gate that only fires under the e2e's conditions.
 
 **P2 — BUG-4 real fix: count-LOD the procgen cloud at universe scale.** The actual perf
-bug and the most visible (40ms→~16ms target), but it does NOT block CI (known perf, not a
+bug, most visible (40ms→~16ms target), but does NOT block CI (known perf, not a
 regression), is the biggest, and touches `render-galaxy` (frozen) → its own reviewed
-commit/task ([[frozen-package-defects]]). Keep it out of the P1 test-plumbing batch.
+commit/task ([[frozen-package-defects]]). The flythrough4 gate now measures it correctly,
+so it can confirm the win.
 
-**Then (unchanged, after P1/P2):**
+**Then (after BUG-7/P2):**
 - **BUG-2** (tour) — most self-contained; Option B (distinct-star steps + `dwellMs`).
 - **BUG-5 + BUG-7** (labels) — together (same projection path).
 - **Separate task:** nebula visual polish (BUG-1 deferred list).
@@ -158,6 +164,28 @@ three chained defects — **none fix in isolation**, so P1 resolves all three to
   trends the wrong way. Decision needed: count the monolith in the probe's near-Sol metric
   (so M3's redundant layer shows up), or re-target the gate to a metric that captures the
   unification (e.g. total scene draw calls including the monolith). Then re-record (C2).
+
+**RESOLUTION (`ec51eeb`).** C1 → resolve `BASELINE_PATH` from `__dirname`. C3 → the probe
+now captures `gl.info.render` scene totals (`peakSceneDrawCalls`/`peakScenePoints`), and
+the drop is asserted on the **toSol** segment only (galaxy context, where the monolith
+coverage-gate fires; toEarth is system context and redraws the monolith in both tiers,
+washing the win out). C2 → re-recorded M3 toSol `sceneDraws=40 scenePts=109,971`; M4a culls
+the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 browsers + verify.
+
+## Gate health — S · soak3/soak4 churn proxy broke (NEW, 2026-06-24)
+- **Symptom:** soak3 AND soak4 failed `expect(requestsIssued).toBeGreaterThan(loops*20)`
+  (= 100) — observed `requestsIssued=8`. The heap-plateau assertion (the real goal) PASSED
+  (`fittedRise=0.0%`).
+- **Root cause:** **a side-effect of the BUG-6 fix.** Before it, octree tiles never loaded
+  (fetch threw) and were re-requested ~6/frame, so `requestsIssued` was a ~14k storm and the
+  churn gate keyed on it. With BUG-6 fixed, tiles load once and persist in a bounded cache:
+  `requestsIssued` is small (≈ unique tiles, ~8) while the genuine load↔release signal is now
+  the ready-set oscillation the old comment had *avoided* (`loaded=2..10`). The gate depended
+  on the bug's symptom.
+- **Fix (`4d13f77`):** re-target the churn proxy from `requestsIssued > loops*20` to
+  `loadedMax > loadedMin` (ready set grows on approach, shrinks on exit) + a `requestsIssued
+  > 0` liveness floor + the existing `inFlightMax >= 2`. Gate on the correct deterministic
+  proxy, no coping tooling ([[ci-test-infra-philosophy]]). Green: soak3 + soak4 on chromium.
 
 ## BUG-5 — Labels jitter when camera moves
 - **Status:** open
