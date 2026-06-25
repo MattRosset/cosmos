@@ -48,6 +48,7 @@ declare global {
       setTier(tier: 'high' | 'medium' | 'low' | null): void;
       startTour(): void;
       stopTour(): void;
+      focusFirstLabel(): void;
     };
   }
 }
@@ -189,6 +190,10 @@ test('M4a overlays: constellation + label toggles drive the store and the HUD', 
     undefined,
     { timeout: RESULT_TIMEOUT_MS },
   );
+  // The labelled stars are the brightest giants — distant and scattered, so the
+  // arbitrary boot orientation frames none of them. Reorient to face the brightest
+  // one so a label is deterministically on-screen, then assert it reaches the DOM.
+  await page.evaluate(() => window.__cosmosDev?.focusFirstLabel());
   await page.waitForFunction(() => document.querySelectorAll('.cosmos-ui-label').length > 0, undefined, {
     timeout: RESULT_TIMEOUT_MS,
   });

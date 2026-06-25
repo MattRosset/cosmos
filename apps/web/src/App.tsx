@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BodyId, UniversePosition } from '@cosmos/core-types';
+import { CONTEXT_UNIT_METERS } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
 import {
   loadStarPack,
@@ -145,6 +146,14 @@ declare global {
       setTier(tier: 'high' | 'medium' | 'low' | null): void;
       startTour(): void;
       stopTour(): void;
+      /**
+       * Reorient the camera to face the brightest overlay label (galaxy context),
+       * so a label is deterministically on-screen. The boot vantage points at an
+       * arbitrary patch of sky where none of the labelled giants happen to fall in
+       * the frustum; the e2e overlay gate uses this to assert the label DOM without
+       * depending on the boot orientation. No-op until packs are ready.
+       */
+      focusFirstLabel(): void;
     };
   }
 }
@@ -507,11 +516,19 @@ function M4aApp() {
       setTier: (tier) => qcRef.current?.setTier(tier),
       startTour: () => useTourStore.getState().start(GRAND_TOUR),
       stopTour: () => useTourStore.getState().stop(),
+      focusFirstLabel: () => {
+        const ctrl = controllerHolder.current;
+        const label = sources?.overlay?.labels[0];
+        if (ctrl === null || label === undefined) return;
+        const p = label.positionPc;
+        const target: UniversePosition = { context: 'galaxy', local: [p[0], p[1], p[2]] };
+        ctrl.goTo({ target, lookAtTarget: target, arrivalDistanceM: CONTEXT_UNIT_METERS.galaxy, durationMs: 1500 });
+      },
     };
     return () => {
       delete window.__cosmosDev;
     };
-  }, []);
+  }, [sources]);
 
   const handleQc = useCallback(
     (qc: QualityController) => {
@@ -1574,11 +1591,21 @@ function StarApp() {
       setTier: (tier) => qcRef.current?.setTier(tier),
       startTour: () => useTourStore.getState().start(GRAND_TOUR),
       stopTour: () => useTourStore.getState().stop(),
+      focusFirstLabel: () => {
+        const ctrl = controllerHolder.current;
+        const label = sources?.overlay?.labels[0];
+        if (ctrl === null || label === undefined) return;
+        const p = label.positionPc;
+        const target: UniversePosition = { context: 'galaxy', local: [p[0], p[1], p[2]] };
+        // Stop ~1 pc short (the galaxy⇄system enter threshold is ≪ 1 pc) so we
+        // reorient toward the star and stay in galaxy context instead of descending.
+        ctrl.goTo({ target, lookAtTarget: target, arrivalDistanceM: CONTEXT_UNIT_METERS.galaxy, durationMs: 1500 });
+      },
     };
     return () => {
       delete window.__cosmosDev;
     };
-  }, []);
+  }, [sources]);
 
   // Esc: pop up one level — exit the system if inside, else clear the selection.
   // G: frame (zoom-to-fit) the current system. (Not F — KeyF is "move down" in the

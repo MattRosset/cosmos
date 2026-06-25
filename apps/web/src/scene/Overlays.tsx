@@ -145,10 +145,16 @@ export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
         fieldLocalScratch[2] = label.positionPc[2];
         origin.toRenderSpace(fieldOriginScratch, offScratch);
         projectScratch.set(offScratch[0], offScratch[1], offScratch[2]);
-        projectScratch.project(camera);
+        // Resolve view space FIRST so visibility can gate on the camera-space sign
+        // (z < 0 ⇒ in front). A plain `.project()` + NDC-box test is not enough: a
+        // point BEHIND the camera divides by a negative w, which can sign-flip its
+        // x/y back into [-1, 1] and surface a phantom label for a star that is behind
+        // you. Testing "in front" explicitly avoids that.
+        projectScratch.applyMatrix4(camera.matrixWorldInverse);
+        const inFront = projectScratch.z < 0;
+        projectScratch.applyMatrix4(camera.projectionMatrix); // perspective divide → NDC x/y
         const visible =
-          projectScratch.z > -1 &&
-          projectScratch.z < 1 &&
+          inFront &&
           projectScratch.x >= -1 &&
           projectScratch.x <= 1 &&
           projectScratch.y >= -1 &&

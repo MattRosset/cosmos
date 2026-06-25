@@ -19,7 +19,7 @@ Status legend: `open` · `fixed` · `improved` · `deferred`
 | **G** | flythrough4 gate broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ✅ **fixed + committed** (`ec51eeb`) | C1 path→`__dirname`, C3 metric→`gl.info.render` on toSol, C2 baseline re-recorded. Green on chromium+webkit+firefox in CI. See §Gate health |
 | **S** | soak3/soak4 churn gate broke (`requestsIssued>100` → got 8) | ✅ **fixed + committed** (`4d13f77`) | side-effect of the BUG-6 fix: tiles load+cache instead of re-request storm. Proxy re-targeted to `loadedMax>loadedMin`. See §Gate health |
 | **5** | Labels jitter when camera moves | ⏳ **open** | label projection cadence |
-| **7** | Labels never render in the DOM (e2e) | ⏳ **open — SOLE remaining CI red** | `m4a.spec.ts:172` overlays fail; label gating; investigate with BUG-5 |
+| **7** | Labels never render in the DOM (e2e) | ✅ **fixed** | Root cause: boot orientation frames none of the (distant, scattered) labelled giants → 0 in-frustum, not a gating bug. e2e now reorients via `__cosmosDev.focusFirstLabel`; also fixed a latent behind-camera phantom-label bug in the projection. App glue only. See §BUG-7 |
 | **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
 | **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ⏳ **open** | `coverage()`≡1 trivial → `procgenBlend`=0; see `docs/research/gaia-visibility-real-pack-and-perf.md` |
 | **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ⏳ **open** | loaded-tile count unbounded + push-down per-tile cost; see gaia research doc |
@@ -32,10 +32,14 @@ On `main`, pushed:
 - `ec51eeb` **P1 — flythrough4 gate correct & green** (Gate health C1+C2+C3).
 - `4d13f77` **soak3/soak4 churn proxy fix** (Gate health S).
 
-**CI status after these:** the only remaining red is **BUG-7** (`m4a.spec.ts:172` overlays —
+**CI status after these:** the only remaining red was **BUG-7** (`m4a.spec.ts:172` overlays —
 labels never render in the DOM). flythrough4 (×3 browsers), soak3, soak4 are all green;
 `verify` green. The first CI run of flythrough4/soak4 (the 2026-06-24 push) surfaced 6
 failures; P1 + S cleared 5, leaving BUG-7.
+
+**BUG-7 now fixed (working tree, not yet committed).** All 4 m4a specs pass on chromium +
+`pnpm verify` green → **CI is expected 100% green.** App-glue only (`App.tsx`,
+`scene/Overlays.tsx`) + the e2e; no frozen package touched.
 
 ## Recommended next steps (priority order, updated 2026-06-24)
 
@@ -225,16 +229,37 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
   relevant to BUG-4. The TASK-053 `flythrough4` near-Sol baseline numbers the agent
   recorded are now stale (they were measured with the catalog tier dead) — re-record.
 
-## BUG-7 — Labels never render in the DOM (NEW — overlay e2e fail)
-- **Status:** open — found by the TASK-053 gate agent. `m4a.spec.ts` overlays test:
-  toggling labels via the store never produces label elements in the DOM.
-- **Tension to resolve:** the USER observed labels *jittering* (BUG-5) — i.e. they DO
-  render in the real app. So BUG-7 may be a test-environment/timing issue (e.g. labels only
-  project when the overlay is mounted + in galaxy context + targets on-screen), OR a real
-  gating bug that only manifests under the e2e's conditions. Investigate alongside BUG-5
-  (same label projection path, `scene/Overlays.tsx:133-168` + `Hud.tsx` LabelLayerHost).
-- **Suspect area:** label projection gating (`showLabels` ref, context/visibility),
-  `subscribeLabels` pub/sub.
+## BUG-7 — Labels never render in the DOM (overlay e2e fail) — FIXED
+- **Status:** FIXED in working tree (app glue only; not committed). `m4a.spec.ts` overlays
+  passes; full m4a (×4) + `pnpm verify` green.
+- **Root cause (measured, not theory — instrumented `publishLabels`/the projection and
+  dumped NDC for all 40 labels at boot):** it was the test-environment tension, NOT a
+  gating bug. The label set = the 40 brightest *named* stars = intrinsically luminous
+  giants (Rigel, Deneb, Alnilam…), all hundreds of pc out and scattered across the sky.
+  The boot vantage (`NavDriver.INITIAL_CAMERA`, identity orientation, 0.06 pc from Sol)
+  frames an arbitrary patch of sky in which **none** of those giants land inside the
+  screen frustum → every label projects in-front-but-off-screen (or behind), so
+  `LabelLayer` (which filters to `visible`) renders nothing. Both the old and the corrected
+  projection compute 0 visible at boot — correctly. The user saw labels jitter because they
+  had *flown/rotated* the camera onto stars (BUG-5); the pristine boot orientation simply
+  shows none. (The `z ≈ 1` I first saw was rounding of ~0.999, not far-plane clipping — the
+  far plane is `1e9`; that red herring is recorded so it isn't re-chased.)
+- **Fix (two parts, app glue only):**
+  1. **e2e determinism (the actual gate fix):** added `__cosmosDev.focusFirstLabel()` (same
+     dev-hook pattern as `setTier`/`startTour`) which `goTo`s + `lookAtTarget`s the brightest
+     label, stopping ~1 pc short so it reorients toward the star and stays in galaxy context.
+     The overlays spec calls it before asserting the `.cosmos-ui-label` DOM, so the gate no
+     longer depends on the boot orientation. ([[ci-test-infra-philosophy]]: gate on a
+     deterministic state, not on luck-of-the-boot-vantage.)
+  2. **latent projection bug (found while debugging, fixed):** the `visible` test used a
+     plain `.project()` + NDC-box check; a point *behind* the camera divides by a negative
+     `w`, which can sign-flip its x/y back into `[-1,1]` and surface a phantom label for a
+     star that is behind you. Now resolve view space first and gate on the camera-space sign
+     (`z < 0 ⇒ in front`) before the NDC bounds. No regression for on-screen labels.
+- **Files:** `apps/web/src/App.tsx` (dev hook ×2 scenes + Window type), `apps/web/src/scene/
+  Overlays.tsx` (projection), `e2e/tests/m4a.spec.ts`.
+- **Related:** BUG-5 (same projection path) is the per-frame-cadence jitter fix; still open,
+  but now decoupled — BUG-7 was never about cadence.
 
 ## BUG-8 — Gaia never renders inside the galaxy (combine drops a source) (NEW)
 - **Status:** FIXED in working tree + gated by a deterministic unit test (`pnpm verify`
