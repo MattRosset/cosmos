@@ -7,6 +7,12 @@ default exposure, (b) not the dense "galaxy" look (that is procgen), and (c) the
 real 3M catalog and cash almost none of its value. This doc measures everything needed to choose
 a fix — it does **not** implement one.
 
+> **FOLLOW-UP (2026-06-26, same session): see `gaia-pack-completeness-and-exposure.md`.** Acting on
+> this doc: Option 1 (exposure) was **implemented** (`GALAXY_FIELD_EXPOSURE_BOOST`), the 3M pack was
+> found to have **coverage holes** (ESA MAXREC truncation — a user-visible "marked line") and
+> **rebuilt complete to 4.63M** (all-sky, holes gone), and perf was validated (163 fps with the full
+> pack). The cut-vs-exposure analysis (§8) is extended there.
+
 > Working state: `App.tsx` `GAIA_OCTREE_MANIFEST_URL` is pointed at the local **3M** pack
 > (`/packs/octree-gaia/octree.json`, gitignored) — left wired on purpose; this needs work.
 > The committed default is `/packs/octree-gaia-sample/octree.json` (135-star CI stub).
