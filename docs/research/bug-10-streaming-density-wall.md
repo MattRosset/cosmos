@@ -347,11 +347,37 @@ throttled, so these are real):
   with a one-time sort or a max-heap keyed by level; store a parent *reference* on the chunk to
   avoid `parentKey()` Morton round-trips. Small, local, unit-testable. Expected: 384 ms → low
   single-digit ms, i.e. the 3M becomes navigable **without** frustum culling or a cut budget.
-- **(P1) Cap loaded chunks / evict by count** (Lever 1) — still wanted so a long session doesn't
-  grow unbounded in memory; not on the frame-time critical path.
+- **(P1) Evict-by-count backstop** — see the residency re-measurement below: it turns out
+  residency is **already bounded** (the graceful step-6 evict reclaims left-cut tiles on motion),
+  so this is **low-priority defensive hardening for far denser packs**, not an active leak.
+  Agent brief: `docs/agent-tasks/BUG-10-P1-eviction-count-backstop.md`.
 - **(P2) Cut/point budget, frustum culling** (Levers 3, 2) — now *optimizations*, not
   requirements. Worth doing for very deep packs, but the P0 fix likely unblocks the density goal
   on its own.
+
+### Residency re-measured (2026-06-25, post-P0) — refutes the "unbounded residency" framing
+
+Drove the camera Sol → 18 kpc (the "Milky Way" vantage goTo) and sampled per second:
+
+| dist (pc) | cut | tracked = loaded | evictionsTotal | tracked − cut |
+|----------:|----:|-----------------:|---------------:|--------------:|
+| 0 (Sol)   | 754 | 885 | 0   | 131 |
+| 2 871     | 573 | 678 | 207 | 105 |
+| 5 452     | 385 | 462 | 423 |  77 |
+| 10 182    | 225 | 278 | 607 |  53 |
+| 17 980    | 145 | 186 | 699 |  41 |
+
+`evictionsTotal` climbs 0 → 699 and `tracked` falls 885 → 186 as the cut shrinks — and the fade
+tail (`tracked − cut`) *shrinks*, not grows. **Residency tracks the working set; there is no
+leak.** `update()` has two evict paths: the byte-LRU (step 5, fires only when resident GPU bytes
+exceed `maxGpuBytes` = 350 MB ≈ 17M points — never for a 60 MB / 3M pack, effectively dead) and
+the **graceful evict (step 6)**: a ready chunk that has left the cut (`desiredEpoch !== frame`)
+and faded to opacity 0 is evicted. Step 6 is the real bound and it works. `evictionsTotal = 0`
+*static at Sol* is correct — nothing leaves a stationary cut. So the only true residual is the
+**mis-tuned byte-LRU** (latent; bites only past ~17M resident points, ~5× the 3M). At Sol the
+working set is ~the whole pack (cut 754 of 884) because the SSE descent has no node budget — but
+post-P0 that costs nothing (`select` 0.1 ms, 60 MB), so it is not a problem until a much denser
+pack.
 
 **Knee for the density goal:** the 1M pack (395 tiles, fully resident, no eviction) still costs
 207 ms in `enforceBudgets` — so the knee is the *enforce algorithm*, not a star count. After P0,

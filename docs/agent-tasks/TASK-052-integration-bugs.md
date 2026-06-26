@@ -22,7 +22,7 @@ Status legend: `open` · `fixed` · `improved` · `deferred`
 | **7** | Labels never render in the DOM (e2e) | ✅ **fixed** | Root cause: boot orientation frames none of the (distant, scattered) labelled giants → 0 in-frustum, not a gating bug. e2e now reorients via `__cosmosDev.focusFirstLabel`; also fixed a latent behind-camera phantom-label bug in the projection. App glue only. See §BUG-7 |
 | **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
 | **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ✅ **fixed + committed** (`77db8ed`) | procgen fade now DISTANCE-driven, not `1−coverage` (which saturates ≡1 inside the galaxy-scale octree). Verified: spiral visible at the parked ~49 kpc vantage; CI green. Known follow-up: spiral pops in on arrival (off during flight to protect flythrough4 §5.4) — the §6 deferred item. See `docs/galaxy-rendering-model.md` + `docs/research/galaxy-procgen-coverage-regression.md` |
-| **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ⏳ **open** | loaded-tile count unbounded + push-down per-tile cost; see gaia research doc |
+| **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ✅ **P0 fixed + committed** (`5dedef1`); P1/P2 = agent briefs | Real cause was `enforceBudgets` **O(cut²)** collapse (99.6% of frame), NOT the push-down (reverted) or unbounded residency (re-measured: bounded). 384 ms→1.9 ms, **1.2→164 fps** on the 3M. See §BUG-10 |
 
 ## Committed state (2026-06-24)
 
@@ -305,3 +305,33 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
   is served. If production should serve a real Gaia pack from a CDN/R2 rather than the
   committed 135-star sample, the remaining step is to make `GAIA_OCTREE_MANIFEST_URL`
   (`apps/web/src/App.tsx:115`) env-configurable (`VITE_*`) — open decision, not done.
+
+## BUG-10 — Dense (~3M) Gaia pack thrashes streaming → hang on move — ✅ P0 FIXED
+- **Status:** **P0 fixed + committed** (`5dedef1` `perf(streaming): rewrite enforceBudgets
+  O(n²)→O(n)`). Full investigation + live numbers: `docs/research/bug-10-streaming-density-wall.md`.
+- **Real root cause (measured, not the original guess):** 99.6% of the frame was
+  `enforceBudgets` ([policy.ts](../../packages/streaming/src/policy.ts)), an **O(cut²)** collapse —
+  per `while` iteration it re-scanned the whole coverage list (`sumCoveragePoints`) and called
+  `parentKey` (Morton decode+encode, string ops) per element to find the deepest collapsible node.
+  A 754-node cut (the 3M pack near Sol) ⇒ ~384 ms/frame ⇒ **~1.2 fps even static**. The render was
+  0.1 ms; selection 0.1 ms. The original handoff's framing (unbounded loaded-tile count + push-down
+  per-tile cost) was **wrong on both counts**: the push-down is reverted (not in the tree), and
+  residency is bounded (see P1 below).
+- **Fix:** rewrote `enforceBudgets` as an O(cut) deepest-first bucket-by-level collapse with
+  incremental `pts`/`draws` totals — same greedy semantics, each node visited O(1) times.
+  Re-measured on the 3M at Sol: enforce **384 ms → 1.9 ms**, update total **385 → 2.0 ms**,
+  **1.2 → 164 fps** (== the 135-star baseline). Added read-only diagnostics
+  (`cutSize`/`pendingCount`/`trackedChunks`/`evictionsTotal`/`phaseMs()`) on `StreamingStats`,
+  mirrored to `window.__cosmos.streaming`. `@cosmos/streaming` 28/28 + `pnpm verify` green.
+- **P1 (low-priority hardening) — evict-by-count backstop.** Re-measured residency by flying
+  Sol→18 kpc: `evictionsTotal` 0→699, resident `tracked` 885→186, fade tail shrinking — **no
+  leak; the graceful step-6 evict bounds residency on motion.** The only residual is the
+  byte-gated LRU being unreachable (<17M resident points), a latent mis-tuning. Brief (scoped as
+  defensive, not firefighting): `BUG-10-P1-eviction-count-backstop.md`.
+- **P2 (optimisation) — cut/point budget + frustum culling.** Now optional (post-P0 the 3M is
+  smooth); worth it only for far denser packs. See the research doc §"Solution space".
+- **Sequel (the actual payoff, not a bug) — procgen near Sol.** With the perf wall gone, the
+  measured answer to "what does the real density look like from inside" is: the bright catalog is a
+  **sparse** star field; the dense galaxy look is all procgen, which is faded off near Sol. Design
+  brief to give "inside" some density: `procgen-near-sol-density-blend.md`. See also the memory
+  note `procgen-still-belongs-real-density-sparse.md`.
