@@ -112,7 +112,10 @@ const HYG_MANIFEST_URL = '/packs/manifest.json';
 const SOL_PACK_URL = '/packs/systems-sol.json';
 const EXO_PACK_URL = '/packs/systems-exo.json';
 const OCTREE_MANIFEST_URL = '/packs/octree/octree.json';
-/** Gaia DR3 octree sample (ADR-006); the full pack URL is a deploy-time config. */
+/** Gaia DR3 octree sample (ADR-006); the full pack URL is a deploy-time config.
+ *  BUG-10 measurement: local dense packs built out-of-band (gitignored) —
+ *  octree-gaia (3M/884 tiles), octree-gaia-1m (~939k/395 tiles). Swap this line to
+ *  the pack under test; the committed sample is '/packs/octree-gaia-sample/octree.json'. */
 const GAIA_OCTREE_MANIFEST_URL = '/packs/octree-gaia-sample/octree.json';
 const CONSTELLATIONS_URL = '/packs/constellations.json';
 

@@ -21,4 +21,11 @@ e2e/test-results-dev/
 hygdata_v41.csv
 pscomppars.csv
 
+# Local Gaia DR3 dense packs + snapshots (BUG-10 perf work). Built out-of-band from
+# the ESA TAP snapshot (docs/research/bug-10-streaming-density-wall.md §0a); too large
+# to version. The committed octree-gaia-sample (135 stars) is the only versioned Gaia pack.
+apps/web/public/packs/octree-gaia/
+apps/web/public/packs/octree-gaia-1m/
+tools/pack-octree/snapshots/
+
 .claude/
