@@ -15,11 +15,17 @@ varying float vSeed;
 varying vec3 vColor;
 
 void main() {
-  // Per-layer UV rotation keyed by the layer seed (deterministic, §8.6).
+  // Per-layer UV rotation AND scale keyed by the layer seed (deterministic, §8.6) so
+  // stacked layers sample different parts of the shared sprite and do not visibly
+  // repeat. Scaling is about the centre (0.5) so the soft radial vignette stays
+  // centred. Zoom-OUT only (scl >= 1): the quad edges then always map past the
+  // sprite's 0-alpha margin (ClampToEdge → transparent), so no square edge shows.
+  // (Zoom-in would sample the bright interior at the quad border → visible squares.)
   float a = vSeed * 6.2831853;
   float s = sin(a);
   float c = cos(a);
-  vec2 centered = vUv - 0.5;
+  float scl = 1.0 + 0.6 * fract(vSeed * 2.137);
+  vec2 centered = (vUv - 0.5) * scl;
   vec2 rotated = vec2(c * centered.x - s * centered.y, s * centered.x + c * centered.y) + 0.5;
   float coverage = texture2D(uNoiseTexture, rotated).a;
   // vColor already carries the layer tint pre-multiplied by per-layer opacity.
