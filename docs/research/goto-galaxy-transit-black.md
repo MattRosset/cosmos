@@ -184,12 +184,22 @@ This is the **same class of bug** as §2 (the procgen min-clamp), on the octree 
 flight-time perf guard meant for the near-Sol flythrough4 descent overshoots and blanks the
 real field for *every* goto, including short intra-galaxy hops with no budget concern.
 
-**Fix direction (separate change, not yet applied):** keep already-mounted octree tiles
-visible during flight (drop the `:449` flight skip, or gate it to the high-density
-near-Sol descent only); the deferred *new*-mount throttle (`:347-350`) can stay since it
-caps mount cost without blanking what is already on screen. Verify with the same per-frame
-luminance probe: the transit max-luma should stay non-trivial (stars visible) the whole
-way, not 3/255.
+**Fix (applied & verified):** dropped the `:449` flight skip so already-mounted octree
+tiles stay drawn during a goTo; the deferred *new*-mount throttle (`:347-350`) stays (it
+caps upload cost without blanking what is already on screen). Due diligence: the
+flythrough4 §5.4 budget gate replays its path directly and never sets `goToActive`, so the
+guard was inert there — removing it cannot regress that gate.
+
+Re-measured the same Sol→Betelgeuse goto with the per-frame luminance probe:
+
+| | max luma in-flight | visible px (>20) in-flight | streaming draw calls |
+|---|---:|---:|---:|
+| before (octree hidden) | 3 | 0 (black) | 9 |
+| after (octree drawn) | **255** | **3–17 sustained** | **9 (unchanged)** |
+
+The field is visible for the whole flight and there is no longer an arrival snap (visible
+px continuous across the `goTo true→false` boundary). Draw calls unchanged → the guard saved
+nothing; it only blanked the screen. `pnpm verify` green.
 
 ## 7. Still not covered
 

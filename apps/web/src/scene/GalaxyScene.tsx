@@ -452,7 +452,16 @@ export function GalaxyScene({
         const v = visible[i]!;
         const m = mounts.current.get(v.chunkId);
         if (m === undefined) continue;
-        if (flying && m.kind === 'octree') continue;
+        // Already-mounted octree tiles stay drawn during a goTo flight. An earlier guard
+        // here (`if (flying && m.kind === 'octree') continue`) hid them while flying, which
+        // blanked the real Gaia field for the WHOLE of every goto — the camera flew through
+        // a black void and the catalog snapped back only on arrival (measured: max luma
+        // 3/255, 0 visible px during a Sol→Betelgeuse goto). It saved no draw calls (the cut
+        // is the same either way) and did NOT protect the flythrough4 §5.4 budget — that
+        // probe replays the path directly and never sets goToActive, so the guard was inert
+        // there. The NEW-tile mount throttle below (deferredOctree) still caps upload cost
+        // mid-flight; we just no longer hide what is already on screen.
+        // See docs/research/goto-galaxy-transit-black.md §6.
         m.seen = tick;
         posScratch.context = m.context;
         posScratch.local[0] = m.originPc[0];
