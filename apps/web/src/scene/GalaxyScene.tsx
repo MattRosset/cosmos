@@ -89,13 +89,16 @@ const GALAXY_FIELD_EXPOSURE_BOOST = 6;
  * trap. Below LO the cloud is off (octree owns the neighbourhood); it ramps to full
  * by the Milky Way vantage. The retired M3 `GAL_PROCGEN_FLOOR` floor is NOT restored —
  * near Sol the cloud truly reaches 0.
+ *
+ * LO is the MEASURED hand-off where the real catalog stops filling the view: the
+ * brightest real star drops below the visibility floor by ≈1.5–2.5 kpc, then 0 visible
+ * px out to the old LO=18 kpc — a black "empty band" mid-transit (P1). LO=1500 ramps
+ * procgen on right where the real field fades out, so there is no gap parked or flying,
+ * while staying 0 below ~1.5 kpc (local hops show only the real field; no overdraw on
+ * the dense catalog near Sol — R1). See docs/research/galaxy-transit-procgen-floor-design.md §8.
  */
-const GAL_FADE_LO_PC = 18_000;
+const GAL_FADE_LO_PC = 1_500;
 const GAL_FADE_HI_PC = 45_000;
-/** Cap procgen draw while a breadcrumb goTo is moving — avoids 500k–1M point stalls. */
-const GAL_FLIGHT_DRAW_MAX = 0.2;
-/** Ease draw cap back to full after goTo ends (ms). */
-const GAL_DRAW_CAP_RAMP_MS = 400;
 /** Octree tile mounts deferred during flight — flushed gradually after arrival. */
 const OCTREE_FLUSH_PER_FRAME = 2;
 
@@ -293,8 +296,6 @@ export function GalaxyScene({
   const mountList = useRef<Mount[]>([]);
   const [version, setVersion] = useState(0);
   const frameTick = useRef(0);
-  const drawCapRef = useRef(1);
-  const wasFlyingRef = useRef(false);
   const flightActiveRef = useRef(false);
   const deferredOctree = useRef<{ chunkId: string; batch: StarBatch }[]>([]);
   const addMountRef = useRef<(chunkId: string, kind: ChunkKind, batch: StarBatch) => void>(
@@ -385,7 +386,7 @@ export function GalaxyScene({
     });
   }, PRIORITY_STREAMING);
 
-  useFrameContext((frameCtx) => {
+  useFrameContext(() => {
     profileSpan('galaxy.render', () => {
     const tick = ++frameTick.current;
     const ctrl = controllerRef.current;
@@ -393,20 +394,19 @@ export function GalaxyScene({
     const flying = ctrl?.goToActive ?? false;
     flightActiveRef.current = flying;
 
-    // Snap draw cap down when a breadcrumb flight starts; ramp back up on arrival.
-    if (flying && !wasFlyingRef.current) {
-      drawCapRef.current = GAL_FLIGHT_DRAW_MAX;
-    } else if (flying) {
-      drawCapRef.current = GAL_FLIGHT_DRAW_MAX;
-    } else {
-      const ramp = Math.min(1, frameCtx.dtMs / GAL_DRAW_CAP_RAMP_MS);
-      drawCapRef.current += (1 - drawCapRef.current) * ramp;
+    // Flush octree tiles deferred during flight, a couple per frame after arrival.
+    // (The in-flight procgen draw-cap that used to live here was removed: it was the
+    // sole cause of P2 — a thinned star cloud under full-opacity nebula sprites,
+    // "nebulas without stars" — and protected no measured budget. The resting far
+    // vantage already full-draws the 1M-point cloud continuously, so full draw in the
+    // mid-band during flight adds no new worst case; near Sol blend≈0 keeps it off
+    // anyway. See docs/research/galaxy-transit-procgen-floor-design.md §5 E / §8.)
+    if (!flying) {
       for (let n = 0; n < OCTREE_FLUSH_PER_FRAME && deferredOctree.current.length > 0; n++) {
         const p = deferredOctree.current.shift()!;
         addMountRef.current(p.chunkId, 'octree', p.batch);
       }
     }
-    wasFlyingRef.current = flying;
 
     // Streaming tier: active in universe + galaxy. ADR-006 §5 wanted the procgen cloud
     // to fade by catalogCoverage() (procgen yields as the real octree tiles cover the
@@ -421,12 +421,22 @@ export function GalaxyScene({
     // table). Distance drives the opacity DURING a goTo flight too — the old code took
     // min(coverageFade, distanceFade) while flying, but coverageFade saturates to 0
     // in-galaxy (cov→1, see above) so that min pinned the spiral to 0 for the WHOLE
-    // breadcrumb flight: the camera flew through the 18–45 kpc band (where distanceFade
+    // breadcrumb flight: the camera flew through the band (where distanceFade
     // is non-zero) rendering black, and the spiral only popped in once it parked
     // (flying→false). Using distanceFade alone fades the spiral in along the trajectory.
     // The near-Sol flight budget (flythrough4 §5.4) is still protected: below GAL_FADE_LO_PC
-    // distanceFade is 0, and the GAL_FLIGHT_DRAW_MAX draw cap still applies while flying.
-    // See docs/research/goto-galaxy-transit-black.md.
+    // distanceFade is 0, so the cloud is off near home.
+    //
+    // Procgen-visibility contract (anti-regression — see design doc §6). The whole
+    // procgen LAYER (cloud + dust lanes + HII + impostor) shares one blend so stars and
+    // nebulas are always visible TOGETHER — never sprites floating in black (P2):
+    //   - Parked near Sol (< GAL_FADE_LO_PC ~1.5 kpc): real catalog owns the view,
+    //     procgen OFF (blend 0) — no overdraw on the dense catalog (R1, R4).
+    //   - Mid band (LO->HI): real field is sub-pixel; procgen ramps on, fills P1.
+    //   - Far vantage (>= HI): real field gone, full spiral (R2).
+    //   - In flight, any distance: same as parked at that distance — no extra
+    //     suppression that empties the view (P1/P3).
+    // See docs/research/galaxy-transit-procgen-floor-design.md and goto-galaxy-transit-black.md.
     let procgenBlend = 1;
     if (ctx === 'galaxy') {
       const cov = streaming.catalogCoverage();
@@ -442,7 +452,18 @@ export function GalaxyScene({
     }
     procgenOpacityHolder.current = procgenBlend;
 
-    const drawFraction = Math.min(procgenBlend, drawCapRef.current);
+    // drawFraction is a PERF knob (how many of the cloud's points to draw), NOT part of
+    // the visual fade — opacity (= procgenBlend) is the sole visibility factor, shared by
+    // the cloud AND the nebula sprites so they fade together. Tying drawFraction to blend
+    // (the first B+E attempt) re-created P2: at low blend the cloud was doubly dimmed
+    // (few points × low opacity → invisible) while the fixed-count nebula sprites survived
+    // → "nebulas without stars" at ~5 kpc. So draw the full point set whenever the layer
+    // is on; let opacity carry the fade. Below GAL_FADE_LO_PC blend is 0 and the whole
+    // procgen layer is hidden (skipped below) — no 1M-point overdraw near Sol (R1). The
+    // resting far vantage already full-draws the cloud continuously, so full draw in the
+    // mid-band adds no new worst case (R3; CI breadcrumb-perf is the budget gate).
+    const procgenLayerOn = procgenBlend > 0.0001;
+    const drawFraction = 1;
     const opacityBlend = flying ? Math.min(1, procgenBlend * 1.15) : procgenBlend;
 
     const streamingActive = ctx === 'universe' || ctx === 'galaxy';
@@ -469,6 +490,14 @@ export function GalaxyScene({
         posScratch.local[2] = m.originPc[2];
         origin.toRenderSpace(posScratch, offScratch);
         if (m.kind === 'procgen') {
+          // Near Sol (blend 0): hide the whole layer so the real catalog owns the view
+          // with no procgen overdraw (R1, contract §6). Must hide() explicitly — m.seen
+          // was already set to tick above, so the trailing hide pass would skip it and
+          // the layer would keep its previous (visible) frame.
+          if (!procgenLayerOn) {
+            m.hide();
+            continue;
+          }
           m.applyFrame(offScratch, v.opacity * opacityBlend, v.lod, drawFraction);
         } else {
           m.applyFrame(offScratch, v.opacity, v.lod);
