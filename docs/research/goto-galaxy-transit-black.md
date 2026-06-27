@@ -147,10 +147,54 @@ reload at default exposure (25×).
 
 ---
 
-## 6. Not covered here (follow-up)
+## 6. Same symptom on the intra-galaxy goto (galaxy → star) — measured
 
-The original report also mentioned goto **into a system** (descend to a star → `SystemScene`
-mounts KTX2 textures + builds meshes). That is a different code path and was **not**
-measured in this session. If a real sub-second stall exists anywhere, that mount is the
-most likely place (texture decode is synchronous-ish after the await) — measure it
-separately with the same sampler + the `galaxy.mountProcgen`-style spans.
+The user also reported: flying to a star *inside* the galaxy goes black for the whole trip
+and the star "appears" only at arrival. Measured it directly — per-frame **luminance**
+readback of the canvas (a 80×45 2D-canvas `drawImage` of the WebGL canvas; this reads real
+pixels, unlike the ≤4 Hz `__cosmos` mirror) over a Sol→Betelgeuse goto (21 pc → 153 pc):
+
+| t (ms) | avg luma /255 | max luma | pixels brighter than 20/255 |
+|---:|---:|---:|---:|
+| 5 … 5775 (whole flight) | 3.5 | **3** | **0** |
+| 6114 … 7811 (arrived) | 3.85 | **224** | 11 |
+
+For the **entire ~5.8 s flight the frame is black** — peak brightness 3/255, *zero* pixels
+above the visibility floor. At arrival Betelgeuse pops in (max 3 → 224). Not a freeze (the
+pump ran 1321 frames); a content blackout.
+
+### Cause — the Gaia octree field is suppressed while `goToActive`
+
+Two flight-time guards in `GalaxyScene.tsx` blank the real catalog field during any goTo:
+
+- **`:347-350`** — octree chunks that become `ready` while `flightActiveRef` is true are
+  pushed to `deferredOctree` instead of mounting (flushed `OCTREE_FLUSH_PER_FRAME` at a
+  time only after arrival).
+- **`:449`** — `if (flying && m.kind === 'octree') continue;` skips applying the frame to
+  already-mounted octree tiles, so the per-frame "hide stale" pass hides them.
+
+So during the flight the dense Gaia octree is gone; only the HYG monolith (`StarScene`, not
+flight-gated) remains, and the real catalog is genuinely sparse from inside
+([[procgen-still-belongs-real-density-sparse]]) — its points are mostly sub-pixel — so the
+field reads as black. On arrival the octree flushes back and the target star renders → the
+"appears at the star" pop. Near Sol the procgen spiral is correctly off (distanceFade = 0),
+so it cannot fill the gap either.
+
+This is the **same class of bug** as §2 (the procgen min-clamp), on the octree side: a
+flight-time perf guard meant for the near-Sol flythrough4 descent overshoots and blanks the
+real field for *every* goto, including short intra-galaxy hops with no budget concern.
+
+**Fix direction (separate change, not yet applied):** keep already-mounted octree tiles
+visible during flight (drop the `:449` flight skip, or gate it to the high-density
+near-Sol descent only); the deferred *new*-mount throttle (`:347-350`) can stay since it
+caps mount cost without blanking what is already on screen. Verify with the same per-frame
+luminance probe: the transit max-luma should stay non-trivial (stars visible) the whole
+way, not 3/255.
+
+## 7. Still not covered
+
+Goto **into a host system** (`SystemScene` mounts KTX2 textures + builds meshes) — the
+mount cost itself was not isolated. The galaxy→system entry was observed to complete
+(context flips, system renders), but the synchronous texture-decode / mesh-build cost on
+mount was not profiled. Measure with `galaxy.mountProcgen`-style spans if a real
+sub-second hitch is suspected there.
