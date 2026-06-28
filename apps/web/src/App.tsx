@@ -33,6 +33,8 @@ import { combineOctreeSources } from './glue/octree-combined';
 import { buildOverlayData, type OverlayData } from './glue/overlays';
 import { GRAND_TOUR, buildFlyToSpline } from './glue/tours';
 import { Hud } from './hud/Hud';
+import { ErrorBoundary, WebGLUnsupportedCard } from './ErrorBoundary';
+import { isWebGL2Available } from './glue/report-error';
 import { DebugHud } from './scene/DebugHud';
 import { DebugMarkers } from './scene/DebugMarkers';
 import { JitterProbe } from './scene/JitterProbe';
@@ -1292,6 +1294,9 @@ function StarApp() {
   const [pack, setPack] = useState<PackState>({ status: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const [contextLost, setContextLost] = useState(false);
+  /** WebGL2 is required by the renderer; probed once so we show a clear message instead of
+   *  a blank/broken canvas on a browser/device without it (error-handling-audit.md §3.2). */
+  const webgl2 = useMemo(() => isWebGL2Available(), []);
   /** System mounted in the Canvas while `contextId === 'system'` (rare React state). */
   const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
   /** Procgen Milky Way on the visible cut — gates scale breadcrumbs (§5.8 / M3 waitReady). */
@@ -1648,8 +1653,9 @@ function StarApp() {
   return (
     <>
       {contextLost ? <ContextLostOverlay /> : null}
+      {!webgl2 ? <WebGLUnsupportedCard /> : null}
       <main id="main">
-      {pack.status === 'ready' ? (
+      {pack.status === 'ready' && webgl2 ? (
         <SceneHost
           onContextLost={handleContextLost}
           epochProvider={epochProvider}
@@ -1657,48 +1663,53 @@ function StarApp() {
           onQualityController={handleQc}
         >
           <color attach="background" args={['#02030a']} />
-          <NavDriver
-            origin={origin}
-            tree={tree}
-            stars={pack.sources.stars}
-            combined={pack.sources.combined}
-            streaming={streaming ?? undefined}
-            milkyWay={milkyWay}
-            onController={handleController}
-            onContextSwitch={handleContextSwitch}
-          />
-          {DEBUG_BREADCRUMB_PROFILE ? <BreadcrumbFrameProfiler /> : null}
-          {streaming ? (
-            <GalaxyScene
-              streaming={streaming}
+          {/* A throw while mounting/rendering a scene component renders an empty scene
+              (fallback null) instead of crashing the whole app; the HUD (a sibling outside
+              the Canvas) keeps working. Frame-loop throws are not caught here — see ErrorBoundary. */}
+          <ErrorBoundary context="scene" fallback={() => null}>
+            <NavDriver
+              origin={origin}
+              tree={tree}
+              stars={pack.sources.stars}
+              combined={pack.sources.combined}
+              streaming={streaming ?? undefined}
+              milkyWay={milkyWay}
+              onController={handleController}
+              onContextSwitch={handleContextSwitch}
+            />
+            {DEBUG_BREADCRUMB_PROFILE ? <BreadcrumbFrameProfiler /> : null}
+            {streaming ? (
+              <GalaxyScene
+                streaming={streaming}
+                origin={origin}
+                controllerRef={controllerHolder}
+                milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+              />
+            ) : null}
+            <StarScene
+              stars={pack.sources.stars}
+              combined={pack.sources.combined}
               origin={origin}
               controllerRef={controllerHolder}
-              milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+              streaming={streaming ?? undefined}
+              onActivate={handleGoTo}
             />
-          ) : null}
-          <StarScene
-            stars={pack.sources.stars}
-            combined={pack.sources.combined}
-            origin={origin}
-            controllerRef={controllerHolder}
-            streaming={streaming ?? undefined}
-            onActivate={handleGoTo}
-          />
-          {pack.sources.overlay ? (
-            <Overlays
-              origin={origin}
-              overlay={pack.sources.overlay}
-              controllerRef={controllerHolder}
-            />
-          ) : null}
-          {mountedSystem ? (
-            <SystemScene
-              system={mountedSystem.system}
-              origin={origin}
-              packUrl={mountedSystem.packUrl}
-              controllerRef={controllerHolder}
-            />
-          ) : null}
+            {pack.sources.overlay ? (
+              <Overlays
+                origin={origin}
+                overlay={pack.sources.overlay}
+                controllerRef={controllerHolder}
+              />
+            ) : null}
+            {mountedSystem ? (
+              <SystemScene
+                system={mountedSystem.system}
+                origin={origin}
+                packUrl={mountedSystem.packUrl}
+                controllerRef={controllerHolder}
+              />
+            ) : null}
+          </ErrorBoundary>
         </SceneHost>
       ) : null}
 

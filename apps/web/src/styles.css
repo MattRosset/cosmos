@@ -269,6 +269,121 @@ button.hud-breadcrumb-exit:disabled {
   color: #ffffff;
 }
 
+/* --- Error boundary card + dev error overlay (error-handling hardening leaf) --- */
+.error-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200; /* above every HUD/overlay, incl. the cinematic letterbox */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
+}
+
+.error-box {
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  padding: 28px 36px;
+  max-width: min(560px, 90vw);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.error-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--hud-text);
+}
+
+.error-detail {
+  font-size: 13px;
+  color: var(--hud-text-dim, var(--hud-text));
+  line-height: 1.5;
+}
+
+.error-stack {
+  font-size: 11px;
+  text-align: left;
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--hud-text-dim, var(--hud-text));
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--hud-radius-sm);
+  padding: 10px 12px;
+  margin: 0;
+}
+
+.error-box button {
+  align-self: center;
+  background: var(--hud-accent-fill);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 20px;
+}
+
+.error-box button:hover {
+  background: var(--hud-accent-fill-hover);
+  color: #ffffff;
+}
+
+.dev-error-overlay {
+  position: fixed;
+  bottom: 12px;
+  right: 12px;
+  z-index: 210;
+  max-width: min(420px, 60vw);
+  font-size: 11px;
+  color: #ffd7d7;
+  background: rgba(60, 8, 8, 0.92);
+  border: 1px solid rgba(255, 120, 120, 0.5);
+  border-radius: 6px;
+  padding: 8px 10px;
+  pointer-events: auto;
+}
+
+.dev-error-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.dev-error-head button {
+  background: transparent;
+  border: 1px solid rgba(255, 120, 120, 0.5);
+  border-radius: 4px;
+  color: #ffd7d7;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 1px 8px;
+}
+
+.dev-error-row {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 0;
+}
+
+.dev-error-ctx {
+  color: #ff9a9a;
+  font-weight: 600;
+}
+
 /*
  * TASK-029 HUD layout fix. @cosmos/ui pins the InfoPanel (.cosmos-ui-info) AND
  * the bookmarks toggle/panel at the same top-right slot (top:80px/right:20px),
