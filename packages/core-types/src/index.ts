@@ -8,6 +8,7 @@ export * from './batches';
 export * from './systems';
 export * from './bookmarks';
 export * from './frames';
+export * from './errors';
 export * from './octree';
 export * from './procgen';
 export * from './streaming';
