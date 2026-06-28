@@ -4,7 +4,7 @@
  * projection on the app side (the `ui` package never sees the camera). The label
  * projection runs on a ≤ 10 Hz interval in Overlays.tsx — never per frame (§5.12).
  */
-import type { LabelRecord } from '@cosmos/core-types';
+import type { BodyId, LabelRecord } from '@cosmos/core-types';
 import {
   createConstellationSource,
   labelCandidates,
@@ -13,15 +13,12 @@ import {
   type ConstellationStarSource,
   type LabelableSource,
 } from '@cosmos/data';
-import type { ProjectedLabel } from '@cosmos/ui';
 
 /** Constellation lines tint (linear RGB) — a cool, dim blue so they read as a guide. */
 export const CONSTELLATION_COLOR: readonly [number, number, number] = [0.4, 0.55, 0.8];
 export const CONSTELLATION_OPACITY = 0.45;
 
-/** Label projection cadence — the existing ≤ 10 Hz overlay throttle (§5.12). */
-export const LABEL_PROJECT_INTERVAL_MS = 100;
-/** Max label candidates resolved from the catalog (declutter happens in the UI too). */
+/** Max label candidates resolved from the catalog (declutter happens in the host too). */
 export const LABEL_MAX = 40;
 
 export interface OverlayData {
@@ -50,37 +47,69 @@ export function buildOverlayData(
 }
 
 /**
- * Map a resolved label to a `ProjectedLabel` for `<LabelLayer>`. The app supplies the
- * already-computed screen pixel coords + on-screen flag (the §5.12 contract: `ui`
- * receives pixels, never the camera).
+ * A label whose membership (id/text/priority/anchor) is fixed for the lifetime of the
+ * current overlay set, but whose screen-space position + on-screen flag are MUTATED in
+ * place every frame by the in-Canvas projector (zero allocation, §9). The HUD's imperative
+ * label host reads these same objects on its own rAF loop and writes them to the DOM — so
+ * labels track the camera at full frame rate without ever re-rendering the Canvas OR the
+ * HUD subtree (§5.12). This is the BUG-5 fix: the old path projected on a 10 Hz interval
+ * and pushed pixels through React state, so labels froze in pixel space between updates and
+ * visibly swam whenever the camera moved.
  */
-export function toProjectedLabel(
-  label: LabelRecord,
-  xPx: number,
-  yPx: number,
-  visible: boolean,
-): ProjectedLabel {
-  return { id: label.id, text: label.text, xPx, yPx, priority: label.priority, visible };
+export interface LiveLabel {
+  readonly id: BodyId;
+  readonly text: string;
+  readonly priority: number;
+  /** Absolute anchor, galaxy-context parsecs (the projector reads it every frame). */
+  readonly positionPc: readonly [number, number, number];
+  /** Screen pixel position — mutated in place by the per-frame projector. */
+  xPx: number;
+  yPx: number;
+  /** false ⇒ behind the camera / off-screen; the host hides it. Mutated per frame. */
+  visible: boolean;
 }
 
 /**
- * Tiny pub/sub for projected labels. Overlays.tsx (inside the Canvas) publishes the
- * ≤ 10 Hz projection; the HUD's label host (OUTSIDE the Canvas) subscribes and
- * re-renders only itself — so label updates never re-render the Canvas subtree (§5.12).
+ * Shared live-label buffer (membership). The projector mutates each element's
+ * `xPx`/`yPx`/`visible` in place per frame; the host reads the same array. Pre-sorted by
+ * priority so the host can cap to its max by walking in order.
  */
-type LabelListener = (labels: readonly ProjectedLabel[]) => void;
-let _labels: readonly ProjectedLabel[] = [];
-const _labelListeners = new Set<LabelListener>();
+let _liveLabels: readonly LiveLabel[] = [];
+type LabelSetListener = (labels: readonly LiveLabel[]) => void;
+const _labelSetListeners = new Set<LabelSetListener>();
 
-export function publishLabels(labels: readonly ProjectedLabel[]): void {
-  _labels = labels;
-  for (const cb of _labelListeners) cb(labels);
+/** The shared buffer the per-frame projector mutates and the host's rAF loop reads. */
+export function liveLabels(): readonly LiveLabel[] {
+  return _liveLabels;
 }
 
-export function subscribeLabels(cb: LabelListener): () => void {
-  _labelListeners.add(cb);
-  cb(_labels);
+/**
+ * Replace the label SET — a rare event (overlay data load or the Labels toggle), NOT a
+ * per-frame call. Rebuilds the buffer (sorted by priority, positions reset off-screen until
+ * the next projection frame) and notifies the host so it re-mounts its DOM nodes once.
+ */
+export function publishLabelSet(labels: readonly LabelRecord[]): void {
+  _liveLabels = labels
+    .map(
+      (l): LiveLabel => ({
+        id: l.id,
+        text: l.text,
+        priority: l.priority,
+        positionPc: l.positionPc,
+        xPx: 0,
+        yPx: 0,
+        visible: false,
+      }),
+    )
+    .sort((a, b) => a.priority - b.priority);
+  for (const cb of _labelSetListeners) cb(_liveLabels);
+}
+
+/** Host subscription: fires on every label-SET change (membership), never per frame. */
+export function subscribeLabelSet(cb: LabelSetListener): () => void {
+  _labelSetListeners.add(cb);
+  cb(_liveLabels);
   return () => {
-    _labelListeners.delete(cb);
+    _labelSetListeners.delete(cb);
   };
 }

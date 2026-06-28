@@ -18,7 +18,7 @@ Status legend: `open` · `fixed` · `improved` · `deferred`
 | **4** | Universe view laggy | ⏳ **open — root cause MEASURED; fix is P2** | GPU fill-rate (procgen cloud overdraw, tier-independent); fix = count-LOD in `render-galaxy` (frozen). Gate now measures it correctly (G). See §BUG-4 |
 | **G** | flythrough4 gate broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ✅ **fixed + committed** (`ec51eeb`) | C1 path→`__dirname`, C3 metric→`gl.info.render` on toSol, C2 baseline re-recorded. Green on chromium+webkit+firefox in CI. See §Gate health |
 | **S** | soak3/soak4 churn gate broke (`requestsIssued>100` → got 8) | ✅ **fixed + committed** (`4d13f77`) | side-effect of the BUG-6 fix: tiles load+cache instead of re-request storm. Proxy re-targeted to `loadedMax>loadedMin`. See §Gate health |
-| **5** | Labels jitter when camera moves | ⏳ **open** | label projection cadence |
+| **5** | Labels jitter when camera moves | ✅ **fixed** (working tree, not committed) | per-frame imperative projection replaces the 10 Hz `setInterval`+React-state path. App glue only (`glue/overlays.ts`, `scene/Overlays.tsx`, `hud/Hud.tsx`); `ui` untouched. Verified live: label `left` changes 39/39 frames under motion (was a ~6-frame staircase). See §BUG-5 |
 | **7** | Labels never render in the DOM (e2e) | ✅ **fixed** | Root cause: boot orientation frames none of the (distant, scattered) labelled giants → 0 in-frustum, not a gating bug. e2e now reorients via `__cosmosDev.focusFirstLabel`; also fixed a latent behind-camera phantom-label bug in the projection. App glue only. See §BUG-7 |
 | **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
 | **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ✅ **fixed + committed** (`77db8ed`) | procgen fade now DISTANCE-driven, not `1−coverage` (which saturates ≡1 inside the galaxy-scale octree). Verified: spiral visible at the parked ~49 kpc vantage; CI green. Known follow-up: spiral pops in on arrival (off during flight to protect flythrough4 §5.4) — the §6 deferred item. See `docs/galaxy-rendering-model.md` + `docs/research/galaxy-procgen-coverage-regression.md` |
@@ -193,16 +193,36 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
   > 0` liveness floor + the existing `inFlightMax >= 2`. Gate on the correct deterministic
   proxy, no coping tooling ([[ci-test-infra-philosophy]]). Green: soak3 + soak4 on chromium.
 
-## BUG-5 — Labels jitter when camera moves
-- **Status:** open
-- **Repro:** Enable Labels → move camera → labels jitter/shake.
-- **Notes:** Root-caused in research: labels projected on a 10 Hz setInterval + React
-  state while the scene renders at ~60 Hz → frozen in pixel space between updates. Fix:
-  per-frame imperative projection (SpeedReadout pattern). **NOTE the related NEW BUG-7
-  below** — the gate's overlay e2e says labels never render in the DOM at all; reconcile
-  the two (the user DID see labels jittering, so they render in the real app — BUG-7 may
-  be test-environment/timing specific). Investigate together.
-- **Suspect area:** label layer (`scene/Overlays.tsx` projection, `ui` LabelLayer).
+## BUG-5 — Labels jitter when camera moves — ✅ FIXED (working tree, not committed)
+- **Status:** FIXED in working tree. `pnpm verify` 22/22 green; verified live in-browser.
+  App-glue only — no frozen package touched (`ui` `LabelLayer` left as-is; the app's HUD
+  now owns an imperative label host).
+- **Root cause (as researched):** labels were projected on a `setInterval` at
+  `LABEL_PROJECT_INTERVAL_MS` (100 ms ≈ 10 Hz) and pushed through React state
+  (`subscribeLabels`→`setLabels`), while the scene renders at ~60 Hz. Between projections
+  the DOM labels were frozen in pixel space → they visibly stepped/swam relative to their
+  targets whenever the camera moved.
+- **Fix (split membership from position):**
+  - `glue/overlays.ts`: replaced the `ProjectedLabel[]` snapshot pub/sub with a `LiveLabel`
+    buffer. `publishLabelSet`/`subscribeLabelSet` carry only the label SET (membership —
+    rare: overlay load or the Labels toggle), pre-sorted by priority. `liveLabels()` is a
+    shared buffer whose `xPx`/`yPx`/`visible` are mutated in place.
+  - `scene/Overlays.tsx`: the world→screen projection moved OUT of the `setInterval` and
+    INTO the existing per-frame `useFrameContext(…, PRIORITY_RENDER)` callback — it mutates
+    the live buffer in place every frame (zero allocation, §9). A small effect drives
+    membership off the overlay store (`publishLabelSet` on toggle/overlay change).
+  - `hud/Hud.tsx`: `LabelLayerHost` is now imperative (the `SpeedReadout` pattern). React
+    renders only the SET of `<span>` nodes (rare); a per-frame rAF loop reads `liveLabels()`
+    and writes each node's `left`/`top`/`visibility` directly — zero React renders, never
+    re-renders the Canvas (§5.12). De-clutter cap (`LABEL_MAX_VISIBLE=24`) applied in the loop.
+- **Verified live (real Chromium preview):** with Labels on + camera strafing, the focused
+  label's `style.left` changed on **39 of 39** consecutive frames (smooth monotonic drift),
+  `longestStaticRun=0` — i.e. per-frame tracking, no 10 Hz staircase. Toggling Labels off
+  clears the DOM (`.cosmos-ui-label` → 0, matches the `m4a.spec.ts` overlays assertion). No
+  console errors. (Was related to BUG-7, now fully decoupled — BUG-7 was boot-orientation,
+  not cadence.)
+- **Files:** `apps/web/src/glue/overlays.ts`, `apps/web/src/scene/Overlays.tsx`,
+  `apps/web/src/hud/Hud.tsx`.
 
 ## BUG-6 — Octree tiles never load (`fetch` Illegal invocation) → coverage always 0 (NEW)
 - **Status:** FIXED in working tree (`packages/data/src/octree.ts`). `pnpm verify` green.

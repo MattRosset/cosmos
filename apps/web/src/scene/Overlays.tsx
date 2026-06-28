@@ -10,13 +10,12 @@ import { PRIORITY_RENDER, useFrameContext, useQuality } from '@cosmos/scene-host
 import {
   CONSTELLATION_COLOR,
   CONSTELLATION_OPACITY,
-  LABEL_PROJECT_INTERVAL_MS,
-  publishLabels,
-  toProjectedLabel,
+  liveLabels,
+  publishLabelSet,
   type OverlayData,
 } from '../glue/overlays';
 import { NEBULA_FIELDS, createNebulaNoiseTexture } from '../glue/nebulae';
-import type { ProjectedLabel } from '@cosmos/ui';
+import type { LabelRecord } from '@cosmos/core-types';
 
 interface OverlaysProps {
   readonly origin: OriginManager;
@@ -29,6 +28,7 @@ const galaxyOrigin: UniversePosition = { context: 'galaxy', local: [0, 0, 0] };
 const fieldLocalScratch: [number, number, number] = [0, 0, 0];
 const fieldOriginScratch: UniversePosition = { context: 'galaxy', local: fieldLocalScratch };
 const offScratch: [number, number, number] = [0, 0, 0];
+const EMPTY_LABELS: readonly LabelRecord[] = [];
 
 /**
  * Educational overlays in the Canvas (TASK-052, §5.12): constellation lines
@@ -102,7 +102,12 @@ export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
     return useSettingsStore.subscribe((s) => apply(s.exposure));
   }, []);
 
-  // Per-frame: offsets + visibility relays only (zero allocation, §9).
+  // Per-frame: offsets + relays + the label projection (zero allocation, §9). Labels are
+  // projected EVERY frame (BUG-5 fix) — the old 10 Hz interval froze label pixels between
+  // updates so they swam relative to their targets while the camera moved. The host owns
+  // the DOM imperatively (the `SpeedReadout` pattern), so per-frame projection never
+  // re-renders the Canvas OR the HUD; we only mutate the shared live-label buffer in place.
+  const projectScratch = useMemo(() => new THREE.Vector3(), []);
   useFrameContext(() => {
     const lineVisible = showConstellations.current;
     lineSet.setVisible(lineVisible);
@@ -125,24 +130,16 @@ export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
       neb.setExposure(exposure.current);
       neb.setOpacity(1);
     }
-  }, PRIORITY_RENDER);
 
-  // ≤ 10 Hz label projection (§5.12): world → screen px on the app side; the result
-  // is published to the HUD's label host so the Canvas never re-renders for labels.
-  const projectScratch = useMemo(() => new THREE.Vector3(), []);
-  useEffect(() => {
-    const project = (): void => {
-      if (!showLabels.current) {
-        publishLabels([]);
-        return;
-      }
+    if (showLabels.current) {
+      const buf = liveLabels();
       const w = size.width;
       const h = size.height;
-      const out: ProjectedLabel[] = [];
-      for (const label of overlay.labels) {
-        fieldLocalScratch[0] = label.positionPc[0];
-        fieldLocalScratch[1] = label.positionPc[1];
-        fieldLocalScratch[2] = label.positionPc[2];
+      for (let i = 0; i < buf.length; i++) {
+        const ll = buf[i]!;
+        fieldLocalScratch[0] = ll.positionPc[0];
+        fieldLocalScratch[1] = ll.positionPc[1];
+        fieldLocalScratch[2] = ll.positionPc[2];
         origin.toRenderSpace(fieldOriginScratch, offScratch);
         projectScratch.set(offScratch[0], offScratch[1], offScratch[2]);
         // Resolve view space FIRST so visibility can gate on the camera-space sign
@@ -153,25 +150,30 @@ export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
         projectScratch.applyMatrix4(camera.matrixWorldInverse);
         const inFront = projectScratch.z < 0;
         projectScratch.applyMatrix4(camera.projectionMatrix); // perspective divide → NDC x/y
-        const visible =
+        ll.visible =
           inFront &&
           projectScratch.x >= -1 &&
           projectScratch.x <= 1 &&
           projectScratch.y >= -1 &&
           projectScratch.y <= 1;
-        const xPx = (projectScratch.x * 0.5 + 0.5) * w;
-        const yPx = (-projectScratch.y * 0.5 + 0.5) * h;
-        out.push(toProjectedLabel(label, xPx, yPx, visible));
+        ll.xPx = (projectScratch.x * 0.5 + 0.5) * w;
+        ll.yPx = (-projectScratch.y * 0.5 + 0.5) * h;
       }
-      publishLabels(out);
-    };
-    const id = setInterval(project, LABEL_PROJECT_INTERVAL_MS);
-    project();
-    return () => {
-      clearInterval(id);
-      publishLabels([]);
-    };
-  }, [overlay, origin, camera, size.width, size.height, projectScratch]);
+    }
+  }, PRIORITY_RENDER);
+
+  // Label SET membership (rare): rebuild the shared buffer when the candidate set changes
+  // or the Labels toggle flips. The host re-mounts its DOM nodes off this; per-frame pixel
+  // updates ride the projector above. Toggling off publishes an empty set (host clears).
+  useEffect(() => {
+    let on = useOverlayStore.getState().labels;
+    publishLabelSet(on ? overlay.labels : EMPTY_LABELS);
+    return useOverlayStore.subscribe((s) => {
+      if (s.labels === on) return;
+      on = s.labels;
+      publishLabelSet(on ? overlay.labels : EMPTY_LABELS);
+    });
+  }, [overlay]);
 
   return (
     <>

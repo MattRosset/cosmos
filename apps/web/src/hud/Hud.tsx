@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BodyId, BookmarkRecord } from '@cosmos/core-types';
 import type { CombinedSource } from '@cosmos/data';
 import { useHudStore, useOverlayStore } from '@cosmos/app-state';
@@ -8,12 +8,10 @@ import {
   BookmarksPanel,
   Dock,
   OverlayControls,
-  LabelLayer,
   TourChrome,
-  type ProjectedLabel,
 } from '@cosmos/ui';
 import type { BodyLookupAdapter } from '@cosmos/ui';
-import { subscribeLabels } from '../glue/overlays';
+import { liveLabels, subscribeLabelSet, type LiveLabel } from '../glue/overlays';
 import { controllerHolder } from '../glue/test-hook';
 
 interface HudProps {
@@ -107,15 +105,64 @@ export function Hud({
   );
 }
 
+/** Max labels shown at once (de-clutter); the buffer is pre-sorted by priority. */
+const LABEL_MAX_VISIBLE = 24;
+
 /**
- * Renders `<LabelLayer>` from the app's ≤ 10 Hz screen-space projection. Subscribes to
- * the label pub/sub so only this small subtree re-renders on a label update — never
- * the Canvas (§5.12).
+ * Imperative screen-space label host (BUG-5 fix). React only ever renders the SET of
+ * label nodes — a rare event driven by `subscribeLabelSet` (overlay load / Labels toggle).
+ * A per-frame rAF loop (the `SpeedReadout` pattern) reads the shared live-label buffer and
+ * writes each node's pixel position + visibility imperatively, so labels track the camera
+ * at full frame rate with zero React renders (and never re-render the Canvas, §5.12). The
+ * old host pushed 10 Hz-projected pixels through React state, so labels froze between
+ * updates and swam relative to their targets while the camera moved.
  */
 function LabelLayerHost(): React.JSX.Element {
-  const [labels, setLabels] = useState<readonly ProjectedLabel[]>([]);
-  useEffect(() => subscribeLabels(setLabels), []);
-  return <LabelLayer labels={labels} />;
+  const [membership, setMembership] = useState<readonly LiveLabel[]>([]);
+  useEffect(() => subscribeLabelSet(setMembership), []);
+
+  const elements = useRef(new Map<string, HTMLSpanElement>());
+  useEffect(() => {
+    let raf = 0;
+    const loop = (): void => {
+      const buf = liveLabels();
+      let shown = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const ll = buf[i]!;
+        const el = elements.current.get(ll.id);
+        if (!el) continue;
+        if (ll.visible && shown < LABEL_MAX_VISIBLE) {
+          el.style.visibility = 'visible';
+          el.style.left = `${ll.xPx}px`;
+          el.style.top = `${ll.yPx}px`;
+          shown++;
+        } else {
+          el.style.visibility = 'hidden';
+        }
+      }
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="cosmos-ui-labels" aria-hidden="true" style={{ pointerEvents: 'none' }}>
+      {membership.map((ll) => (
+        <span
+          key={ll.id}
+          ref={(el) => {
+            if (el) elements.current.set(ll.id, el);
+            else elements.current.delete(ll.id);
+          }}
+          className="cosmos-ui-label"
+          style={{ visibility: 'hidden' }}
+        >
+          {ll.text}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 /**
