@@ -155,6 +155,9 @@ Constraints / traps:
   (`flythrough4`) already isolates the `toGalaxy` segment, and the `drawFraction` lever is
   ready — but budget it as a frozen-package change with hardware-appropriate verification,
   not a frame-interval check.
+- **The fix is now folded into the integrated-GPU strategy** (BUG-4's `drawFraction` becomes a
+  per-tier knob — Step 1): see `docs/research/integrated-gpu-targeting.md`, which also holds
+  the M1 validation playbook and the reusable GPU-timer-query instrument.
 
 See also: `docs/agent-tasks/TASK-052-integration-bugs.md` §BUG-4,
 `docs/research/galaxy-transit-procgen-floor-design.md` (the `drawFraction`/opacity split),
