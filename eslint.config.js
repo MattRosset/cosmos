@@ -149,6 +149,29 @@ export default tseslint.config(
     },
   },
   {
+    // Hardening track: diagnostics is a framework-agnostic leaf (audit §4.1) —
+    // it may be imported by anyone but itself imports only @cosmos/core-types.
+    files: ['packages/diagnostics/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'three', message: 'diagnostics must stay framework-agnostic (no Three.js).' },
+            { name: 'react', message: 'diagnostics must stay framework-agnostic (no React).' },
+            { name: '@sentry/react', message: 'Sentry lives in apps/web (TASK-056), not in diagnostics.' },
+          ],
+          patterns: [
+            {
+              group: ['@cosmos/*/src/*'],
+              message: 'Deep imports banned: use the package public API (index.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // §5.13: workers must not import Three.js, React, procgen, or data
     files: ['packages/workers/**'],
     rules: {

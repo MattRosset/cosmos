@@ -163,6 +163,16 @@ importers:
         specifier: workspace:*
         version: link:../workers
 
+  packages/diagnostics:
+    dependencies:
+      '@cosmos/core-types':
+        specifier: workspace:*
+        version: link:../core-types
+    devDependencies:
+      jsdom:
+        specifier: ^26.1.0
+        version: 26.1.0
+
   packages/nav:
     dependencies:
       '@cosmos/coords':
