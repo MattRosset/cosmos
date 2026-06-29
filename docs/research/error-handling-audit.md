@@ -17,6 +17,18 @@ telemetry, §3.5 shared taxonomy, §3.6 dev-assert "scream in dev", §3.7 invari
 and the §6/F error gate. The interim sink exposes `window.__cosmosErrors` so that gate can be
 built; the planned `diagnostics` package will subsume `report-error.ts`.
 
+**Update 2026-06-29 — the Hardening track is CLOSED (TASK-054…059 all shipped).** The error
+gate (TASK-059, `e2e/tests/error-gate.spec.ts` + `apps/web/src/scene/ErrorGateProbe.tsx`,
+`?debug=errorgate`) drives the same universe→galaxy→Sol→Earth descent as the M4a composition
+and asserts `getErrorCounts().total === 0`, `streaming.stats.failedChunks === 0`, and
+`streaming.catalogCoverage() > 0` after the descent settles (zero in-flight for 30 consecutive
+frames). Observed settled coverage on the committed descent: > 0 (the combined HYG+Gaia octree
+covers part of the cut near Sol, same post-condition the M4a gate already asserts mid-descent).
+The gate's own red-on-regression self-test (`?inject=1`, permanently failing the combined
+octree's root tile) proves it actually detects the BUG-6 class: `errorCounts.total` and
+`errorCounts.streaming` both go non-zero. §3.1/§3.4/§3.5/§3.6/§3.7 and the §6/F error gate are
+now all closed; nothing from this audit remains open.
+
 ---
 
 ## 1. The pattern behind our silent bugs

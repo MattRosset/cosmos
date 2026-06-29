@@ -40,6 +40,7 @@ import { DebugMarkers } from './scene/DebugMarkers';
 import { JitterProbe } from './scene/JitterProbe';
 import { CtxSwitchProbe, CTX_START } from './scene/CtxSwitchProbe';
 import { M3DescentProbe, M3_START } from './scene/M3DescentProbe';
+import { ErrorGateProbe, ERRORGATE_START } from './scene/ErrorGateProbe';
 import { Flythrough3Probe } from './scene/Flythrough3Probe';
 import { Flythrough4Probe } from './scene/Flythrough4Probe';
 import { SoakProbe } from './scene/SoakProbe';
@@ -124,6 +125,19 @@ const CONSTELLATIONS_URL = '/packs/constellations.json';
 /** TASK-052 M4a debug gate (`?debug=m4a`): scripted descent with the M4a composition. */
 const DEBUG_M4A = new URLSearchParams(window.location.search).get('debug') === 'm4a';
 
+/**
+ * TASK-059 error gate (`?debug=errorgate`): scripted universe→galaxy→Sol→Earth
+ * descent against the M4a composition, asserting the diagnostics counters TASK-058
+ * exposed (`errorCounts`/`failedChunks`/`catalogCoverage`) read zero-error /
+ * fully-loaded at the end. `?inject=1` deliberately fails the combined octree's
+ * root tile — the gate's own red-on-regression self-test (the BUG-6 class it must
+ * catch): every load attempt for that key rejects, so `errorCounts.total` and
+ * `streaming.stats.failedChunks` both go non-zero and `catalogCoverage()` drops.
+ */
+const DEBUG_ERRORGATE =
+  new URLSearchParams(window.location.search).get('debug') === 'errorgate';
+const ERRORGATE_INJECT = new URLSearchParams(window.location.search).get('inject') === '1';
+
 /** Auto-orbit radius (meters) for a tour dwell — the camera circles the framed target. */
 const TOUR_ORBIT_RADIUS_M = 1e13;
 
@@ -171,6 +185,7 @@ type PackState =
 export function App() {
   if (DEBUG_JITTER) return <JitterApp />;
   if (DEBUG_CTXSWITCH) return <CtxSwitchApp />;
+  if (DEBUG_ERRORGATE) return <ErrorGateApp inject={ERRORGATE_INJECT} />;
   if (DEBUG_M4A) return <M4aApp />;
   if (DEBUG_FLYTHROUGH4) return <Flythrough4ProbeApp baseline={FLYTHROUGH4_BASELINE} />;
   if (DEBUG_SOAK4) return <Soak4ProbeApp />;
@@ -570,6 +585,184 @@ function M4aApp() {
         tree={tree}
         combined={pack.sources.combined}
         milkyWay={milkyWay}
+        onController={handleController}
+        onContextSwitch={handleContextSwitch}
+      />
+      <GalaxyScene
+        streaming={streaming}
+        origin={origin}
+        controllerRef={controllerHolder}
+        milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
+      />
+      <StarScene
+        stars={pack.sources.stars}
+        combined={pack.sources.combined}
+        origin={origin}
+        controllerRef={controllerHolder}
+        streaming={streaming}
+      />
+      {pack.sources.overlay ? (
+        <Overlays
+          origin={origin}
+          overlay={pack.sources.overlay}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+      {mountedSystem ? (
+        <SystemScene
+          system={mountedSystem.system}
+          origin={origin}
+          packUrl={mountedSystem.packUrl}
+          controllerRef={controllerHolder}
+        />
+      ) : null}
+    </SceneHost>
+  );
+}
+
+/**
+ * TASK-059 fault injector (`?inject=1`): wraps the combined octree so every
+ * `loadTile` for the root key rejects with a real (non-abort) error, forever. The
+ * root tile is the very first dispatch in any descent, so this reproduces the BUG-6
+ * class deterministically — the gate's own self-test that it goes red, not always
+ * green. Debug-only; never wired outside `?debug=errorgate&inject=1`.
+ */
+function injectOctreeFault(source: OctreeSource): OctreeSource {
+  const failKey = source.root.key;
+  return {
+    root: source.root,
+    context: source.context,
+    rootHalfExtentUnits: source.rootHalfExtentUnits,
+    idPrefix: source.idPrefix,
+    getNode: (key) => source.getNode(key),
+    loadTile(key, opts) {
+      if (key === failKey) {
+        return Promise.reject(new Error('TASK-059 injected fault (?inject=1)'));
+      }
+      return source.loadTile(key, opts);
+    },
+  };
+}
+
+/**
+ * TASK-059 error gate (`?debug=errorgate`): the M4a composition driven by
+ * `ErrorGateProbe` instead of the user-facing `NavDriver` — same packs, same
+ * scenes, same streaming policy as production, per the gate doctrine (measure the
+ * shipped pipeline, docs/architecture.md §6). `inject` deliberately breaks the
+ * combined octree's root tile so the gate proves it goes red (see
+ * `injectOctreeFault`).
+ */
+function ErrorGateApp({ inject }: { inject: boolean }): React.JSX.Element | null {
+  const [pack, setPack] = useState<PackState>({ status: 'loading' });
+  const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
+
+  useEffect(() => {
+    installTimeGlue();
+    clock.setPaused(true);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      loadStarPack(HYG_MANIFEST_URL),
+      loadSystemsPack(SOL_PACK_URL),
+      loadSystemsPack(EXO_PACK_URL),
+      loadOctreePack(OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadOctreePack(GAIA_OCTREE_MANIFEST_URL, { pool: getCosmosPool() }),
+      loadConstellationPack(CONSTELLATIONS_URL),
+    ]).then(
+      ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
+        if (cancelled) return;
+        const combined = createCombinedSource(stars, [sol, exo]);
+        let octreeCombined = combineOctreeSources([octree, gaiaOctree]);
+        if (inject) octreeCombined = injectOctreeFault(octreeCombined);
+        const overlay = buildOverlayData(constellationPack, stars);
+        setPack({
+          status: 'ready',
+          sources: { stars, sol, exo, combined, octree, octreeCombined, overlay },
+        });
+      },
+      (err: unknown) => {
+        if (!cancelled) {
+          setPack({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [inject]);
+
+  useEffect(() => {
+    testHook.ready = pack.status === 'ready';
+  }, [pack]);
+
+  const tree = useMemo(() => createScaleFrameTree(), []);
+  const origin = useMemo(() => createOriginManager(tree, ERRORGATE_START), [tree]);
+  const { milkyWay } = useMemo(() => makeLocalGroup(), []);
+
+  const handleController = useCallback((controller: FlightController) => {
+    controllerHolder.current = controller;
+    mirrorControllerState();
+  }, []);
+
+  const handleContextSwitch = useCallback((e: ContextSwitchEvent) => {
+    setMountedSystemId(e.to === 'system' ? e.anchorId : null);
+    mirrorControllerState();
+  }, []);
+
+  const sources = pack.status === 'ready' ? pack.sources : null;
+
+  const streaming = useMemo<StreamingPolicy | null>(() => {
+    if (sources?.octreeCombined === undefined) return null;
+    return createMilkyWayStreaming({ origin, octree: sources.octreeCombined, milkyWay });
+  }, [origin, sources, milkyWay]);
+
+  useEffect(() => {
+    streamingHolder.current = streaming;
+    return () => {
+      if (streamingHolder.current === streaming) streamingHolder.current = null;
+    };
+  }, [streaming]);
+
+  const handleQc = useCallback(
+    (qc: QualityController) => {
+      if (streaming === null) return;
+      wireQuality(streaming, (tier) => {
+        testHook.qualityTier = tier;
+      })(qc);
+    },
+    [streaming],
+  );
+
+  const mountedSystem = useMemo(() => {
+    if (sources === null) return null;
+    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
+    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
+    if (system === undefined) return null;
+    const packUrl =
+      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+    return { system, packUrl };
+  }, [sources, mountedSystemId]);
+
+  if (pack.status !== 'ready' || streaming === null) return null;
+
+  return (
+    <SceneHost
+      epochProvider={epochProvider}
+      initialQualityTier="high"
+      onQualityController={handleQc}
+    >
+      <color attach="background" args={['#02030a']} />
+      <ErrorGateProbe
+        origin={origin}
+        tree={tree}
+        combined={pack.sources.combined}
+        milkyWay={milkyWay}
+        streaming={streaming}
         onController={handleController}
         onContextSwitch={handleContextSwitch}
       />

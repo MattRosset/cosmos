@@ -128,9 +128,11 @@ jobs:
       # TASK-030 context-switch gate (ctxswitch) and the TASK-041 Phase 3 gates
       # (flythrough3 perf on all three projects, soak3 memory plateau on chromium)
       # and the TASK-053 Phase 4a gates (flythrough4 tier-unification budget on all
-      # three projects, soak4 M4a-mount plateau on chromium, m4a feature spec):
+      # three projects, soak4 M4a-mount plateau on chromium, m4a feature spec) and
+      # the TASK-059 Hardening-track gate (error-gate: zero silent errors / zero
+      # failed chunks / catalog coverage loaded on the same M4a descent, chromium):
       # smoke, flythrough, m1, m2, m3, m4a, jitter, ctxswitch, flythrough3,
-      # flythrough4, soak3, soak4, context-loss.
+      # flythrough4, soak3, soak4, context-loss, error-gate.
       #
       # xvfb-run: headless Firefox on Linux can't negotiate any GL context
       # (WebGL2 *and* WebGL1 both fail with FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS)
