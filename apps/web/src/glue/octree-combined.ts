@@ -15,6 +15,46 @@
 import type { MortonKey, OctreeManifest, OctreeTileManifest, StarBatch } from '@cosmos/core-types';
 import { decodeMortonKey, encodeMortonKey, parentCell } from '@cosmos/core-types';
 import type { OctreeNode, OctreeSource } from '@cosmos/data';
+import { assertInvariant } from '@cosmos/diagnostics';
+
+/** Per-source outcome of loading one combined cut tile — the input to the BUG-8
+ *  post-condition (TASK-058). */
+export interface TileContribution {
+  /** Source provenance, for the diagnostic message. */
+  readonly idPrefix: string;
+  /** The source terminates in a NON-EMPTY leaf covering this cut cell, so the
+   *  push-down is obliged to represent it (BUG-8). A source that is genuinely
+   *  absent from the cut region is `false` — NOT a dropped source. */
+  readonly expectedFromLeaf: boolean;
+  /** The combined load produced a (possibly empty) batch for this source, or
+   *  `null` when nothing was attempted. */
+  readonly batch: StarBatch | null;
+}
+
+/**
+ * Post-condition for one combined cut tile (TASK-058, BUG-8 class). Every source
+ * that terminates in a non-empty LEAF above the cut MUST have been attempted (a
+ * non-null batch — possibly `count: 0` if its points fell into a sibling cell);
+ * the pre-fix owners-only rule returned `null` here, silently orphaning the
+ * shallower catalog (HYG under a deep Gaia pack, or vice-versa).
+ *
+ * DEV throws (surfaces in the ErrorBoundary / e2e); prod reports `kind:'invariant'`
+ * and continues to degrade. No-op on the happy path; cheap (reuses the already
+ * computed ancestor) — no re-scan. It deliberately does NOT fire on an empty
+ * sibling cell: an attempted-but-empty push-down is a non-null batch, so it passes.
+ */
+export function assertTileContributions(
+  key: MortonKey,
+  contributions: readonly TileContribution[],
+): void {
+  for (const c of contributions) {
+    assertInvariant(
+      !c.expectedFromLeaf || c.batch !== null,
+      `combineOctreeSources orphaned source "${c.idPrefix}" at cut ${key}: a non-empty leaf above the cut contributed nothing (BUG-8 class)`,
+      { key, source: c.idPrefix },
+    );
+  }
+}
 
 /** Union of child keys across trees, preserving Morton order and de-duplicating. */
 function unionChildKeys(nodes: readonly OctreeNode[]): readonly MortonKey[] {
@@ -238,21 +278,34 @@ export function combineOctreeSources(sources: readonly OctreeSource[]): OctreeSo
       const cellCenter = cutNode.manifest.centerUnits;
       const cellHalf = cutNode.manifest.halfExtentUnits;
 
-      const parts = await Promise.all(
-        sources.map(async (s, si) => {
+      const contributions = await Promise.all(
+        sources.map(async (s, si): Promise<TileContribution> => {
           // (a) Source owns this exact cut node → load its own tile.
-          if (s.getNode(key) !== undefined) return s.loadTile(key, opts);
+          const own = s.getNode(key);
+          if (own !== undefined) {
+            return {
+              idPrefix: s.idPrefix,
+              expectedFromLeaf: own.manifest.isLeaf && own.manifest.pointCount > 0,
+              batch: await s.loadTile(key, opts),
+            };
+          }
           // (b) Source terminates above the cut. Push down its deepest LEAF ancestor's
           //     points (BUG-8). An INTERNAL ancestor means the source pruned its subtree
           //     toward `key` (only a decimated rep exists) → nothing real to contribute.
           const anc = deepestAncestorNode(s, key);
-          if (anc === null || !anc.manifest.isLeaf) return null;
+          const expectedFromLeaf = anc !== null && anc.manifest.isLeaf && anc.manifest.pointCount > 0;
+          if (anc === null || !anc.manifest.isLeaf) {
+            return { idPrefix: s.idPrefix, expectedFromLeaf: false, batch: null };
+          }
           const ancBatch = await loadCached(s, si, anc.key);
-          return pushDownToCell(ancBatch, cellCenter, cellHalf);
+          return { idPrefix: s.idPrefix, expectedFromLeaf, batch: pushDownToCell(ancBatch, cellCenter, cellHalf) };
         }),
       );
 
-      const batches = parts.filter((b): b is StarBatch => b !== null);
+      // Post-condition (TASK-058): no non-empty leaf above this cut was silently dropped.
+      assertTileContributions(key, contributions);
+
+      const batches = contributions.map((c) => c.batch).filter((b): b is StarBatch => b !== null);
       if (batches.length === 0) throw new Error(`combineOctreeSources: unknown key ${key}`);
       return concatBatches(batches);
     },

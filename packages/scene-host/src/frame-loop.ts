@@ -1,3 +1,4 @@
+import { reportError } from '@cosmos/diagnostics';
 import type * as THREE from 'three';
 
 /** J2000 epoch (Phase 0 stub until sim-time lands). */
@@ -59,9 +60,14 @@ export function updateSharedFrameContext(
     if (Number.isFinite(epoch)) {
       mutableFrameContext.epochJD = epoch;
     } else {
+      // Retain the previous epoch (degrade), but surface the broken provider once
+      // (audit §3.6): a counted, overlay-visible report instead of a console line
+      // that scrolls away. Latched so the hot path never reports per-frame.
       if (!hasWarnedNonFiniteEpoch) {
-        console.warn(
-          'EpochProvider returned non-finite value; retaining previous epoch',
+        reportError(
+          new Error('EpochProvider returned non-finite value'),
+          'invariant',
+          { epoch, retainedEpochJD: mutableFrameContext.epochJD },
         );
         hasWarnedNonFiniteEpoch = true;
       }

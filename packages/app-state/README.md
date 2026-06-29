@@ -82,3 +82,7 @@ useOverlayStore.getState().setCinematic(true);
 - No Three.js, no `sim-time` imports (stores are deterministic; caller supplies time).
 - No per-frame data: `epochJD` is glue-throttled ≤ 4 Hz.
 - Persistence: zustand `persist` middleware + safe localStorage shim (works offline).
+  The shim still degrades silently for the USER (returns null / no-ops on quota,
+  private-mode, or disabled storage), but as of TASK-058 each failure is reported to
+  `@cosmos/diagnostics` (`kind:'persistence'`) so it screams in the dev overlay /
+  telemetry instead of vanishing.

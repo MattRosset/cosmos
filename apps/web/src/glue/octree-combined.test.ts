@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect } from 'vitest';
 import type {
+  AppError,
   BufferSlice,
   MortonKey,
   OctreeTileManifest,
@@ -7,7 +8,8 @@ import type {
 } from '@cosmos/core-types';
 import { decodeMortonKey, encodeMortonKey, childCell } from '@cosmos/core-types';
 import type { OctreeNode, OctreeSource } from '@cosmos/data';
-import { combineOctreeSources } from './octree-combined';
+import { __resetDiagnostics, setTransports } from '@cosmos/diagnostics';
+import { assertTileContributions, combineOctreeSources } from './octree-combined';
 
 /**
  * BUG-8 regression (docs/research/bug-8-combine-drops-source.md). `combineOctreeSources`
@@ -261,5 +263,76 @@ describe('combineOctreeSources push-down (BUG-8)', () => {
   it('single source is a pass-through', () => {
     const { shallow } = buildPair();
     expect(combineOctreeSources([shallow])).toBe(shallow);
+  });
+});
+
+/**
+ * TASK-058: the BUG-8 drop is now an asserted post-condition. `assertTileContributions`
+ * is the cheap per-tile guard `loadTile` runs — a source terminating in a non-empty leaf
+ * above the cut MUST contribute a (possibly empty) batch, never `null`.
+ */
+describe('combineOctreeSources BUG-8 invariant (TASK-058)', () => {
+  const reports: AppError[] = [];
+
+  beforeEach(() => {
+    __resetDiagnostics();
+    reports.length = 0;
+    setTransports([(e) => reports.push(e)]);
+  });
+  afterEach(() => {
+    setTransports([]);
+    __resetDiagnostics();
+  });
+
+  const dummyBatch = (idPrefix: string): StarBatch => ({
+    count: 0,
+    originPc: [0, 0, 0],
+    positionsPc: new Float32Array(0),
+    absMag: new Float32Array(0),
+    colorIndexBV: new Float32Array(0),
+    catalogIds: new Uint32Array(0),
+    hipIds: new Uint32Array(0),
+    idPrefix,
+  });
+
+  it('OLD owners-only drop (leaf source → null batch) trips assertInvariant in DEV', () => {
+    // The pre-fix rule returned null for a non-owner; reproduce that shape.
+    expect(() =>
+      assertTileContributions('2/0' as MortonKey, [
+        { idPrefix: 'gaia', expectedFromLeaf: true, batch: dummyBatch('gaia') },
+        { idPrefix: 'hyg', expectedFromLeaf: true, batch: null }, // orphaned shallow source
+      ]),
+    ).toThrow(/orphaned source "hyg"/);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.kind).toBe('invariant');
+    expect(reports[0]?.context?.source).toBe('hyg');
+  });
+
+  it('push-down case (every leaf source attempted, even if empty) does NOT trip', () => {
+    // An attempted-but-empty sibling cell is a non-null batch → legitimate, must pass.
+    expect(() =>
+      assertTileContributions('2/0' as MortonKey, [
+        { idPrefix: 'gaia', expectedFromLeaf: true, batch: dummyBatch('gaia') },
+        { idPrefix: 'hyg', expectedFromLeaf: true, batch: dummyBatch('hyg') },
+      ]),
+    ).not.toThrow();
+    expect(reports).toHaveLength(0);
+  });
+
+  it('a source genuinely absent from the cut (expectedFromLeaf:false) is not a drop', () => {
+    expect(() =>
+      assertTileContributions('2/0' as MortonKey, [
+        { idPrefix: 'gaia', expectedFromLeaf: true, batch: dummyBatch('gaia') },
+        { idPrefix: 'hyg', expectedFromLeaf: false, batch: null }, // pruned/decimated → fine
+      ]),
+    ).not.toThrow();
+    expect(reports).toHaveLength(0);
+  });
+
+  it('the real push-down load reports zero invariants (happy path is a no-op)', async () => {
+    const { shallow, deep } = buildPair();
+    const combined = combineOctreeSources([shallow, deep]);
+    await loadCut(combined, cutKeys(combined, 2));
+    expect(reports).toHaveLength(0);
   });
 });

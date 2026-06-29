@@ -56,6 +56,9 @@ importers:
       '@cosmos/data':
         specifier: workspace:*
         version: link:../../packages/data
+      '@cosmos/diagnostics':
+        specifier: workspace:*
+        version: link:../../packages/diagnostics
       '@cosmos/nav':
         specifier: workspace:*
         version: link:../../packages/nav
@@ -135,6 +138,9 @@ importers:
       '@cosmos/core-types':
         specifier: workspace:*
         version: link:../core-types
+      '@cosmos/diagnostics':
+        specifier: workspace:*
+        version: link:../diagnostics
       zustand:
         specifier: 5.0.14
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
@@ -297,6 +303,9 @@ importers:
       '@cosmos/core-types':
         specifier: workspace:*
         version: link:../core-types
+      '@cosmos/diagnostics':
+        specifier: workspace:*
+        version: link:../diagnostics
       '@react-three/drei':
         specifier: ^10.0.0
         version: 10.7.7(@react-three/fiber@9.6.1(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0))(@types/react@19.2.17)(@types/three@0.184.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0)

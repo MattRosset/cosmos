@@ -1,4 +1,5 @@
 import type { BookmarkRecord } from '@cosmos/core-types';
+import { reportError } from '@cosmos/diagnostics';
 import type { HistoryEntry } from './history';
 interface OverlayFlags {
   readonly constellations: boolean;
@@ -12,22 +13,27 @@ export function createSafeStorage() {
     getItem: (key: string) => {
       try {
         return localStorage?.getItem(key) ?? null;
-      } catch {
+      } catch (err) {
+        // Degrade to null for the USER, but no longer silent for the DEVELOPER
+        // (audit §3.6): report so the dev overlay / telemetry sees the failure.
+        reportError(err, 'persistence', { op: 'getItem', key });
         return null;
       }
     },
     setItem: (key: string, value: string) => {
       try {
         localStorage?.setItem(key, value);
-      } catch {
-        // Silently fail (quota exceeded, unavailable, etc.)
+      } catch (err) {
+        // Silently fail for the USER (quota exceeded, unavailable, etc.) but
+        // report so a developer learns their writes are being dropped (§3.6).
+        reportError(err, 'persistence', { op: 'setItem', key });
       }
     },
     removeItem: (key: string) => {
       try {
         localStorage?.removeItem(key);
-      } catch {
-        // Silently fail
+      } catch (err) {
+        reportError(err, 'persistence', { op: 'removeItem', key });
       }
     },
   };

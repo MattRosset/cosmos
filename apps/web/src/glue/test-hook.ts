@@ -1,4 +1,6 @@
 import type { ContextId, QualityTier } from '@cosmos/core-types';
+import type { ErrorCounts } from '@cosmos/diagnostics';
+import { getErrorCounts } from '@cosmos/diagnostics';
 import type { FlightController } from '@cosmos/nav';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import { useOverlayStore, useTourStore } from '@cosmos/app-state';
@@ -60,6 +62,16 @@ export interface CosmosTestHook {
   };
   /** Cinematic playback active (spline or auto-orbit), mirrored from the controller. */
   cinematicActive: boolean;
+  /**
+   * Diagnostics read surface (TASK-058) — the live failure counters the error gate
+   * (TASK-059) and manual debugging assert on. Both are LIVE getters, not ≤ 4 Hz
+   * mirrors, so a probe reads the true count at read time:
+   *  - `errorCounts`: central `getErrorCounts()` (total + per-kind across the app,
+   *     incl. the persistence / invariant reports adopted in TASK-058).
+   *  - `failedChunks`: streaming chunks in the terminal `failed` state (TASK-057).
+   */
+  readonly errorCounts: ErrorCounts;
+  readonly failedChunks: number;
 }
 
 export const testHook: CosmosTestHook = {
@@ -88,6 +100,14 @@ export const testHook: CosmosTestHook = {
   overlays: { constellations: false, labels: false },
   tour: { active: false, stepIndex: -1 },
   cinematicActive: false,
+  // Live getters (TASK-058): read the TRUE value at access time, not a ≤ 4 Hz mirror,
+  // so the error gate (TASK-059) and manual probes never see a stale count.
+  get errorCounts(): ErrorCounts {
+    return getErrorCounts();
+  },
+  get failedChunks(): number {
+    return streamingHolder.current?.stats.failedChunks ?? 0;
+  },
 };
 
 /**

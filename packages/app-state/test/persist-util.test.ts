@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AppError } from '@cosmos/core-types';
+import { __resetDiagnostics, setTransports } from '@cosmos/diagnostics';
 import {
   createSafeStorage,
   migrateBookmarks,
@@ -43,6 +45,68 @@ describe('createSafeStorage', () => {
     // Should not throw.
     expect(() => storage.removeItem('test')).not.toThrow();
     global.localStorage = original;
+  });
+
+  // TASK-058 (audit §3.6): a localStorage that THROWS (quota exceeded, private mode,
+  // disabled) still degrades silently for the USER, but is no longer silent for the
+  // DEVELOPER — each catch now reports kind:'persistence' to the diagnostics sink.
+  describe('reports kind:persistence when localStorage throws', () => {
+    const reports: AppError[] = [];
+    let original: Storage;
+
+    beforeEach(() => {
+      __resetDiagnostics();
+      reports.length = 0;
+      setTransports([(e) => reports.push(e)]);
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      original = global.localStorage;
+    });
+    afterEach(() => {
+      global.localStorage = original;
+      setTransports([]);
+      __resetDiagnostics();
+      vi.restoreAllMocks();
+    });
+
+    const throwingStorage = (): Storage =>
+      ({
+        getItem: () => {
+          throw new Error('boom');
+        },
+        setItem: () => {
+          throw new Error('QuotaExceededError');
+        },
+        removeItem: () => {
+          throw new Error('boom');
+        },
+      }) as unknown as Storage;
+
+    it('setItem degrades (no throw) AND reports kind:persistence', () => {
+      global.localStorage = throwingStorage();
+      const storage = createSafeStorage();
+      expect(() => storage.setItem('k', 'v')).not.toThrow();
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.kind).toBe('persistence');
+      expect(reports[0]?.context).toMatchObject({ op: 'setItem', key: 'k' });
+    });
+
+    it('getItem returns null AND reports kind:persistence', () => {
+      global.localStorage = throwingStorage();
+      const storage = createSafeStorage();
+      expect(storage.getItem('k')).toBeNull();
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.kind).toBe('persistence');
+      expect(reports[0]?.context).toMatchObject({ op: 'getItem', key: 'k' });
+    });
+
+    it('removeItem degrades AND reports kind:persistence', () => {
+      global.localStorage = throwingStorage();
+      const storage = createSafeStorage();
+      expect(() => storage.removeItem('k')).not.toThrow();
+      expect(reports).toHaveLength(1);
+      expect(reports[0]?.kind).toBe('persistence');
+      expect(reports[0]?.context).toMatchObject({ op: 'removeItem', key: 'k' });
+    });
   });
 });
 

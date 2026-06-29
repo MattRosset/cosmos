@@ -15,6 +15,7 @@
     "@cosmos/coords": "workspace:*",
     "@cosmos/core-types": "workspace:*",
     "@cosmos/data": "workspace:*",
+    "@cosmos/diagnostics": "workspace:*",
     "@cosmos/nav": "workspace:*",
     "@cosmos/orbits": "workspace:*",
     "@cosmos/procgen": "workspace:*",

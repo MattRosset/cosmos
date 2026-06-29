@@ -156,7 +156,9 @@ interface SceneHostProps {
   subscribers) with the clamped wall delta (≤ 100 ms).
 - **Return value:** Becomes `FrameContext.epochJD` for all subscribers in that
   frame if finite. Non-finite values (NaN, Infinity) retain the previous epoch
-  and log a console warning once per session.
+  and, as of TASK-058, report `@cosmos/diagnostics` `kind:'invariant'` ONCE per
+  session (latched — never per-frame on the hot path) so the broken provider is
+  counted + overlay-visible instead of a console line that scrolls away.
 - **Default:** Absent provider → epoch is constant `J2000_EPOCH_JD` (2451545.0).
 - **Stability:** The function must be referentially stable or wrapped by the
   caller — changing the provider identity does not remount the `<Canvas>`.

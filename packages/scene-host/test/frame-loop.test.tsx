@@ -1,6 +1,8 @@
 import { create } from '@react-three/test-renderer';
 import type * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
+import type { AppError } from '@cosmos/core-types';
+import { __resetDiagnostics, setTransports } from '@cosmos/diagnostics';
 import {
   J2000_EPOCH_JD,
   MAX_DT_MS,
@@ -219,29 +221,36 @@ describe('frame loop', () => {
     await renderer.unmount();
   });
 
-  it('non-finite return retains previous epoch and warns once', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('non-finite return retains previous epoch and reports once (TASK-058)', () => {
+    // The one-shot console.warn became a single reportError(kind:'invariant') so the
+    // broken provider is counted + overlay-visible, not a console line that scrolls away.
+    __resetDiagnostics();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const reports: AppError[] = [];
+    setTransports([(e) => reports.push(e)]);
     const cam = null as unknown as THREE.PerspectiveCamera;
 
     // Establish a known epoch
     updateSharedFrameContext(cam, 0.016, () => 2_460_001);
     expect(sharedFrameContext.epochJD).toBe(2_460_001);
 
-    // NaN return → previous epoch retained
+    // NaN return → previous epoch retained, reported exactly once
     updateSharedFrameContext(cam, 0.016, () => NaN);
     expect(sharedFrameContext.epochJD).toBe(2_460_001);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.kind).toBe('invariant');
 
     // Finite again → updates normally
     updateSharedFrameContext(cam, 0.016, () => 2_460_003);
     expect(sharedFrameContext.epochJD).toBe(2_460_003);
 
-    // Second NaN → still only one warn (once per session)
+    // Second NaN → still only one report (latched once per session, hot-path safe)
     updateSharedFrameContext(cam, 0.016, () => NaN);
     expect(sharedFrameContext.epochJD).toBe(2_460_003);
-    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(reports).toHaveLength(1);
 
-    warnSpy.mockRestore();
+    setTransports([]);
+    vi.restoreAllMocks();
   });
 
 });
