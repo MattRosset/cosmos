@@ -12,11 +12,11 @@ function detectDev(): boolean {
   if (meta.env !== undefined && typeof meta.env.DEV === 'boolean') {
     return meta.env.DEV;
   }
-  // Node / Vitest path.
-  const nodeEnv =
-    typeof process !== 'undefined' && process.env !== undefined
-      ? process.env.NODE_ENV
-      : undefined;
+  // Node / Vitest path. Access `process` via globalThis so this module typechecks
+  // without `@types/node` ambient globals (it is a transitive dep of the web bundle,
+  // whose tsconfig only pulls vite/client types).
+  const proc = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process;
+  const nodeEnv = proc?.env !== undefined ? proc.env.NODE_ENV : undefined;
   return nodeEnv !== 'production';
 }
 

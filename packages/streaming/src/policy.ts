@@ -15,6 +15,7 @@
  * runs LRU eviction. None of these occur on a settled cut.
  */
 import type {
+  AppError,
   ChunkLifecycleEvent,
   ChunkKind,
   ContextId,
@@ -29,11 +30,13 @@ import {
   decodeMortonKey,
   encodeMortonKey,
   parentCell,
+  toAppError,
 } from '@cosmos/core-types';
 import type { OriginManager, Vec3Tuple } from '@cosmos/coords';
 import type { OctreeSource, OctreeNode } from '@cosmos/data';
 import type { WorkerPool, CancelToken } from '@cosmos/workers';
 import { createCancelToken } from '@cosmos/workers';
+import { reportError } from '@cosmos/diagnostics';
 
 import {
   STREAM_TAN_HALF_FOV,
@@ -59,6 +62,13 @@ export interface StreamingPolicyOptions {
   readonly initialTier?: QualityTier;
   readonly lodHysteresis?: number;
   readonly crossFadeMs?: number;
+  /**
+   * The central error sink (TASK-055). Injectable so unit tests don't hit the real
+   * sink and so `streaming` need not hard-bind to app state. Called ONLY on a real,
+   * non-aborted load failure (rare) — never per frame, never on success/cancel.
+   * Defaults to `@cosmos/diagnostics`' `reportError`.
+   */
+  readonly reportError?: typeof reportError;
 }
 
 export interface VisibleChunk {
@@ -76,6 +86,10 @@ export interface StreamingStats {
   readonly gpuBytesEstimate: number;
   readonly requestsThisFrame: number;
   readonly cancelledThisFrame: number;
+  /** Monotonic count of REAL load failures (aborts/cancels excluded) since creation. */
+  readonly errorCount: number;
+  /** Chunks currently in the `failed` terminal state (backed off, not retrying). */
+  readonly failedChunks: number;
   /**
    * BUG-10 diagnostics (additive, read-only — no behaviour change). The levers the
    * dense-pack streaming wall is bisected against (see
@@ -123,7 +137,14 @@ export interface StreamingPolicy {
   dispose(): void;
 }
 
-type ChunkStatus = 'pending' | 'inflight' | 'ready' | 'dead';
+type ChunkStatus = 'pending' | 'inflight' | 'ready' | 'failed' | 'dead';
+
+/**
+ * A chunk that fails to load this many times becomes terminal `failed` and is not
+ * re-requested until its node/params re-enter the cut after eviction (the backoff
+ * that kills BUG-6's ~6-requests/frame storm even if the fetch stays broken).
+ */
+export const MAX_LOAD_ATTEMPTS = 3;
 
 interface Chunk {
   readonly id: string;
@@ -139,6 +160,8 @@ interface Chunk {
   readonly galaxyParams: GalaxyGenParams | null;
 
   status: ChunkStatus;
+  /** Real (non-aborted) load-failure count; at MAX_LOAD_ATTEMPTS the chunk is `failed`. */
+  attempts: number;
   batch: StarBatch | null;
   gpuBytes: number;
   opacity: number;
@@ -161,6 +184,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
   const hysteresis = opts.lodHysteresis ?? DEFAULT_LOD_HYSTERESIS;
   const crossFadeMs = opts.crossFadeMs ?? DEFAULT_CROSS_FADE_MS;
   const procgenGalaxies = opts.procgenGalaxies ?? new Map<string, GalaxyGenParams>();
+  const reportErr = opts.reportError ?? reportError;
 
   let tier: QualityTier = opts.initialTier ?? 'high';
   let disposed = false;
@@ -176,6 +200,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
   let requestsThisFrame = 0;
   let cancelledThisFrame = 0;
   let evictionsTotal = 0;
+  let _errorCount = 0;
   let nearestBodyDistanceM = Infinity;
 
   // ---- per-frame scratch (reused; never reallocated on the steady-state path) ----
@@ -190,8 +215,8 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     local: [0, 0, 0],
   };
   // The event object handed to listeners is mutated in place; listeners must not retain it.
-  const eventScratch: { phase: ChunkLifecycleEvent['phase']; kind: ChunkKind; chunkId: string; lod: number; batch: StarBatch | null } =
-    { phase: 'request', kind: 'octree', chunkId: '', lod: 0, batch: null };
+  const eventScratch: { phase: ChunkLifecycleEvent['phase']; kind: ChunkKind; chunkId: string; lod: number; batch: StarBatch | null; error: AppError | null } =
+    { phase: 'request', kind: 'octree', chunkId: '', lod: 0, batch: null, error: null };
 
   const stats: StreamingStats = {
     get inFlight() { return _inFlight; },
@@ -201,6 +226,8 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     get gpuBytesEstimate() { return _gpuBytes; },
     get requestsThisFrame() { return requestsThisFrame; },
     get cancelledThisFrame() { return cancelledThisFrame; },
+    get errorCount() { return _errorCount; },
+    get failedChunks() { return countFailed(); },
     get cutSize() { return targetList.length; },
     get pendingCount() { return countPending(); },
     get trackedChunks() { return chunkList.length; },
@@ -218,13 +245,16 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
   // ---------------------------------------------------------------------------
   // helpers
   // ---------------------------------------------------------------------------
-  function emit(phase: ChunkLifecycleEvent['phase'], c: Chunk): void {
+  function emit(phase: ChunkLifecycleEvent['phase'], c: Chunk, error: AppError | null = null): void {
     if (listeners.length === 0) return;
     eventScratch.phase = phase;
     eventScratch.kind = c.kind;
     eventScratch.chunkId = c.id;
     eventScratch.lod = c.level;
     eventScratch.batch = phase === 'ready' ? c.batch : null;
+    // Reference assigned in place (same in-place discipline as `batch`); the AppError
+    // itself was allocated by `toAppError` only on a real failure, never on the hot path.
+    eventScratch.error = error;
     for (let i = 0; i < listeners.length; i++) listeners[i]!(eventScratch as ChunkLifecycleEvent);
   }
 
@@ -272,6 +302,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       node,
       galaxyParams: null,
       status: 'pending',
+      attempts: 0,
       batch: null,
       gpuBytes: 0,
       opacity: 0,
@@ -305,6 +336,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       node: null,
       galaxyParams: params,
       status: 'pending',
+      attempts: 0,
       batch: null,
       gpuBytes: 0,
       opacity: 0,
@@ -347,14 +379,14 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       octree
         .loadTile(c.node!.key, { signal: ac.signal })
         .then((batch) => onReady(c, batch))
-        .catch(() => onError(c));
+        .catch((err) => onError(c, err));
     } else {
       const token = createCancelToken();
       c.token = token;
       pool
         .dispatch('procgen.galaxy', { params: c.galaxyParams! }, { token })
         .then((batch) => onReady(c, batch))
-        .catch(() => onError(c));
+        .catch((err) => onError(c, err));
     }
   }
 
@@ -369,12 +401,52 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     emit('ready', c);
   }
 
-  function onError(c: Chunk): void {
+  function onError(c: Chunk, err: unknown): void {
     if (c.status !== 'inflight') return;
     _inFlight--;
+    // Abort/cancel detection: an in-flight tile cancelled by navigation (or a rejection
+    // tagged AbortError/WorkerCancelledError) is NORMAL, not a failure — remove it
+    // silently, no event, no count. This is the single most important behaviour:
+    // a laggy network during a fly-through must NOT spam thousands of false errors.
+    const name =
+      err !== null && typeof err === 'object' ? (err as { name?: unknown }).name : undefined;
+    const aborted =
+      c.abort?.signal.aborted === true ||
+      c.token?.cancelled === true ||
+      name === 'AbortError' ||
+      name === 'WorkerCancelledError';
     c.abort = null;
     c.token = null;
-    removeChunk(c);
+    if (aborted) {
+      removeChunk(c);
+      return;
+    }
+
+    // A REAL failure: count it, emit the `error` phase carrying an AppError, and report
+    // to the central sink (deduped on its side). toAppError/reportErr run ONLY here —
+    // never per frame, never on success or cancel.
+    c.attempts += 1;
+    _errorCount++;
+    const ctx = { chunkId: c.id, kind: c.kind, lod: c.level };
+    const ae = toAppError(err, 'streaming', ctx);
+    emit('error', c, ae);
+    reportErr(err, 'streaming', ctx);
+
+    if (c.attempts >= MAX_LOAD_ATTEMPTS) {
+      // Terminal: stays resident (so the descent/dispatch logic sees it and does NOT
+      // re-request it — it is no longer `pending`) until it leaves the cut and is
+      // removed, then re-created fresh (attempts 0) when its node re-enters — the
+      // "until inputs change" retry release.
+      c.status = 'failed';
+    } else {
+      // Back to `pending` so it is re-dispatched next frame while it stays on the cut,
+      // PRESERVING `attempts` on the same chunk so the count climbs to MAX_LOAD_ATTEMPTS
+      // (a plain removeChunk would re-create a fresh attempts-0 chunk next frame and the
+      // backoff could never trip). If the camera moves it off the cut first, step 2
+      // removes the stale pending chunk and the attempt counter resets — the intended
+      // "inputs changed" release. `batch` stays null; it never became ready.
+      c.status = 'pending';
+    }
   }
 
   function cancelChunk(c: Chunk): void {
@@ -613,6 +685,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       if (c.desiredEpoch === frame) continue;
       if (c.status === 'inflight') cancelChunk(c);
       else if (c.status === 'pending') removeChunk(c);
+      else if (c.status === 'failed') removeChunk(c); // left the cut ⇒ release backoff
       // ready-but-stale chunks fade out below, then evict at opacity 0
     }
 
@@ -714,6 +787,12 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       const s = chunkList[i]!.status;
       if (s === 'pending' || s === 'inflight') n++;
     }
+    return n;
+  }
+
+  function countFailed(): number {
+    let n = 0;
+    for (let i = 0; i < chunkList.length; i++) if (chunkList[i]!.status === 'failed') n++;
     return n;
   }
 

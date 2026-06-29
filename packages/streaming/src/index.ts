@@ -1,4 +1,4 @@
-export { createStreamingPolicy } from './policy.js';
+export { createStreamingPolicy, MAX_LOAD_ATTEMPTS } from './policy.js';
 export type {
   StreamingPolicy,
   StreamingPolicyOptions,

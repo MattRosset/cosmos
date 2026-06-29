@@ -54,14 +54,39 @@ load, the deepest already-ready ancestor covers it (ADR-003 §3: coarse before f
 
 `onChunk(cb)` subscribes to `ChunkLifecycleEvent`s and returns an unsubscribe:
 
-| phase | when | `batch` |
-|---|---|---|
-| `request` | a fetch/generate was dispatched | `null` |
-| `ready` | the decoded `StarBatch` arrived | the batch |
-| `evict` | the chunk faded out or was LRU-evicted | `null` |
+| phase | when | `batch` | `error` |
+|---|---|---|---|
+| `request` | a fetch/generate was dispatched | `null` | `null` |
+| `ready` | the decoded `StarBatch` arrived | the batch | `null` |
+| `evict` | the chunk faded out or was LRU-evicted | `null` | `null` |
+| `error` | a **real** load/decode failure (not a cancel) | `null` | the `AppError` |
 
 The event object is module-scoped scratch, mutated in place — **read its fields,
-don't retain it**.
+don't retain it** (this includes `error`).
+
+## Error lifecycle, abort-is-not-error & backoff (TASK-057)
+
+A load that **rejects** is split two ways (audit §3.1, the structural root of BUG-6):
+
+- **Aborts/cancels are NOT errors.** An in-flight tile cancelled by navigation (or a
+  rejection tagged `AbortError`/`WorkerCancelledError`) is normal — the chunk is
+  dropped silently: **no `error` event, no count, no `reportError`**. A laggy network
+  during a fly-through would otherwise spam thousands of false errors.
+- **A real failure** (e.g. a decode error) emits one `ChunkLifecycleEvent{phase:'error',
+  error}` carrying an `AppError{kind:'streaming', context:{chunkId,kind,lod}}`, calls
+  the central `reportError` (TASK-055; deduped on its side), and increments
+  `stats.errorCount`.
+
+**Backoff.** A chunk that fails `MAX_LOAD_ATTEMPTS` (3) times in a row becomes terminal
+`failed`: it stays resident but is **never re-requested** (it is no longer `pending`),
+killing BUG-6's ~6-requests/frame storm even when the fetch stays broken.
+`stats.failedChunks` exposes how many are backed off. A `failed` chunk is **not
+rendered and never counts toward `catalogCoverage`** — it is a permanent gap the procgen
+fallback covers. The backoff is released only when **inputs change**: when the node
+leaves the cut it is removed, and a fresh (`attempts` 0) chunk retries on re-entry.
+
+`reportError` is injectable via `StreamingPolicyOptions.reportError` (defaults to
+`@cosmos/diagnostics`) so unit tests don't hit the real sink.
 
 ## Budgets & degradation order (§9)
 

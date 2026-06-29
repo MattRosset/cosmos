@@ -15,6 +15,7 @@
     "@cosmos/core-types": "workspace:*",
     "@cosmos/coords": "workspace:*",
     "@cosmos/data": "workspace:*",
+    "@cosmos/diagnostics": "workspace:*",
     "@cosmos/workers": "workspace:*"
   },
   "devDependencies": {

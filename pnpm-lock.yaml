@@ -343,6 +343,9 @@ importers:
       '@cosmos/data':
         specifier: workspace:*
         version: link:../data
+      '@cosmos/diagnostics':
+        specifier: workspace:*
+        version: link:../diagnostics
       '@cosmos/workers':
         specifier: workspace:*
         version: link:../workers
