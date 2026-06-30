@@ -187,6 +187,8 @@ const gotoQDeltaScratch: [number, number, number, number] = [0, 0, 0, 1];
 const gotoQTempScratch: [number, number, number, number] = [0, 0, 0, 1];
 /** Local forward direction in camera space — used as a readonly constant. */
 const FORWARD_LOCAL: readonly [number, number, number] = [0, 0, -1];
+/** Local up direction in camera space — the antipodal-turn rotation axis. */
+const UP_LOCAL: readonly [number, number, number] = [0, 1, 0];
 
 // ── Module-scoped scratch (context-switch measurement — no allocations) ──────
 // The anchor is always expressed in the galaxy frame; toRenderSpace converts it
@@ -583,10 +585,11 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     if (dot < 1 - 1e-10) {
       let axLen: number;
       if (dot < -1 + 1e-10) {
-        // Opposite direction — pick arbitrary perpendicular axis
-        gotoAxisScratch[0] = 1;
-        gotoAxisScratch[1] = 0;
-        gotoAxisScratch[2] = 0;
+        // Opposite direction — cross product is degenerate. Turn around the
+        // camera's OWN local up axis (always ⟂ forward by construction) so the
+        // 180° flip is a yaw turn-around, not an orientation-blind world-axis
+        // spin that can hand mouse-look a rolled frame (the inverted-controls bug).
+        rotateVecByQuat(orientation, UP_LOCAL, gotoAxisScratch);
         axLen = 1;
       } else {
         gotoAxisScratch[0] = forwardScratch[1] * tDirZ - forwardScratch[2] * tDirY;
@@ -952,9 +955,8 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
 
     let axLen: number;
     if (dot < -1 + 1e-10) {
-      cineAxisScratch[0] = 1;
-      cineAxisScratch[1] = 0;
-      cineAxisScratch[2] = 0;
+      // See the matching comment in the goTo orientation slerp above.
+      rotateVecByQuat(orientation, UP_LOCAL, cineAxisScratch);
       axLen = 1;
     } else {
       cineAxisScratch[0] = forwardScratch[1] * tz - forwardScratch[2] * ty;
