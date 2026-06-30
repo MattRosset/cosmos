@@ -184,6 +184,15 @@ revisit later).
 
 ### 3a. `e2e` CI gate broken on `main` since 2026-06-27 (two compounding regressions)
 
+> **CORRECTION (see `docs/research/procgen-lod-near-sol.md`):** the mechanism below
+> misattributes the 1M near-Sol points to the Gaia push-down (BUG-8). Empirically
+> decomposed, the 1,004,802 scene points are the **procgen Milky Way cloud at full 1M**
+> (procgen has no LOD; `GAL_FADE_LO_PC` lowered 18000→1500 by the procgen-floor fix keeps
+> it lit through the `toSol` band). The committed Gaia pack is the 135-star sample and
+> contributes ~135 pts, not 1M. The push-down/no-decimation issue is real but **latent**
+> (only bites once the dense Gaia pack is wired) — see the new doc §6. Keep the rest of
+> 3a for the bisect history; trust the new doc for the cause + fix.
+
 Confirmed via `gh run list`/`gh run view` history: CI was green through commit
 `269803f9` (2026-06-27 00:06), then started failing at the very next commit and has
 failed on every commit since.

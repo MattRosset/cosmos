@@ -99,6 +99,24 @@ const GALAXY_FIELD_EXPOSURE_BOOST = 6;
  */
 const GAL_FADE_LO_PC = 1_500;
 const GAL_FADE_HI_PC = 45_000;
+
+/**
+ * Procgen LOD cap (ADR-006 §5.4 / docs/research/procgen-lod-near-sol.md). The Milky Way
+ * cloud carries `MILKY_WAY_STAR_COUNT` (1,000,000) points, but procgen has no per-distance
+ * LOD: whenever the layer is on it would draw the full 1M. That is the sole cause of the
+ * `flythrough4` §5.4 near-Sol regression — the inner approach band (just above
+ * `GAL_FADE_LO_PC`) full-draws 1M while the gate budgets ≤109,971 total scene points.
+ *
+ * The cloud never NEEDS 1M to read as a dense field: the far vantage is the impostor
+ * (cloudFactor→0, lod≥LOD_IMPOSTOR_FULL) and the near field is the real catalog. So cap
+ * the DRAWN points to this budget via `setDrawFraction` (a contiguous prefix of the
+ * well-mixed seeded placement sequence — a representative uniform thin of the disc, not a
+ * bright-core bias). The cap is on COUNT only, at FULL opacity — it does NOT re-create P2
+ * ("nebulas without stars"): P2 was the count AND opacity both collapsing together at low
+ * blend; here opacity still carries the whole fade and ~90k points stay lit under the
+ * nebula sprites. Headroom: 90k cloud + ~5k near-Sol octree + ~600 overlay ≈ 96k < 109,971.
+ */
+const PROCGEN_MAX_DRAW_POINTS = 90_000;
 /** Octree tile mounts deferred during flight — flushed gradually after arrival. */
 const OCTREE_FLUSH_PER_FRAME = 2;
 
@@ -452,18 +470,18 @@ export function GalaxyScene({
     }
     procgenOpacityHolder.current = procgenBlend;
 
-    // drawFraction is a PERF knob (how many of the cloud's points to draw), NOT part of
-    // the visual fade — opacity (= procgenBlend) is the sole visibility factor, shared by
-    // the cloud AND the nebula sprites so they fade together. Tying drawFraction to blend
-    // (the first B+E attempt) re-created P2: at low blend the cloud was doubly dimmed
-    // (few points × low opacity → invisible) while the fixed-count nebula sprites survived
-    // → "nebulas without stars" at ~5 kpc. So draw the full point set whenever the layer
-    // is on; let opacity carry the fade. Below GAL_FADE_LO_PC blend is 0 and the whole
-    // procgen layer is hidden (skipped below) — no 1M-point overdraw near Sol (R1). The
-    // resting far vantage already full-draws the cloud continuously, so full draw in the
-    // mid-band adds no new worst case (R3; CI breadcrumb-perf is the budget gate).
+    // drawFraction is the procgen LOD knob (how many of the cloud's points to draw),
+    // capped to PROCGEN_MAX_DRAW_POINTS — a perf/budget LOD, NOT part of the visual fade.
+    // It is DISTANCE-INDEPENDENT and FULL-OPACITY: opacity (= procgenBlend) remains the
+    // sole visibility factor, shared by the cloud AND the nebula sprites so they fade
+    // together. This is why it does not re-create P2 ("nebulas without stars"): P2 tied
+    // the count to the BLEND, so at low blend the cloud was doubly dimmed (few points ×
+    // low opacity) while the fixed-count sprites survived. Here the count cap is fixed
+    // (~90k points, always lit at the layer's full opacity); below GAL_FADE_LO_PC the
+    // whole layer is hidden (skipped below). The cap is applied per-mount from its own
+    // point count, so a mount carrying ≤ the cap draws in full (fraction 1).
+    // See docs/research/procgen-lod-near-sol.md.
     const procgenLayerOn = procgenBlend > 0.0001;
-    const drawFraction = 1;
     const opacityBlend = flying ? Math.min(1, procgenBlend * 1.15) : procgenBlend;
 
     const streamingActive = ctx === 'universe' || ctx === 'galaxy';
@@ -498,6 +516,7 @@ export function GalaxyScene({
             m.hide();
             continue;
           }
+          const drawFraction = Math.min(1, PROCGEN_MAX_DRAW_POINTS / Math.max(1, m.batch.count));
           m.applyFrame(offScratch, v.opacity * opacityBlend, v.lod, drawFraction);
         } else {
           m.applyFrame(offScratch, v.opacity, v.lod);
