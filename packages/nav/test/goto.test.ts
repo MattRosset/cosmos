@@ -58,6 +58,22 @@ function distToTargetM(
   return Math.hypot(out[0], out[1], out[2]) * CONTEXT_UNIT_METERS[origin.context];
 }
 
+function applyLookDrag(el: HTMLElement, dx: number, dy: number): void {
+  el.dispatchEvent(new PointerEvent('pointerdown', { clientX: 0, clientY: 0, bubbles: true }));
+  el.dispatchEvent(
+    new PointerEvent('pointermove', { clientX: dx, clientY: dy, bubbles: true }),
+  );
+  el.dispatchEvent(
+    new PointerEvent('pointerup', { clientX: dx, clientY: dy, bubbles: true }),
+  );
+}
+
+/** Local "right" vector's Y component, given an [x,y,z,w] orientation quaternion. */
+function rightY(q: readonly [number, number, number, number]): number {
+  const [x, y, z, w] = q;
+  return 2 * (w * z + x * y);
+}
+
 // ─── Arrival ──────────────────────────────────────────────────────────────────
 
 describe('goTo arrival', () => {
@@ -201,6 +217,43 @@ describe('goTo facing at arrival', () => {
 
     const dot = fwX * tDirX + fwY * tDirY + fwZ * tDirZ;
     expect(dot).toBeGreaterThan(0.999);
+  });
+});
+
+// ─── No-roll invariant (regression for the camera-roll bug, Part 2) ───────────
+// docs/research/nav-camera-roll-and-ci-deploy-findings.md: pitching the camera
+// before a goTo/cinematic reorientation used to introduce roll (right.y as low
+// as -0.851 in a live repro) because the old slerp rotated around
+// forward × targetDir, which tilts off-vertical once forward has any pitch.
+// The structural fix (yaw/pitch scalar state) makes roll unrepresentable, so
+// right.y must stay at machine epsilon for the entire flight, regardless of how
+// much pitch was present beforehand.
+describe('goTo orientation never introduces roll', () => {
+  it('right.y stays ≈ 0 throughout a goTo started while pitched', () => {
+    const TARGET: [number, number, number] = [0, 5, 3];
+    const ARRIVAL_M = 1e13;
+    const { controller, el } = makeController();
+
+    // Pitch the camera up/down as well as yawing — this is the case the old
+    // cross-product slerp got wrong (Part 2 of the doc).
+    applyLookDrag(el, 220, 160);
+    controller.update(DT_MS);
+    expect(Math.abs(rightY(controller.state.orientation))).toBeLessThan(1e-9);
+
+    controller.goTo({
+      target: { context: 'galaxy', local: TARGET },
+      arrivalDistanceM: ARRIVAL_M,
+      durationMs: 6000,
+    });
+
+    const maxFrames = 800;
+    for (let i = 0; i < maxFrames && controller.goToActive; i++) {
+      controller.update(DT_MS);
+      expect(Math.abs(rightY(controller.state.orientation))).toBeLessThan(1e-9);
+    }
+
+    expect(controller.goToActive).toBe(false);
+    expect(Math.abs(rightY(controller.state.orientation))).toBeLessThan(1e-9);
   });
 });
 
@@ -354,7 +407,6 @@ describe('goTo update() allocation-free', () => {
     const velBefore = UPDATE_SCRATCH.vel;
     const wishBefore = UPDATE_SCRATCH.wish;
     const gotoRenderBefore = UPDATE_SCRATCH.gotoRender;
-    const gotoAxisBefore = UPDATE_SCRATCH.gotoAxis;
 
     for (let i = 0; i < 10 && controller.goToActive; i++) {
       controller.update(DT_MS);
@@ -364,7 +416,6 @@ describe('goTo update() allocation-free', () => {
     expect(UPDATE_SCRATCH.vel).toBe(velBefore);
     expect(UPDATE_SCRATCH.wish).toBe(wishBefore);
     expect(UPDATE_SCRATCH.gotoRender).toBe(gotoRenderBefore);
-    expect(UPDATE_SCRATCH.gotoAxis).toBe(gotoAxisBefore);
   });
 });
 

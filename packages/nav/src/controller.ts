@@ -173,22 +173,16 @@ const wishScratch: [number, number, number] = [0, 0, 0];
 const forwardScratch: [number, number, number] = [0, 0, 0];
 const rightScratch: [number, number, number] = [0, 0, 0];
 const upScratch: [number, number, number] = [0, 0, 1];
-const quatScratch: [number, number, number, number] = [0, 0, 0, 1];
-const axisScratch: [number, number, number] = [0, 0, 0];
-const deltaQuatScratch: [number, number, number, number] = [0, 0, 0, 1];
+const qYawScratch: [number, number, number, number] = [0, 0, 0, 1];
+const qPitchScratch: [number, number, number, number] = [0, 0, 0, 1];
 
 // ── Module-scoped scratch (goTo path — no allocations in update during goTo) ──
 
 const gotoRenderScratch: [number, number, number] = [0, 0, 0];
 /** Render-space vector to the lookAt point (facing target), when one is set. */
 const gotoLookScratch: [number, number, number] = [0, 0, 0];
-const gotoAxisScratch: [number, number, number] = [0, 0, 0];
-const gotoQDeltaScratch: [number, number, number, number] = [0, 0, 0, 1];
-const gotoQTempScratch: [number, number, number, number] = [0, 0, 0, 1];
 /** Local forward direction in camera space — used as a readonly constant. */
 const FORWARD_LOCAL: readonly [number, number, number] = [0, 0, -1];
-/** Local up direction in camera space — the antipodal-turn rotation axis. */
-const UP_LOCAL: readonly [number, number, number] = [0, 1, 0];
 
 // ── Module-scoped scratch (context-switch measurement — no allocations) ──────
 // The anchor is always expressed in the galaxy frame; toRenderSpace converts it
@@ -232,9 +226,6 @@ const cinePosScratch: [number, number, number] = [0, 0, 0];
 const cineLookScratch: [number, number, number] = [0, 0, 0];
 /** Auto-orbit center, render-space relative to the current camera. */
 const cineCenterScratch: [number, number, number] = [0, 0, 0];
-const cineAxisScratch: [number, number, number] = [0, 0, 0];
-const cineQDeltaScratch: [number, number, number, number] = [0, 0, 0, 1];
-const cineQTempScratch: [number, number, number, number] = [0, 0, 0, 1];
 
 /** Test hook: module-scoped scratch used by update() — same identity every frame. */
 export const UPDATE_SCRATCH = {
@@ -242,7 +233,6 @@ export const UPDATE_SCRATCH = {
   vel: velScratch,
   wish: wishScratch,
   gotoRender: gotoRenderScratch,
-  gotoAxis: gotoAxisScratch,
   ctxAnchor: anchorLocalScratch,
   ctxRender: ctxRenderScratch,
   galAnchor: galAnchorLocalScratch,
@@ -335,64 +325,42 @@ function rotateVecByQuat(
   out[2] = vz + qw * tz + (qx * ty - qy * tx);
 }
 
+/** Rotation axes for yaw (world Y) / pitch (local X, applied after yaw). */
+const AXIS_Y: readonly [number, number, number] = [0, 1, 0];
+const AXIS_X: readonly [number, number, number] = [1, 0, 0];
+
+const TWO_PI = Math.PI * 2;
+
+/** Wraps an angle difference into [-π, π] — yaw is circular, shortest-path blend. */
+function wrapAngleDiff(diff: number): number {
+  let d = diff % TWO_PI;
+  if (d > Math.PI) d -= TWO_PI;
+  else if (d < -Math.PI) d += TWO_PI;
+  return d;
+}
+
+/** Reused output of yawPitchFromDir — single-controller-instance scratch (§ pattern). */
+const yawPitchScratch = { yaw: 0, pitch: 0 };
+
 /**
- * Returns the rotation angle (around the local right axis) to apply so that
- * the resulting pitch stays within ±MAX_PITCH. Pitch must be clamped *before*
- * the rotation is applied: once the camera actually rotates past the pole,
- * asin(forward.y) can no longer distinguish "approaching the limit" from
- * "just flew past it", since forward.y decreases again on the far side while
- * yaw flips ~180° — inspecting the result after the fact can't catch that.
+ * Decomposes a (not necessarily normalized) direction vector into the yaw/pitch
+ * that produce it under `forward = Ry(yaw)·Rx(pitch)·(0,0,-1)` — the exact
+ * inverse of syncOrientationFromYawPitch's composition. Writes into
+ * `yawPitchScratch` (no allocation).
  */
-function clampedPitchAngle(
-  orientation: readonly [number, number, number, number],
-  rawAngle: number,
-): number {
-  rotateVecByQuat(orientation, [0, 0, -1], forwardScratch);
-  const currentPitch = Math.asin(clamp(forwardScratch[1], -1, 1));
-  const desiredPitch = clamp(currentPitch + rawAngle, -MAX_PITCH, MAX_PITCH);
-  return desiredPitch - currentPitch;
+function yawPitchFromDir(dx: number, dy: number, dz: number): void {
+  const len = Math.hypot(dx, dy, dz);
+  const ny = len > 1e-30 ? dy / len : 0;
+  yawPitchScratch.yaw = Math.atan2(-dx, -dz);
+  yawPitchScratch.pitch = Math.asin(clamp(ny, -1, 1));
 }
 
-function applyLook(
-  orientation: [number, number, number, number],
-  deltaX: number,
-  deltaY: number,
-): void {
-  if (deltaX === 0 && deltaY === 0) return;
-
-  if (deltaX !== 0) {
-    axisScratch[0] = 0;
-    axisScratch[1] = 1;
-    axisScratch[2] = 0;
-    quatFromAxisAngle(axisScratch, -deltaX * LOOK_SENSITIVITY, deltaQuatScratch);
-    quatMultiply(deltaQuatScratch, orientation, quatScratch);
-    orientation[0] = quatScratch[0];
-    orientation[1] = quatScratch[1];
-    orientation[2] = quatScratch[2];
-    orientation[3] = quatScratch[3];
-  }
-
-  if (deltaY !== 0) {
-    const angle = clampedPitchAngle(orientation, -deltaY * LOOK_SENSITIVITY);
-    if (angle !== 0) {
-      rotateVecByQuat(orientation, [1, 0, 0], axisScratch);
-      const len = Math.hypot(axisScratch[0], axisScratch[1], axisScratch[2]);
-      if (len > 1e-20) {
-        axisScratch[0] /= len;
-        axisScratch[1] /= len;
-        axisScratch[2] /= len;
-        quatFromAxisAngle(axisScratch, angle, deltaQuatScratch);
-        quatMultiply(deltaQuatScratch, orientation, quatScratch);
-        orientation[0] = quatScratch[0];
-        orientation[1] = quatScratch[1];
-        orientation[2] = quatScratch[2];
-        orientation[3] = quatScratch[3];
-      }
-    }
-  }
-
-  quatNormalize(orientation);
-}
+/** Test hook: pure yaw/pitch helpers, exercised directly in unit tests. */
+export const YAW_PITCH_TEST_HOOK = {
+  yawPitchFromDir,
+  yawPitchScratch,
+  wrapAngleDiff,
+};
 
 // ── Factory ──────────────────────────────────────────────────────────────────
 
@@ -410,6 +378,34 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     opts.initial.orientation[3],
   ];
   quatNormalize(orientation);
+
+  // Primary mutable orientation state: yaw/pitch scalars, not the quaternion —
+  // roll is then not representable at all (no degenerate-axis case anywhere a
+  // reorientation happens). `orientation` becomes a derived cache, recomputed by
+  // syncOrientationFromYawPitch whenever yaw/pitch change. Decompose whatever
+  // quaternion the caller passed in once at construction (dropping any roll it
+  // may have had baked in is fine — see docs/research/nav-camera-roll-and-ci-deploy-findings.md).
+  let yaw = 0;
+  let pitch = 0;
+
+  function syncOrientationFromYawPitch(): void {
+    quatFromAxisAngle(AXIS_Y, yaw, qYawScratch);
+    quatFromAxisAngle(AXIS_X, pitch, qPitchScratch);
+    quatMultiply(qYawScratch, qPitchScratch, orientation);
+  }
+
+  rotateVecByQuat(orientation, FORWARD_LOCAL, forwardScratch);
+  yawPitchFromDir(forwardScratch[0], forwardScratch[1], forwardScratch[2]);
+  yaw = yawPitchScratch.yaw;
+  pitch = clamp(yawPitchScratch.pitch, -MAX_PITCH, MAX_PITCH);
+  syncOrientationFromYawPitch();
+
+  function applyLook(deltaX: number, deltaY: number): void {
+    if (deltaX === 0 && deltaY === 0) return;
+    if (deltaX !== 0) yaw -= deltaX * LOOK_SENSITIVITY;
+    if (deltaY !== 0) pitch = clamp(pitch - deltaY * LOOK_SENSITIVITY, -MAX_PITCH, MAX_PITCH);
+    syncOrientationFromYawPitch();
+  }
 
   posScratch[0] = opts.initial.position.local[0];
   posScratch[1] = opts.initial.position.local[1];
@@ -559,9 +555,12 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
     const stepUnits = stepM / metersPerUnit;
     const arrived = dNextM <= arrivalDistanceM;
 
-    // 3. Orientation slerp toward the FACING direction: the lookAt point when one
+    // 3. Orientation slew toward the FACING direction: the lookAt point when one
     //    is set (dolly-back framing), else the travel direction (normal fly-to).
-    rotateVecByQuat(orientation, FORWARD_LOCAL, forwardScratch);
+    //    Blends the yaw/pitch SCALARS rather than slerping a quaternion — roll is
+    //    not representable in this state, so there is no degenerate-axis case (the
+    //    old antipodal cross-product fallback no longer exists, and no rotation can
+    //    introduce roll regardless of how much pitch the camera currently has).
     const invDUnits = 1 / dUnits;
     let tDirX = gotoRenderScratch[0] * invDUnits;
     let tDirY = gotoRenderScratch[1] * invDUnits;
@@ -576,47 +575,12 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
         tDirZ = gotoLookScratch[2] * invL;
       }
     }
-    const dot = clamp(
-      forwardScratch[0] * tDirX + forwardScratch[1] * tDirY + forwardScratch[2] * tDirZ,
-      -1,
-      1,
-    );
-
-    if (dot < 1 - 1e-10) {
-      let axLen: number;
-      if (dot < -1 + 1e-10) {
-        // Opposite direction — cross product is degenerate. Turn around the
-        // camera's OWN local up axis (always ⟂ forward by construction) so the
-        // 180° flip is a yaw turn-around, not an orientation-blind world-axis
-        // spin that can hand mouse-look a rolled frame (the inverted-controls bug).
-        rotateVecByQuat(orientation, UP_LOCAL, gotoAxisScratch);
-        axLen = 1;
-      } else {
-        gotoAxisScratch[0] = forwardScratch[1] * tDirZ - forwardScratch[2] * tDirY;
-        gotoAxisScratch[1] = forwardScratch[2] * tDirX - forwardScratch[0] * tDirZ;
-        gotoAxisScratch[2] = forwardScratch[0] * tDirY - forwardScratch[1] * tDirX;
-        axLen = Math.hypot(gotoAxisScratch[0], gotoAxisScratch[1], gotoAxisScratch[2]);
-        if (axLen > 1e-20) {
-          const invAx = 1 / axLen;
-          gotoAxisScratch[0] *= invAx;
-          gotoAxisScratch[1] *= invAx;
-          gotoAxisScratch[2] *= invAx;
-        }
-      }
-
-      if (axLen > 1e-20) {
-        const T = durationMs / 5;
-        const alpha = 1 - Math.exp(-dtMs / T);
-        const fullAngle = Math.acos(dot);
-        quatFromAxisAngle(gotoAxisScratch, fullAngle * alpha, gotoQDeltaScratch);
-        quatMultiply(gotoQDeltaScratch, orientation, gotoQTempScratch);
-        orientation[0] = gotoQTempScratch[0];
-        orientation[1] = gotoQTempScratch[1];
-        orientation[2] = gotoQTempScratch[2];
-        orientation[3] = gotoQTempScratch[3];
-        quatNormalize(orientation);
-      }
-    }
+    yawPitchFromDir(tDirX, tDirY, tDirZ);
+    const T = durationMs / 5;
+    const alpha = 1 - Math.exp(-dtMs / T);
+    yaw += wrapAngleDiff(yawPitchScratch.yaw - yaw) * alpha;
+    pitch = clamp(pitch + (yawPitchScratch.pitch - pitch) * alpha, -MAX_PITCH, MAX_PITCH);
+    syncOrientationFromYawPitch();
 
     // 4. Move camera along direction (camera → target)
     const scale = stepUnits / dUnits;
@@ -933,54 +897,19 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
 
   /**
    * Slew the orientation toward a render-space facing direction (relative to the
-   * camera). Quaternion-only (no Euler — §5.3), exponential approach with the
-   * given time constant. Mirrors the goTo slew but on its own scratch so the two
-   * paths never alias.
+   * camera), by blending the yaw/pitch SCALARS — same rationale as the goTo slew
+   * (see its comment): roll is not representable in this state, so there is no
+   * degenerate-axis case to handle.
    */
   function slewLookToward(dx: number, dy: number, dz: number, dtMs: number): void {
     const len = Math.hypot(dx, dy, dz);
     if (len < 1e-30) return;
-    const inv = 1 / len;
-    const tx = dx * inv;
-    const ty = dy * inv;
-    const tz = dz * inv;
 
-    rotateVecByQuat(orientation, FORWARD_LOCAL, forwardScratch);
-    const dot = clamp(
-      forwardScratch[0] * tx + forwardScratch[1] * ty + forwardScratch[2] * tz,
-      -1,
-      1,
-    );
-    if (dot >= 1 - 1e-10) return;
-
-    let axLen: number;
-    if (dot < -1 + 1e-10) {
-      // See the matching comment in the goTo orientation slerp above.
-      rotateVecByQuat(orientation, UP_LOCAL, cineAxisScratch);
-      axLen = 1;
-    } else {
-      cineAxisScratch[0] = forwardScratch[1] * tz - forwardScratch[2] * ty;
-      cineAxisScratch[1] = forwardScratch[2] * tx - forwardScratch[0] * tz;
-      cineAxisScratch[2] = forwardScratch[0] * ty - forwardScratch[1] * tx;
-      axLen = Math.hypot(cineAxisScratch[0], cineAxisScratch[1], cineAxisScratch[2]);
-      if (axLen > 1e-20) {
-        const invAx = 1 / axLen;
-        cineAxisScratch[0] *= invAx;
-        cineAxisScratch[1] *= invAx;
-        cineAxisScratch[2] *= invAx;
-      }
-    }
-    if (axLen <= 1e-20) return;
-
+    yawPitchFromDir(dx, dy, dz);
     const alpha = 1 - Math.exp(-dtMs / CINEMATIC_LOOK_TC_MS);
-    const fullAngle = Math.acos(dot);
-    quatFromAxisAngle(cineAxisScratch, fullAngle * alpha, cineQDeltaScratch);
-    quatMultiply(cineQDeltaScratch, orientation, cineQTempScratch);
-    orientation[0] = cineQTempScratch[0];
-    orientation[1] = cineQTempScratch[1];
-    orientation[2] = cineQTempScratch[2];
-    orientation[3] = cineQTempScratch[3];
-    quatNormalize(orientation);
+    yaw += wrapAngleDiff(yawPitchScratch.yaw - yaw) * alpha;
+    pitch = clamp(pitch + (yawPitchScratch.pitch - pitch) * alpha, -MAX_PITCH, MAX_PITCH);
+    syncOrientationFromYawPitch();
   }
 
   /**
@@ -1150,7 +1079,7 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
 
     // ── Free flight ───────────────────────────────────────────────────────────
 
-    applyLook(orientation, inputState.lookDeltaX, inputState.lookDeltaY);
+    applyLook(inputState.lookDeltaX, inputState.lookDeltaY);
     input.consumeLookDelta();
 
     const targetSpeed = clamp(speedScale * distanceToNearestSurface, minSpeed, maxSpeed);

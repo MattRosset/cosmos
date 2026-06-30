@@ -13,7 +13,7 @@ import {
   createPrng,
 } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
-import { createFlightController, UPDATE_SCRATCH } from '../src/controller';
+import { createFlightController, UPDATE_SCRATCH, YAW_PITCH_TEST_HOOK } from '../src/controller';
 
 const IDENTITY_QUAT: [number, number, number, number] = [0, 0, 0, 1];
 
@@ -65,6 +65,44 @@ function positionMeters(
   const m = CONTEXT_UNIT_METERS[context];
   return [local[0] * m, local[1] * m, local[2] * m];
 }
+
+describe('yaw/pitch helpers (structural no-roll fix)', () => {
+  const { yawPitchFromDir, yawPitchScratch, wrapAngleDiff } = YAW_PITCH_TEST_HOOK;
+
+  it('round-trips forward = Ry(yaw)·Rx(pitch)·(0,0,-1) for a grid of yaw/pitch', () => {
+    for (let yi = -3; yi <= 3; yi++) {
+      for (let pi = -2; pi <= 2; pi++) {
+        const yaw = (yi / 3) * Math.PI;
+        const pitch = (pi / 2) * (Math.PI / 2 - 0.01); // stay shy of the pole
+        const fx = -Math.cos(pitch) * Math.sin(yaw);
+        const fy = Math.sin(pitch);
+        const fz = -Math.cos(pitch) * Math.cos(yaw);
+
+        yawPitchFromDir(fx, fy, fz);
+        expect(yawPitchScratch.pitch).toBeCloseTo(pitch, 9);
+
+        // yaw is only meaningful mod 2π; compare via wrapAngleDiff.
+        const yawDiff = wrapAngleDiff(yawPitchScratch.yaw - yaw);
+        expect(Math.abs(yawDiff)).toBeLessThan(1e-9);
+      }
+    }
+  });
+
+  it('wrapAngleDiff returns the shortest-path angle in [-π, π]', () => {
+    expect(wrapAngleDiff(0.1)).toBeCloseTo(0.1, 12);
+    expect(wrapAngleDiff(-0.1)).toBeCloseTo(-0.1, 12);
+    expect(wrapAngleDiff(Math.PI * 1.5)).toBeCloseTo(-Math.PI * 0.5, 9);
+    expect(wrapAngleDiff(-Math.PI * 1.5)).toBeCloseTo(Math.PI * 0.5, 9);
+    expect(wrapAngleDiff(Math.PI * 4 + 0.2)).toBeCloseTo(0.2, 9);
+  });
+
+  it('yawPitchFromDir clamps pitch input at the poles', () => {
+    yawPitchFromDir(0, 1, 0);
+    expect(yawPitchScratch.pitch).toBeCloseTo(Math.PI / 2, 9);
+    yawPitchFromDir(0, -1, 0);
+    expect(yawPitchScratch.pitch).toBeCloseTo(-Math.PI / 2, 9);
+  });
+});
 
 describe('createFlightController', () => {
   it('speed law: long W hold ≈ clamp(speedScale × d, min, max)', () => {
