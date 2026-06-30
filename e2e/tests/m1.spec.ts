@@ -11,11 +11,12 @@ import { injectFrameStats, readFrameStats, percentile } from './helpers/frame-st
  * - The goTo flight moves the camera along the straight line start → target
  *   (the camera→target direction is constant), arriving exactly
  *   ARRIVAL_DISTANCE_M short of the target.
- * - The orientation slerp therefore rotates about a FIXED axis (f0 × target
- *   direction) with time constant durationMs/5; integrated over the full
- *   6000 ms flight the residual look-error is θ·e⁻⁵ along that geodesic
- *   (≈ 0.55° for an 81° initial offset), deterministic to within one frame's
- *   dt (< 0.05°).
+ * - The orientation is ROLL-FREE (yaw/pitch scalars, commits 99a8b65 / 27fd4c4):
+ *   the controller blends yaw and pitch toward the target's (atan2(-dx,-dz),
+ *   asin(dy)) with time constant durationMs/5, so the arrival basis is
+ *   Ry(yaw)·Rx(pitch) — right.y ≡ 0, no roll. Integrated over the 6000 ms flight
+ *   each scalar stops e⁻⁵ short of its target (residual ≈ 0.55° for an 81° turn),
+ *   deterministic to within one frame's dt. See cameraAfterGoTo.
  */
 
 // ── Wiring constants (must match the app / frozen specs) ────────────────────
@@ -42,19 +43,7 @@ const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
 const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a: Vec3, b: Vec3): Vec3 => [
-  a[1] * b[2] - a[2] * b[1],
-  a[2] * b[0] - a[0] * b[2],
-  a[0] * b[1] - a[1] * b[0],
-];
 const norm = (a: Vec3): Vec3 => scale(a, 1 / Math.hypot(a[0], a[1], a[2]));
-
-/** Rodrigues rotation of v about unit axis k by angle ang. */
-function rotate(v: Vec3, k: Vec3, ang: number): Vec3 {
-  const c = Math.cos(ang);
-  const s = Math.sin(ang);
-  return add(add(scale(v, c), scale(cross(k, v), s)), scale(k, dot(k, v) * (1 - c)));
-}
 
 // ── Pack access ──────────────────────────────────────────────────────────────
 
@@ -134,16 +123,30 @@ interface CameraModel {
 
 function cameraAfterGoTo(targetPc: Vec3): CameraModel {
   const targetDir = norm(sub(targetPc, CAM_START));
-  const f0: Vec3 = [0, 0, -1];
-  const theta = Math.acos(Math.max(-1, Math.min(1, dot(f0, targetDir))));
-  const axis = norm(cross(f0, targetDir));
-  const ang = theta * (1 - SLERP_RESIDUAL);
+  // Post-goTo orientation is ROLL-FREE: the controller represents facing as yaw/pitch
+  // scalars and blends those toward the target (commits 99a8b65 / 27fd4c4), so the
+  // arrival basis is Ry(yaw)·Rx(pitch) — right.y ≡ 0, no roll — NOT the old
+  // minimal-rotation slerp about (f0 × targetDir), which rolled the up/right basis
+  // whenever the target was off-plane. yawPitchFromDir's inverse is the decomposition:
+  //   yaw = atan2(-dx, -dz),  pitch = asin(dy).
+  // The exponential blend starts from the boot orientation (yaw 0 / pitch 0, facing
+  // -Z) and stops SLERP_RESIDUAL short, so both scalars land at (1 − residual) of the
+  // way from 0 to their targets (same residual the old geodesic model used on θ).
+  const targetYaw = Math.atan2(-targetDir[0], -targetDir[2]);
+  const targetPitch = Math.asin(Math.max(-1, Math.min(1, targetDir[1])));
+  const yaw = targetYaw * (1 - SLERP_RESIDUAL);
+  const pitch = targetPitch * (1 - SLERP_RESIDUAL);
+  const cp = Math.cos(pitch);
+  const sp = Math.sin(pitch);
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
   return {
     camPos: sub(targetPc, scale(targetDir, ARRIVAL_PC)),
     targetDir,
-    fwd: rotate(f0, axis, ang),
-    up: rotate([0, 1, 0], axis, ang),
-    right: rotate([1, 0, 0], axis, ang),
+    // forward = Ry·Rx·(0,0,-1), up = Ry·Rx·(0,1,0), right = Ry·Rx·(1,0,0).
+    fwd: [-cp * sy, sp, -cp * cy],
+    up: [sp * sy, cp, sp * cy],
+    right: [cy, 0, -sy],
   };
 }
 
