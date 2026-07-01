@@ -12,6 +12,7 @@
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "turbo run test --filter=!@cosmos/e2e",
+    "test:e2e": "pnpm --filter @cosmos/web build && pnpm --filter @cosmos/e2e test:gate --project=chromium",
     "lint": "eslint .",
     "typecheck": "turbo run typecheck",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",

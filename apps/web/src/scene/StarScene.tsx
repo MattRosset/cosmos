@@ -13,6 +13,7 @@ import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
 import { profileSpan } from '../glue/frame-profiler';
 import { systemPickGroup } from '../glue/system-feed';
+import { pickProbeHolder } from '../glue/test-hook';
 
 /** Angular pick threshold, radians (TASK-015 fixed wiring). */
 const PICK_MAX_ANGLE_RAD = 0.02;
@@ -219,6 +220,44 @@ export function StarScene({
       return pickNearestStar(hygBatch, exoBatch, combined, p, dir);
     };
 
+    /**
+     * Inverse of the star pick ray: a position in the camera's current context frame
+     * (galaxy pc) → CSS px, via the same live camera + controller orientation/position.
+     * Returns null if the point is behind the camera or projects off-screen. Backs the
+     * e2e `__cosmos.projectToScreen` query (kills the m1 parallel camera model).
+     */
+    const projectToScreen = (
+      localPos: readonly [number, number, number],
+    ): { x: number; y: number } | null => {
+      const controller = controllerRef.current;
+      if (!controller) return null;
+      const persp = camera as PerspectiveCamera;
+      const tanY = Math.tan((persp.fov * Math.PI) / 360);
+      const tanX = tanY * persp.aspect;
+      const p = controller.state.position.local;
+      const rel: [number, number, number] = [
+        localPos[0] - p[0],
+        localPos[1] - p[1],
+        localPos[2] - p[2],
+      ];
+      // World → camera space: rotate by the orientation's conjugate (inverse rotation).
+      const q = controller.state.orientation;
+      const cam = rotateByQuat([-q[0], -q[1], -q[2], q[3]], rel);
+      const cz = cam[2];
+      if (cz >= 0) return null; // forward is -Z: cz >= 0 ⇒ behind the camera
+      const ndcX = cam[0] / -cz / tanX;
+      const ndcY = cam[1] / -cz / tanY;
+      if (ndcX < -1 || ndcX > 1 || ndcY < -1 || ndcY > 1) return null;
+      const rect = el.getBoundingClientRect();
+      return {
+        x: rect.left + ((ndcX + 1) / 2) * rect.width,
+        y: rect.top + ((1 - ndcY) / 2) * rect.height,
+      };
+    };
+
+    // Expose the live pick + projection to the e2e hook (no selection side-effect).
+    pickProbeHolder.current = { pickAt, projectToScreen };
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       tracking = true;
@@ -256,6 +295,7 @@ export function StarScene({
       el.removeEventListener('pointermove', onPointerMove);
       el.removeEventListener('pointerup', onPointerUp);
       el.removeEventListener('dblclick', onDoubleClick);
+      pickProbeHolder.current = null;
     };
   }, [gl, camera, hygBatch, exoBatch, combined, controllerRef, onActivate]);
 

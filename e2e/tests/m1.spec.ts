@@ -5,45 +5,19 @@ import { injectFrameStats, readFrameStats, percentile } from './helpers/frame-st
  * TASK-015 M1 integration flows: load the real HYG pack, search → fly,
  * click-pick, perf smoke. Chromium-only (see playwright.config.ts).
  *
- * Click targets are computed from the real pack plus a deterministic model of
- * the post-goTo camera, so the test self-adapts if the pack is regenerated:
- *
- * - The goTo flight moves the camera along the straight line start → target
- *   (the camera→target direction is constant), arriving exactly
- *   ARRIVAL_DISTANCE_M short of the target.
- * - The orientation is ROLL-FREE (yaw/pitch scalars, commits 99a8b65 / 27fd4c4):
- *   the controller blends yaw and pitch toward the target's (atan2(-dx,-dz),
- *   asin(dy)) with time constant durationMs/5, so the arrival basis is
- *   Ry(yaw)·Rx(pitch) — right.y ≡ 0, no roll. Integrated over the 6000 ms flight
- *   each scalar stops e⁻⁵ short of its target (residual ≈ 0.55° for an 81° turn),
- *   deterministic to within one frame's dt. See cameraAfterGoTo.
+ * Click-pick queries the app's REAL camera + pick path through the e2e hook
+ * (`__cosmos.projectToScreen` / `__cosmos.pickAt`) instead of re-deriving the camera
+ * projection in test code. The old parallel model (cameraAfterGoTo / projectToPx /
+ * findEmptySkyPx with hard-coded HUD pixel boxes) charged two recurring taxes — a
+ * hand-edit on every camera change, and breakage on Linux font width — both removed
+ * here. See docs/research/e2e-ci-flakiness-rootcause-and-query-hook.md.
  */
-
-// ── Wiring constants (must match the app / frozen specs) ────────────────────
-
-const GALAXY_UNIT_M = 3.0857e16; // CONTEXT_UNIT_METERS.galaxy (1 pc)
-// TASK-029: star/host goTo arrival is 5e14 m (inside the system-enter threshold);
-// the app now boots in the galaxy star field 0.06 pc from Sol (NavDriver.INITIAL_CAMERA).
-const ARRIVAL_DISTANCE_M = 5e14;
-const ARRIVAL_PC = ARRIVAL_DISTANCE_M / GALAXY_UNIT_M;
-const CAM_START: Vec3 = [0, 0, 0.06];
-const SLERP_RESIDUAL = Math.exp(-5); // 6000 ms flight, slerp T = 1200 ms
-const PICK_MAX_ANGLE_RAD = 0.02;
-
-const VIEW_W = 1280;
-const VIEW_H = 720;
-const TAN_Y = Math.tan(Math.PI / 6); // fov 60° vertical
-const TAN_X = TAN_Y * (VIEW_W / VIEW_H);
 
 // ── Vector helpers ───────────────────────────────────────────────────────────
 
 type Vec3 = readonly [number, number, number];
 
-const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const scale = (a: Vec3, s: number): Vec3 => [a[0] * s, a[1] * s, a[2] * s];
-const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const norm = (a: Vec3): Vec3 => scale(a, 1 / Math.hypot(a[0], a[1], a[2]));
 
 // ── Pack access ──────────────────────────────────────────────────────────────
 
@@ -111,123 +85,6 @@ function findStarByName(pack: Pack, name: string): NamedStar {
   throw new Error(`catalogId ${catalogId} not in pack`);
 }
 
-// ── Deterministic post-goTo camera model ─────────────────────────────────────
-
-interface CameraModel {
-  readonly camPos: Vec3;
-  readonly targetDir: Vec3;
-  readonly fwd: Vec3;
-  readonly up: Vec3;
-  readonly right: Vec3;
-}
-
-function cameraAfterGoTo(targetPc: Vec3): CameraModel {
-  const targetDir = norm(sub(targetPc, CAM_START));
-  // Post-goTo orientation is ROLL-FREE: the controller represents facing as yaw/pitch
-  // scalars and blends those toward the target (commits 99a8b65 / 27fd4c4), so the
-  // arrival basis is Ry(yaw)·Rx(pitch) — right.y ≡ 0, no roll — NOT the old
-  // minimal-rotation slerp about (f0 × targetDir), which rolled the up/right basis
-  // whenever the target was off-plane. yawPitchFromDir's inverse is the decomposition:
-  //   yaw = atan2(-dx, -dz),  pitch = asin(dy).
-  // The exponential blend starts from the boot orientation (yaw 0 / pitch 0, facing
-  // -Z) and stops SLERP_RESIDUAL short, so both scalars land at (1 − residual) of the
-  // way from 0 to their targets (same residual the old geodesic model used on θ).
-  const targetYaw = Math.atan2(-targetDir[0], -targetDir[2]);
-  const targetPitch = Math.asin(Math.max(-1, Math.min(1, targetDir[1])));
-  const yaw = targetYaw * (1 - SLERP_RESIDUAL);
-  const pitch = targetPitch * (1 - SLERP_RESIDUAL);
-  const cp = Math.cos(pitch);
-  const sp = Math.sin(pitch);
-  const cy = Math.cos(yaw);
-  const sy = Math.sin(yaw);
-  return {
-    camPos: sub(targetPc, scale(targetDir, ARRIVAL_PC)),
-    targetDir,
-    // forward = Ry·Rx·(0,0,-1), up = Ry·Rx·(0,1,0), right = Ry·Rx·(1,0,0).
-    fwd: [-cp * sy, sp, -cp * cy],
-    up: [sp * sy, cp, sp * cy],
-    right: [cy, 0, -sy],
-  };
-}
-
-/** Project a world direction to viewport px through the modeled camera. */
-function projectToPx(cam: CameraModel, dir: Vec3): { x: number; y: number } {
-  const zc = dot(dir, cam.fwd);
-  const ndcX = dot(dir, cam.right) / (zc * TAN_X);
-  const ndcY = dot(dir, cam.up) / (zc * TAN_Y);
-  return { x: ((ndcX + 1) / 2) * VIEW_W, y: ((1 - ndcY) / 2) * VIEW_H };
-}
-
-/** Angles of the two stars angularly nearest to a ray (and the nearest index). */
-function nearestTwoAngles(
-  pack: Pack,
-  camPos: Vec3,
-  rayDir: Vec3,
-): { index: number; angle: number; secondAngle: number } {
-  let best = -2;
-  let second = -2;
-  let index = -1;
-  for (let i = 0; i < pack.count; i++) {
-    const d = norm([
-      pack.originPc[0] + pack.positions[i * 3]! - camPos[0],
-      pack.originPc[1] + pack.positions[i * 3 + 1]! - camPos[1],
-      pack.originPc[2] + pack.positions[i * 3 + 2]! - camPos[2],
-    ]);
-    const dp = dot(d, rayDir);
-    if (dp > best) {
-      second = best;
-      best = dp;
-      index = i;
-    } else if (dp > second) {
-      second = dp;
-    }
-  }
-  return {
-    index,
-    angle: Math.acos(Math.min(1, best)),
-    secondAngle: Math.acos(Math.min(1, second)),
-  };
-}
-
-/**
- * Find an in-frustum click point whose ray misses every star by a wide margin
- * (model error is < ~1.5e-3 rad, so > 0.025 rad guarantees a pick miss).
- * Avoids the HUD title panel (top-left) and info panel (top-right) regions.
- */
-function findEmptySkyPx(pack: Pack, cam: CameraModel): { x: number; y: number } {
-  let best = { angle: 0, x: 0, y: 0 };
-  for (let gx = -0.85; gx <= 0.85; gx += 0.1) {
-    for (let gy = -0.85; gy <= 0.85; gy += 0.1) {
-      const dir = norm(
-        add(add(scale(cam.right, gx * TAN_X), scale(cam.up, gy * TAN_Y)), cam.fwd),
-      );
-      const { x, y } = projectToPx(cam, dir);
-      // Avoid every HUD region as FULL-WIDTH bands, not text-width boxes: the
-      // breadcrumb nav ("◂ Milky Way › … › <target>") and time-control toolbar
-      // render WIDER on CI's Linux SwiftShader/Skia than on a dev machine (different
-      // font build — see playwright.config.ts), so a tight x-box that clears the
-      // breadcrumb locally can sit under it on CI and the click hits chrome instead
-      // of the canvas → no deselect. Reserve generous top/bottom strips + the
-      // info-panel corner; the Betelgeuse vantage has ample empty sky in the centre.
-      if (y < 150) continue; // top: title panel + breadcrumb nav (full width)
-      if (y > 560) continue; // bottom: time-control toolbar (full width)
-      if (x > 900 && y < 470) continue; // info panel (top-right)
-      const { angle } = nearestTwoAngles(pack, cam.camPos, dir);
-      if (angle > best.angle) best = { angle, x, y };
-    }
-  }
-  expect(
-    best.angle,
-    'an in-frustum empty-sky direction must clear the pick cone with margin',
-  ).toBeGreaterThan(PICK_MAX_ANGLE_RAD + 0.005);
-  // Logged so a CI-only pick miss is triagable without a rerun (which HUD-free px
-  // was clicked, and its clearance from the nearest star).
-  console.log(
-    `[m1 empty-sky] px=(${best.x.toFixed(0)},${best.y.toFixed(0)}) clearance=${best.angle.toFixed(4)}rad`,
-  );
-  return best;
-}
-
 // ── Page helpers ─────────────────────────────────────────────────────────────
 
 async function waitReady(page: Page): Promise<void> {
@@ -273,6 +130,13 @@ declare global {
         drawCalls: number;
       };
       qualityTier?: string;
+      // Picking query surface (replaces the m1 parallel camera model). Both use the
+      // app's live camera + flight controller; CSS-px in/out, so they're independent
+      // of DPR and platform font geometry.
+      pickAt(clientX: number, clientY: number): string | null;
+      projectToScreen(
+        localPos: readonly [number, number, number],
+      ): { x: number; y: number } | null;
     };
   }
 }
@@ -344,41 +208,6 @@ test('search → fly: Betelgeuse flight with info panel, perf smoke, baseline', 
   expect(pageErrors, 'no uncaught errors during flight').toHaveLength(0);
 });
 
-/**
- * Among well-known bright stars present in the pack, choose the one most
- * angularly isolated at its own goTo arrival vantage — so clicking its projected
- * centre selects it unambiguously despite the camera-model error. The M2 arrival
- * distance (5e14 m, TASK-029) stops farther from the target than M1's old 1e13 m,
- * making the field denser, so a hard-coded Sirius is no longer guaranteed safe;
- * this auto-adapts to the pack and the arrival distance.
- */
-function pickIsolatedTarget(
-  pack: Pack,
-  candidateNames: readonly string[],
-): { star: NamedStar; name: string; cam: CameraModel } {
-  let best:
-    | { star: NamedStar; name: string; cam: CameraModel; secondAngle: number }
-    | null = null;
-  for (const name of candidateNames) {
-    if (!Object.values(pack.names).includes(name)) continue;
-    const star = findStarByName(pack, name);
-    const cam = cameraAfterGoTo(star.posPc);
-    const near = nearestTwoAngles(pack, cam.camPos, cam.targetDir);
-    // The flown-to star must be the nearest to its own flight ray, within the
-    // model error; keep the most isolated runner-up across candidates.
-    if (near.index !== star.index || near.angle >= 2e-3) continue;
-    if (best === null || near.secondAngle > best.secondAngle) {
-      best = { star, name, cam, secondAngle: near.secondAngle };
-    }
-  }
-  expect(best, 'at least one candidate bright star must be in the pack').not.toBeNull();
-  expect(
-    best!.secondAngle,
-    'chosen target must clear the camera-model error (runner-up well outside it)',
-  ).toBeGreaterThan(5e-3);
-  return { star: best!.star, name: best!.name, cam: best!.cam };
-}
-
 test('click-pick: select a bright star at its projected position, empty-sky click deselects', async ({
   page,
   request,
@@ -386,48 +215,83 @@ test('click-pick: select a bright star at its projected position, empty-sky clic
 }) => {
   const pack = await fetchPack(request, baseURL!);
   const betelgeuse = findStarByName(pack, 'Betelgeuse');
-  const target = pickIsolatedTarget(pack, [
-    'Vega', 'Arcturus', 'Capella', 'Procyon', 'Altair', 'Aldebaran',
-    'Pollux', 'Fomalhaut', 'Regulus', 'Spica', 'Antares', 'Deneb',
-    'Castor', 'Rigel', 'Sirius', 'Canopus', 'Achernar',
-  ]);
 
   await page.goto('/');
   await waitReady(page);
 
-  // Face the target via the search flow, then clear the selection it made so the
-  // click is what selects.
-  await searchAndGo(page, target.name.toLowerCase(), target.name);
+  // Fly to Betelgeuse: off the galactic plane, so looking away from Sol there is
+  // genuinely empty sky in the magnitude-limited catalog (near Sol every direction
+  // sits inside the 0.02 rad pick cone of ~11 stars — no empty sky exists there).
+  await searchAndGo(page, 'betelgeuse', 'Betelgeuse');
   await waitFlightDone(page);
+  await page.waitForFunction((id) => window.__cosmos?.selectedId === id, betelgeuse.id);
+
+  // ── Positive pick ──────────────────────────────────────────────────────────
+  // Clear the search-made selection so the CLICK is what selects.
   await page.locator('.cosmos-ui-info-close').click();
   await page.waitForFunction(() => window.__cosmos?.selectedId === null);
 
-  // Click the target's projected position (its direction from the camera IS the
-  // flight direction — the camera traveled along it).
-  const targetPx = projectToPx(target.cam, target.cam.targetDir);
-  await page.mouse.click(targetPx.x, targetPx.y);
-  await page.waitForFunction(
-    (id) => window.__cosmos?.selectedId === id,
-    target.star.id,
-  );
-  await expect(page.locator('.cosmos-ui-info-name')).toHaveText(target.name);
+  // Project the target through the REAL camera, then confirm the REAL pick agrees the
+  // pixel selects it and that the pixel is on the canvas (not under HUD chrome). All
+  // CSS-px, all queried from the app — no camera model, no hard-coded HUD geometry.
+  const targetPx = await page.evaluate((local) => {
+    const hook = window.__cosmos!;
+    const px = hook.projectToScreen(local);
+    if (!px) return null;
+    const canvas = document.querySelector('canvas');
+    return {
+      ...px,
+      onCanvas: document.elementFromPoint(px.x, px.y) === canvas,
+      picked: hook.pickAt(px.x, px.y),
+    };
+  }, betelgeuse.posPc as [number, number, number]);
 
-  // Near Sol the catalog leaves no direction empty within the 0.02 rad pick
-  // cone (≈ 11 stars per cone on average) — fly to Betelgeuse, where looking
-  // away from Sol the magnitude-limited catalog has genuinely empty sky.
-  // Reload first so the flight starts from Sol, matching the camera model
-  // (a flight from the Sirius vantage would have a different slerp basis).
-  await page.goto('/');
-  await waitReady(page);
-  await searchAndGo(page, 'betelgeuse', 'Betelgeuse');
-  await waitFlightDone(page);
-  await page.waitForFunction(
-    (id) => window.__cosmos?.selectedId === id,
-    betelgeuse.id,
+  expect(targetPx, 'Betelgeuse must project on-screen at its arrival vantage').not.toBeNull();
+  expect(targetPx!.onCanvas, 'the target pixel must be on the canvas, not under HUD chrome').toBe(
+    true,
   );
+  expect(
+    targetPx!.picked,
+    'the real pick at the projected pixel must resolve to the target',
+  ).toBe(betelgeuse.id);
 
-  const camB = cameraAfterGoTo(betelgeuse.posPc);
-  const emptyPx = findEmptySkyPx(pack, camB);
-  await page.mouse.click(emptyPx.x, emptyPx.y);
+  await page.mouse.click(targetPx!.x, targetPx!.y);
+  await page.waitForFunction((id) => window.__cosmos?.selectedId === id, betelgeuse.id);
+  await expect(page.locator('.cosmos-ui-info-name')).toHaveText('Betelgeuse');
+
+  // ── Empty-sky deselect ─────────────────────────────────────────────────────
+  // Scan the canvas for a pixel that the REAL pick reports as empty AND that the REAL
+  // DOM hit-test reports as the canvas (no HUD element on top → the click reaches the
+  // scene). This replaces findEmptySkyPx's parallel star-cone math + hard-coded HUD
+  // pixel boxes, so neither a camera change nor Linux font width can break it.
+  const emptyPx = await page.evaluate(() => {
+    const hook = window.__cosmos!;
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let best: { x: number; y: number; dist: number } | null = null;
+    for (let gx = 0.1; gx <= 0.9 + 1e-9; gx += 0.1) {
+      for (let gy = 0.1; gy <= 0.9 + 1e-9; gy += 0.1) {
+        const x = rect.left + gx * rect.width;
+        const y = rect.top + gy * rect.height;
+        if (hook.pickAt(x, y) !== null) continue; // ray hits a star
+        if (document.elementFromPoint(x, y) !== canvas) continue; // HUD chrome on top
+        const dist = Math.hypot(x - cx, y - cy);
+        if (best === null || dist < best.dist) best = { x, y, dist };
+      }
+    }
+    return best;
+  });
+
+  expect(
+    emptyPx,
+    'an unoccluded empty-sky pixel must exist at the Betelgeuse vantage',
+  ).not.toBeNull();
+  // Logged so a CI-only miss is triagable without a rerun.
+  console.log(`[m1 empty-sky] px=(${emptyPx!.x.toFixed(0)},${emptyPx!.y.toFixed(0)})`);
+
+  await page.mouse.click(emptyPx!.x, emptyPx!.y);
   await page.waitForFunction(() => window.__cosmos?.selectedId === null);
 });

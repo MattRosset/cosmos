@@ -1,4 +1,4 @@
-import type { ContextId, QualityTier } from '@cosmos/core-types';
+import type { BodyId, ContextId, QualityTier } from '@cosmos/core-types';
 import type { ErrorCounts } from '@cosmos/diagnostics';
 import { getErrorCounts } from '@cosmos/diagnostics';
 import type { FlightController } from '@cosmos/nav';
@@ -72,7 +72,40 @@ export interface CosmosTestHook {
    */
   readonly errorCounts: ErrorCounts;
   readonly failedChunks: number;
+  /**
+   * Picking query surface (e2e). Both delegate to the SAME closures StarScene wires
+   * for real clicks (the live camera + flight controller), so a spec can ask the app
+   * "what does this pixel select?" / "where does this position land on screen?" instead
+   * of re-deriving the camera projection in test code. Eliminates the m1 parallel
+   * camera model (docs/research/e2e-ci-flakiness-rootcause-and-query-hook.md §5).
+   *
+   * Inert (null result) until StarScene's picking effect has mounted, or in contexts
+   * where it does not apply (the projection assumes the position is in the camera's
+   * current context frame — galaxy pc near Sol, which is all m1 needs).
+   *
+   * - `pickAt`: production star/planet pick at CSS px, with NO selection side-effect.
+   * - `projectToScreen`: inverse — a position in the camera's context frame → CSS px,
+   *    or null if behind the camera / off-screen.
+   */
+  pickAt(clientX: number, clientY: number): BodyId | null;
+  projectToScreen(
+    localPos: readonly [number, number, number],
+  ): { x: number; y: number } | null;
 }
+
+/**
+ * Pick/projection closures registered by StarScene's picking effect (where the live
+ * `gl.domElement`, `camera`, and flight controller are in scope). The test hook
+ * delegates to these so e2e queries the REAL pick path, not a re-derived model.
+ */
+export interface PickProbe {
+  pickAt(clientX: number, clientY: number): BodyId | null;
+  projectToScreen(
+    localPos: readonly [number, number, number],
+  ): { x: number; y: number } | null;
+}
+
+export const pickProbeHolder: { current: PickProbe | null } = { current: null };
 
 export const testHook: CosmosTestHook = {
   ready: false,
@@ -107,6 +140,15 @@ export const testHook: CosmosTestHook = {
   },
   get failedChunks(): number {
     return streamingHolder.current?.stats.failedChunks ?? 0;
+  },
+  // Delegate to StarScene's live pick closures (null until that effect mounts).
+  pickAt(clientX: number, clientY: number): BodyId | null {
+    return pickProbeHolder.current?.pickAt(clientX, clientY) ?? null;
+  },
+  projectToScreen(
+    localPos: readonly [number, number, number],
+  ): { x: number; y: number } | null {
+    return pickProbeHolder.current?.projectToScreen(localPos) ?? null;
   },
 };
 
