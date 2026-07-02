@@ -117,12 +117,15 @@ sections — they are part of the spec.
 | [TASK-057](TASK-057-streaming-error-phase.md) | `streaming` v1.2: `error` phase + abort/fail split + backoff + error counters | TASK-054, TASK-055 | done | §7-sensitive **single lane**; fixes the BUG-6 silent-storm class structurally. `onError(c,err)` splits abort/cancel (`AbortError`/`WorkerCancelledError`/aborted signal/cancelled token ⇒ silent drop, no event/count) from real failures (emit `error`+`AppError{context:{chunkId,kind,lod}}`, `reportError` injectable, `errorCount++`). Backoff: `MAX_LOAD_ATTEMPTS=3` real fails ⇒ terminal `failed` (resident, never re-requested, not rendered, not in `catalogCoverage`); released on cut-exit ⇒ fresh retry. Stats `errorCount`+`failedChunks`. **Note:** non-terminal fail re-marks the chunk `pending` (preserving `attempts`) rather than the spec's literal `removeChunk` — a removed chunk re-creates fresh (`attempts` 0) so the backoff could never trip; the cut-exit release is unchanged. Also fixed latent `process`-without-`@types/node` in `diagnostics/src/env.ts` (now transitive in the web bundle). 5 new tests, policy cov 90.5%/91.1% overall, verify 23/23 green. |
 | [TASK-058](TASK-058-assert-adoption.md) | dev-assert adoption + invariant checks in the silent swallows | TASK-055, TASK-057 | done | `4708461`. `app-state` `createSafeStorage` get/set/removeItem now `reportError(kind:'persistence')` on a dropped write (still degrades for the user); `scene-host` frame-loop non-finite-epoch warn → latched `reportError(kind:'invariant')`; `octree-combined` `assertTileContributions` post-condition (BUG-8 orphan class, DEV throws / prod degrades); `apps/web` test-hook `__cosmos.errorCounts`/`failedChunks` live getters for TASK-059. |
 | [TASK-059](TASK-059-error-gate.md) | Error gate: scripted flythrough asserts `errorCount===0` + coverage>0 | TASK-054–058 (all) | done | **GATE: closes Hardening track.** `e2e/tests/error-gate.spec.ts` + `apps/web/src/scene/ErrorGateProbe.tsx` (`?debug=errorgate`, mirrors the M4a composition + `M3DescentProbe` script, counters-only — no pixel/perf machinery). Asserts `errorCounts.total===0`, `failedChunks===0`, `catalogCoverage()>0` after a zero-inFlight settle. Self-test (`?inject=1`, permanently failing the combined octree's root tile) proves the gate goes red. Registered in `ci.yml`'s e2e gate listing. |
-| [TASK-060](TASK-060-nav-boundary-conformance.md) | `nav` boundary conformance: R3F hook → app glue + complete boundary lint | TASK-053 | pending | Maintenance track; sanctioned API change (removes `useFlightController` from `@cosmos/nav`, adds `FrameLoopRoot` to `@cosmos/scene-host` exports); touches `apps/web` — serialize with 061/065 |
+| [TASK-060](TASK-060-nav-boundary-conformance.md) | `nav` boundary conformance: R3F hook → app glue + complete boundary lint | TASK-053 | done | Maintenance track; sanctioned API change (removes `useFlightController` from `@cosmos/nav`, adds `FrameLoopRoot` to `@cosmos/scene-host` exports); touches `apps/web` — serialize with 061/065 |
 | [TASK-061](TASK-061-app-tsx-decomposition.md) | Decompose `App.tsx` into per-composition modules (mechanical move) | TASK-053, TASK-060 | pending | Maintenance track; exclusive in `apps/web`; ZERO logic changes — e2e gate is the behavioral proof |
 | [TASK-062](TASK-062-coverage-gate-wiring.md) | Wire dormant coverage gates (core-types + pack tools) + CI pack-octree dedupe | TASK-053 | pending | Maintenance track; scripts/config/ci.yml only, no test or source edits |
 | [TASK-063](TASK-063-screenshot-policy-alignment.md) | Screenshot policy alignment: guard 3 CI-blocking `toHaveScreenshot` + e2e README | TASK-053 | pending | Maintenance track; `e2e/` only; testing-conventions §1.4 wins over e2e/README taxonomy |
 | [TASK-064](TASK-064-docs-truth-sync.md) | Docs truth sync: architecture §4/§12/§13, stale status rows, core-types README | TASK-053, TASK-062, TASK-063 | pending | Maintenance track; docs only; records approved doctrine (no fast-check/SSIM/LFS/pinned runner) |
 | [TASK-065](TASK-065-gaia-manifest-env-config.md) | Env-configurable Gaia octree manifest URL (production-pack readiness) | TASK-053, TASK-061 | pending | Maintenance track; `apps/web` build-time env var; default = committed sample (zero behavior change) |
+| [TASK-066](TASK-066-ui-perception-literacy.md) | `ui` perception v1 — literacy: human units, mode badge, hints | TASK-053, TASK-061 | pending | Perception track (research `ui-ux-perception-and-polish.md` Phase 1); sanctioned additive `ui` v4 thaw; zero nav changes; serialize with TASK-065 (`apps/web`) |
+| [TASK-067](TASK-067-ui-scale-perception.md) | `ui` perception v2 — scale ruler + unified Jump HUD + letterbox kit | TASK-066 | pending | Perception track Phase 2; letterbox+copy only (no post-pass — integrated-GPU floor); exclusive in `apps/web` |
+| [TASK-068](TASK-068-ui-cards-identity.md) | `ui` perception v3 — insight cards + visual identity | TASK-066, TASK-067 | pending | Perception track Phase 3; display-time derivation only, no new data pipeline; C3 card-only (search badges wait on Gaia/search lane) |
 
 **GATE:** TASK-017 closed Phase 1; the public APIs of `data`, `render-stars`,
 `app-state`, `ui`, and `nav` v2 froze there. Phase 2 task files above are the
@@ -247,6 +250,16 @@ TASK-053 ─┬─ TASK-060 nav boundary conformance (apps/web + nav + lint) ─
                  truth sync (docs only; needs 062+063 so it documents the post-state)
 Lanes 060→061→065 are serialized (all touch apps/web); 062, 063 may run in parallel with
 them and with each other (disjoint paths); 064 runs last.
+
+Perception track (UI literacy & scale perception — cross-cutting; not a roadmap phase;
+motivated by ../research/ui-ux-perception-and-polish.md). Read-only against nav/core-types;
+TASK-066 is the sanctioned ADDITIVE `ui` v4 thaw. All three touch `apps/web` → strictly
+serialized with each other AND with the maintenance apps/web lane (060→061→065):
+TASK-053 + TASK-061 ─→ TASK-066 literacy (units, badge, hints, first-run)
+                          ─→ TASK-067 scale perception (ruler, Jump HUD, letterbox)
+                          ─→ TASK-068 cards + identity (derivations, drawer, typography)
+Research Phase 4 ("simulate @ c" educational transit) is intentionally NOT authored —
+revisit after TASK-067 ships (research open question 3).
 ```
 
 ## Status values
