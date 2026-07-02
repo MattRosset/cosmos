@@ -7,9 +7,11 @@ pre-fix analysis of 1–5 also lives in `docs/research/TASK-052-integration-bugs
 
 Status legend: `open` · `fixed` · `improved` · `deferred`
 
-**Sweep closure (2026-07-01):** 14/15 tracked items **closed** on `main`. Sole remaining
-open bug: **BUG-2** (guided tour). BUG-4 closed via `1626985` (global procgen cap); optional
-distance/tier LOD documented as future polish, not scheduled.
+**Sweep closure (2026-07-01):** 14/15 tracked items **closed** on `main`. **BUG-2**
+(functional blockers) fixed in working tree (2026-07-02, TASK-053 session — uncommitted);
+**BUG-2d** (tour UX polish) deferred to a future tour-redesign task. BUG-4 closed via
+`1626985` (global procgen cap); optional distance/tier LOD documented as future polish,
+not scheduled.
 
 ## Status summary
 
@@ -18,7 +20,8 @@ distance/tier LOD documented as future polish, not scheduled.
 | **6** | Octree tiles never load (`fetch` Illegal invocation) → coverage 0 | ✅ **fixed + committed** (`f8e6d89`) | `packages/data`; re-measured on the scripted path → coverage 1.0, tiles load, procgen fades (validated) |
 | **3** | Cinematic view can't be closed (button covered) | ✅ **fixed + committed** (`f8e6d89`) | `ui.css` z-index + `App.tsx` Esc |
 | **1** | Nebulae render as flat green bokeh discs | 🟡 **improved + committed** (`f8e6d89`, `4929d6d`) | Tier-A overhaul in `glue/nebulae.ts` + shader tint; fine polish → **separate task**. Research: `docs/research/nebula-visual-quality.md` |
-| **2** | Guided tour gets stuck / Saturn won't move | ⏳ **open** | app glue; decision made (Option B) |
+| **2** | Guided tour gets stuck / Saturn won't move | 🟡 **functional fix (local, 2026-07-02)** | Option B shipped: dwell auto-advance, `GRAND_TOUR` Sol→Betelgeuse→TRAPPIST-1, galaxy framing standoff. **UX polish → BUG-2d (deferred).** Research: `docs/research/TASK-052-integration-bugs.md` §BUG-2/§2d |
+| **2d** | Tour UX: screen jumps + letterbox flicker | ⏸️ **deferred** | User-observed post-fix (2026-07-02). Tour *works* (advances, stays galaxy-scale) but does not read as a continuous cinematic flyover. Intentionally out of scope until a dedicated tour-redesign task. See §BUG-2d |
 | **4** | Universe / Milky Way view GPU lag (procgen overdraw) | ✅ **fixed + committed** (`1626985`) | Global `PROCGEN_MAX_DRAW_POINTS=90k` via `setDrawFraction` — cuts 1.1M→~90k whenever procgen is on. Resolves the fill-rate cliff on weak HW; spiral still reads at far vantage (user-verified high-end). **Future polish:** distance/tier LOD so high-end gets full cloud at ~49 kpc — see §BUG-4 + `procgen-lod-near-sol.md` §Future |
 | **G** | flythrough4 gate broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ✅ **fixed + committed** (`ec51eeb`) | C1 path→`__dirname`, C3 metric→`gl.info.render` on toSol, C2 baseline re-recorded. Green on chromium+webkit+firefox in CI. See §Gate health |
 | **S** | soak3/soak4 churn gate broke (`requestsIssued>100` → got 8) | ✅ **fixed + committed** (`4d13f77`) | side-effect of the BUG-6 fix: tiles load+cache instead of re-request storm. Proxy re-targeted to `loadedMax>loadedMin`. See §Gate health |
@@ -67,13 +70,27 @@ surfaced 6 failures; gates **G** + **S** cleared 5, **BUG-7** cleared the last.
 ## Recommended next steps (priority order, updated 2026-07-01)
 
 **DONE — gates G/S, BUG-4/5/7/8/9/10 P0, transit T, exposure E, tour flake F.** See table.
-**Sweep status: 14/15 tracked items closed.** Only **BUG-2** (guided tour product defects)
-remains open.
+**Sweep status: 15/16 tracked items closed** (BUG-2 functional); **BUG-2d** UX polish
+deferred by product decision (2026-07-02).
 
-**Open product bug (1):**
-- **BUG-2** (tour) — `dwellMs` still unconsumed; `GRAND_TOUR` still has `sol:saturn`
-  (zero-length move). Option B: distinct-star steps + dwell auto-advance. Separate task for
-  full tour redesign (galaxy→system descent). Research: `docs/research/TASK-052-integration-bugs.md` §BUG-2.
+**BUG-2 functional fix (landed 2026-07-02, TASK-053 session — uncommitted):**
+- `dwellMs` auto-advance driver in `App.tsx` (pause/resume + dwell timer).
+- `GRAND_TOUR` rewritten: Sol → `hyg:27919` (Betelgeuse) → TRAPPIST-1 (no `sol:saturn`).
+- `TOUR_FRAMING_STANDOFF_PC` + `minStandoffPc` on splines — tour stays in galaxy context
+  (does not auto-descend into the solar system like `goto` Sol does).
+- `m4a.spec.ts` asserts auto-advance to step 1 after dwell.
+
+**Deferred — BUG-2d (tour UX polish, NOT blocking TASK-053):**
+- User report (2026-07-02): visible **screen jumps** between steps — does not feel like
+  travelling smoothly to each star; **cinematic letterbox turns on and off** (flicker)
+  across spline → orbit → next-step transitions.
+- Root cause (code reading, no new profiling): per-step `playSpline`/`cancelCinematic`
+  handoffs, letterbox tied to each spline (`letterbox: true`) not the whole tour, large
+  inter-star distances with short fly-to splines, galaxy framing standoff vs orbit radius
+  changes. Expected side-effect of Option B minimal fix — not the future tour design.
+- **Decision (2026-07-02, user):** accept for Phase 4a gate closure; fix properly in a
+  later **guided-tour redesign** task (continuous path, stable letterbox for tour duration,
+  optional galaxy→system descent). See `docs/research/TASK-052-integration-bugs.md` §2d.
 
 **Optional follow-ups (not blocking — polish / future tasks):**
 - **BUG-4 polish** — distance/tier-aware procgen LOD: full cloud at far vantage on `high`,
@@ -82,7 +99,9 @@ remains open.
 - **BUG-10 P1/P2** — eviction count backstop + cut/frustum optimisation (agent briefs exist).
 - **BUG-8 follow-up** — per-point catalog identity in combined tiles (`idPrefix` mixing;
   rendering correct, picking/labels wrong for Gaia-in-HYG tiles).
-- **Gaia pack deploy** — env-configurable `GAIA_OCTREE_MANIFEST_URL` for production CDN/R2.
+- **Gaia pack deploy (production)** — env-configurable manifest URL (TASK-065) + upload
+  the ~4.7M pack to CDN/R2 so **deployed builds** serve the full catalog. Local dev has
+  already exercised dense packs; CI/commit default remains the 135-star sample.
 
 ---
 
@@ -107,19 +126,45 @@ remains open.
 - **Suspect/owning area:** `apps/web/src/glue/nebulae.ts` (sprite + field specs),
   `packages/render-fx` nebula shader (frozen — only if per-layer variance is pursued).
 
-## BUG-2 — Guided tour gets stuck / doesn't advance
-- **Status:** open — root-caused (see research). **Decision: Option B (temporary
-  galaxy-scale tour); proper tour design deferred to a future explicit task.**
-- **Repro:**
+## BUG-2 — Guided tour gets stuck / doesn't advance — 🟡 FUNCTIONAL FIX (2026-07-02)
+
+- **Status:** **functional blockers fixed** in working tree (TASK-053 session; see table).
+  **BUG-2d** UX polish deferred — tour works but does not read as a polished flyover.
+- **Original repro (pre-fix):**
   1. Click "Guided tour".
   2. Camera flies to the solar system, shows a distant view — then **gets stuck flying
      in circles** there.
   3. Navigating to Saturn: **the view does not move.**
-- **Notes:** Two symptoms, may be one root cause: tour playback not advancing past a
-  waypoint / auto-orbit loop never releasing to the next spline segment; and a goto
-  (Saturn) being ignored while tour state owns the camera.
-- **Suspect area:** TASK-051 cinematic/spline playback + auto-orbit, tour store (TASK-049),
-  nav goto context switch interaction.
+- **What shipped (Option B):** dwell auto-advance (`App.tsx`), distinct-star `GRAND_TOUR`,
+  galaxy framing standoff (`glue/tours.ts` `TOUR_FRAMING_STANDOFF_PC`). Tour no longer
+  enters the solar system (unlike search/goto Sol). e2e: step-0 → step-1 auto-advance.
+- **Research:** `docs/research/TASK-052-integration-bugs.md` §BUG-2 (2a/2b root cause),
+  §2d (post-fix UX observations).
+
+## BUG-2d — Tour UX: jumps + letterbox flicker (deferred)
+
+- **Status:** ⏸️ **deferred** — documented user observation; not blocking TASK-053 / Phase 4a.
+- **User report (2026-07-02, post BUG-2 fix):**
+  - Between steps the view **jumps** rather than feeling like a continuous flight to the
+    next star.
+  - **Cinematic / letterbox mode flickers** — turns on and off during the tour instead of
+    staying on for the whole experience.
+- **Likely cause (code reading, confidence medium):**
+  - Each step is an independent `playSpline` → optional `orbitBody` → dwell timer →
+    `cancelCinematic` + next `playSpline` — hard cuts, not one continuous spline path.
+  - Letterbox is per-spline (`buildFlyToSpline({ letterbox: true })`), so it drops between
+    spline end, orbit, and the next spline start; `cinematicActive` in `__cosmos` mirrors
+    that and appears to flicker in the HUD.
+  - Galaxy-scale framing (`TOUR_FRAMING_STANDOFF_PC` ≈ 0.045 pc) prevents context switch
+    but changes arrival geometry vs the old close approach — reads as a pop, not a glide.
+  - Inter-star legs (Sol → Betelgeuse → TRAPPIST-1) span huge distances with a fixed
+    ~6 s spline — not a authored “fly through the field” path.
+- **Fix direction (future tour-redesign task, NOT now):**
+  - One tour-level letterbox flag for the whole run (not per-step splines).
+  - Single continuous camera path or cross-fade between authored segments.
+  - Revisit galaxy→system descent and step content when the real educational tour is designed.
+- **Decision (2026-07-02):** user accepts current behaviour for gate closure; polish when
+  the tour is redesigned “for real.”
 
 ## BUG-3 — Cinematic view cannot be closed (UI button covered) — ✅ DONE
 - **Status:** ✅ FIXED + committed (`f8e6d89`), confirmed shipped in code (`ui.css`

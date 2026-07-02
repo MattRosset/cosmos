@@ -32,7 +32,7 @@ import { GalaxyScene } from './scene/GalaxyScene';
 import { Overlays } from './scene/Overlays';
 import { combineOctreeSources } from './glue/octree-combined';
 import { buildOverlayData, type OverlayData } from './glue/overlays';
-import { GRAND_TOUR, buildFlyToSpline } from './glue/tours';
+import { GRAND_TOUR, TOUR_FRAMING_STANDOFF_PC, TOUR_ORBIT_RADIUS_M, buildFlyToSpline } from './glue/tours';
 import { Hud } from './hud/Hud';
 import { ErrorBoundary, WebGLUnsupportedCard } from './ErrorBoundary';
 import { isWebGL2Available } from './glue/report-error';
@@ -138,9 +138,6 @@ const DEBUG_M4A = new URLSearchParams(window.location.search).get('debug') === '
 const DEBUG_ERRORGATE =
   new URLSearchParams(window.location.search).get('debug') === 'errorgate';
 const ERRORGATE_INJECT = new URLSearchParams(window.location.search).get('inject') === '1';
-
-/** Auto-orbit radius (meters) for a tour dwell — the camera circles the framed target. */
-const TOUR_ORBIT_RADIUS_M = 1e13;
 
 interface Sources {
   readonly stars: StarDataSource;
@@ -1716,7 +1713,23 @@ function StarApp() {
     [goto],
   );
 
-  // ── Guided tour (TASK-052, §5.12) ─────────────────────────────────────────────
+  // ── Guided tour (TASK-052, §5.12; BUG-2 dwell auto-advance + galaxy framing) ───
+  const tourDwellRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | undefined;
+    deadlineMs: number;
+    stepIndex: number;
+  }>({ timer: undefined, deadlineMs: 0, stepIndex: -1 });
+
+  const clearTourDwell = useCallback((): void => {
+    const d = tourDwellRef.current;
+    if (d.timer !== undefined) {
+      clearTimeout(d.timer);
+      d.timer = undefined;
+    }
+    d.stepIndex = -1;
+    d.deadlineMs = 0;
+  }, []);
+
   // Resolve a tour step target to a galaxy-context world position the spline flies to.
   const resolveTargetUP = useCallback(
     (id: BodyId): UniversePosition | null => {
@@ -1736,6 +1749,33 @@ function StarApp() {
     [sources],
   );
 
+  const flyToStepRef = useRef<(stepIndex: number) => boolean>(() => false);
+
+  const scheduleTourDwell = useCallback(
+    (stepIndex: number, dwellMs?: number): void => {
+      const tour = useTourStore.getState().active;
+      if (tour === null || !useTourStore.getState().playing) return;
+      const step = tour.steps[stepIndex];
+      if (step === undefined) return;
+
+      const d = tourDwellRef.current;
+      if (d.timer !== undefined) clearTimeout(d.timer);
+
+      const ms = dwellMs ?? step.dwellMs;
+      d.stepIndex = stepIndex;
+      d.deadlineMs = performance.now() + ms;
+      d.timer = setTimeout(() => {
+        d.timer = undefined;
+        const state = useTourStore.getState();
+        if (state.active === null || !state.playing || state.stepIndex !== stepIndex) return;
+        if (stepIndex >= state.active.steps.length - 1) return;
+        state.next();
+        flyToStepRef.current(stepIndex + 1);
+      }, ms);
+    },
+    [],
+  );
+
   // Fly the camera to a tour step: a cinematic spline frames the target, then (if the
   // step requests it) auto-orbits during the dwell (nav v5, §5.3). Splines carry
   // UniversePositions so the path survives a context switch.
@@ -1747,6 +1787,7 @@ function StarApp() {
   // the m4a flake. See docs/research/m4a-tour-cinematic-flake-rootcause.md.
   const flyToStep = useCallback(
     (stepIndex: number): boolean => {
+      clearTourDwell();
       const ctrl = controllerHolder.current;
       const tour = useTourStore.getState().active;
       if (ctrl === null || tour === null || stepIndex < 0 || stepIndex >= tour.steps.length) {
@@ -1763,22 +1804,58 @@ function StarApp() {
       };
       const spline = buildFlyToSpline(`tour-${tour.id}-${stepIndex}`, from, target, {
         letterbox: true,
+        minStandoffPc: TOUR_FRAMING_STANDOFF_PC,
       });
       ctrl.playSpline(spline, {
         onEnd: (completed) => {
           if (completed && step.orbit === true) {
             ctrl.orbitBody({ center: target, radiusM: TOUR_ORBIT_RADIUS_M });
           }
+          if (completed) scheduleTourDwell(stepIndex);
         },
       });
       return true;
     },
-    [resolveTargetUP],
+    [clearTourDwell, resolveTargetUP, scheduleTourDwell],
   );
 
+  flyToStepRef.current = flyToStep;
+
   const handleTourExit = useCallback(() => {
+    clearTourDwell();
     controllerHolder.current?.cancelCinematic();
-  }, []);
+  }, [clearTourDwell]);
+
+  // Pause/resume gates the dwell timer and the cinematic orbit (BUG-2 §2a).
+  useEffect(() => {
+    let wasPlaying = useTourStore.getState().playing;
+    const unsub = useTourStore.subscribe((s) => {
+      if (s.active === null) {
+        clearTourDwell();
+        wasPlaying = false;
+        return;
+      }
+      if (s.playing === wasPlaying) return;
+      const ctrl = controllerHolder.current;
+      if (s.playing) {
+        ctrl?.resumeCinematic();
+        const d = tourDwellRef.current;
+        if (d.stepIndex >= 0 && d.timer === undefined) {
+          const remaining = d.deadlineMs - performance.now();
+          if (remaining > 0) scheduleTourDwell(d.stepIndex, remaining);
+        }
+      } else {
+        ctrl?.pauseCinematic();
+        const d = tourDwellRef.current;
+        if (d.timer !== undefined) {
+          clearTimeout(d.timer);
+          d.timer = undefined;
+        }
+      }
+      wasPlaying = s.playing;
+    });
+    return unsub;
+  }, [clearTourDwell, scheduleTourDwell]);
 
   // Drive step-0 flight when the tour STARTS (next/prev flights come from TourChrome's
   // onStepChange → flyToStep, so we only act on the inactive→active transition here to

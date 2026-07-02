@@ -78,6 +78,43 @@ verify before fixing; **needs-measurement** = profile first.
   duplicates the advance logic across store + callback; if the store clamps differently
   the two can diverge. Low priority — fold into the 2a fix (single source of advancement).
 
+### 2d. Post-fix UX polish — screen jumps + letterbox flicker (deferred, 2026-07-02)
+
+**Status:** documented user observation after the Option B functional fix (TASK-053
+session). **Not blocking** Phase 4a / TASK-053 gate closure — proper fix deferred to a
+future **guided-tour redesign** task.
+
+**User report (manual, dev build with BUG-2 fix applied):**
+- The tour **works** now (advances through steps, no infinite orbit on Sol, Saturn step
+  removed, does not drop into the solar system the way search/goto Sol does).
+- It does **not** read as “flying smoothly to each star” — there are visible **screen
+  jumps** between steps.
+- **Cinematic letterbox flickers** — cinematic mode appears to turn on and off during the
+  tour instead of staying engaged for the whole run.
+
+**Why this is expected with the minimal Option B fix (confidence: medium, code reading):**
+
+| Observation | Likely mechanism |
+|---|---|
+| Screen jumps | Each step calls `flyToStep` → `playSpline` from current camera to target with `minStandoffPc` galaxy framing. Auto-advance **cancels** the orbit cinematic and starts a **new** spline — a hard handoff, not a continuous path. Sol → Betelgeuse → TRAPPIST-1 are parsecs apart in a ~6 s spline. |
+| Letterbox on/off | Letterbox is **per spline** (`buildFlyToSpline({ letterbox: true })`), not tour-scoped. Between spline end → `orbitBody` dwell → next `playSpline`, `letterboxActive` / `cinematicActive` can drop and remount. `__cosmos.cinematicActive` mirrors nav cinematic state, so the HUD letterbox chrome flickers. |
+| Not a regression of 2a/2b | The old bug was “stuck forever” + zero-length Saturn move. The new behaviour is the minimum viable **functional** tour at galaxy scale — not the §6 M4 “believable flyover” polish bar. |
+
+**Explicit non-goals for the BUG-2 functional fix:**
+- Continuous authored fly-through path across the sky.
+- Tour-level letterbox held for the entire run.
+- Galaxy→system descent (deferred since 2026-06-22 Option B decision).
+
+**Fix direction (future tour-redesign task):**
+1. Hold letterbox (and `useOverlayStore.cinematic` or a dedicated `tourCinematic` flag)
+   for the whole tour — splines run underneath without toggling chrome.
+2. Author one continuous camera path (or cross-faded segments) instead of independent
+   per-step fly-tos with cancel/restart.
+3. Revisit step targets, narration, and whether steps descend into systems.
+
+**Decision (2026-07-02, user):** ship functional fix for TASK-053; UX polish when the tour
+is redesigned later. Recorded here so it does not pass unnoticed.
+
 ---
 
 ## BUG-3 — Cinematic view can't be closed (button covered)  · confidence: high

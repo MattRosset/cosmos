@@ -109,12 +109,22 @@ These were in §12/§13 but the evolved conventions deliberately superseded them
 
 - Phases 0–3 closed; hardening track (error taxonomy, diagnostics sink, error gate)
   done except **Sentry transport (TASK-056)**.
-- **Phase 4a ~95%:** all lanes (Gaia tooling, atmosphere, nebulae, overlays, tours,
-  cinematic) done; integration sweep closed 14/15 bugs. Blocked on **TASK-053** (gate +
-  manual checklist) and one product bug: **BUG-2 guided tour stuck**.
-- **Not yet real at scale:** the app ships a 135-star Gaia sample; the ~4.7M production
-  pack is not deployed, so BUG-10's P1/P2 briefs (eviction-by-count backstop, cut
-  optimization) and the integrated-GPU playbook are unvalidated where they matter.
+- **Phase 4a ~95%:** all lanes done; BUG-2 **functional fix** landed (2026-07-02, uncommitted).
+  Tour advances and stays galaxy-scale; **BUG-2d** UX polish (jumps, letterbox flicker)
+  deferred to future tour redesign — see `TASK-052-integration-bugs.md` §BUG-2d. TASK-053
+  gate + manual checklist remain.
+- **Gaia at scale — three distinct states (do not conflate):**
+  - **CI / committed default:** `octree-gaia-sample` (135 stars) — what automated gates run
+    against; correct and intentional.
+  - **Local validation:** the team has exercised the app against **full Gaia packs** built
+    locally via `tools/pack-octree` (multi-million-star catalogs, not the 135-star stub).
+    Streaming fixes (BUG-8, BUG-10 P0) and visibility work were measured on those dense
+    packs — see `bug-10-streaming-density-wall.md`, `gaia-visibility-and-realness-problem.md`.
+  - **Production gap (still open):** the ~4.7M catalog is **not yet deployed** to CDN/R2 for
+    end users. Committed builds and CI still default to the sample; TASK-065 wires the
+    build-time env override so production can point at the hosted full pack without a code
+    change. BUG-10 P1/P2 and integrated-GPU validation at production CDN scale remain the
+    follow-up once that deploy lands.
 - **Phase 4b (CDLOD terrain)** has no specs; `phase4-render-tier-handoff.md` is stale
   (marked open, actually implemented in TASK-052).
 
@@ -122,8 +132,8 @@ These were in §12/§13 but the evolved conventions deliberately superseded them
 
 | # | Action | Effort | Why now |
 |---|--------|--------|---------|
-| 1 | Fix BUG-2 (tour) + close TASK-053 gate | M | Only blockers to declaring Phase 4a done |
-| 2 | Deploy production Gaia pack; validate BUG-10 P1 + integrated-GPU floor against it | M | Every perf fix so far is validated against a 135-star fixture |
+| 1 | Close TASK-053 gate (manual checklist + doc flip) | S | BUG-2 functional fix done; BUG-2d tour UX deferred |
+| 2 | Deploy production Gaia pack to CDN; point builds at it via TASK-065 env var | M | Local dev has validated dense packs; production users still get the 135-star default until CDN deploy + env wiring |
 | 3 | Complete eslint boundary rules (pure packages, `nav` cross-group ban); fix `nav`→`scene-host` by moving the R3F hook to glue | S | Closes doc/lint drift before Phase 4b agents inherit it |
 | 4 | Split `App.tsx` (and largest `scene/` files) into <500-line composition modules | M | Highest-risk file for agent edits; pure mechanics, no redesign |
 | 5 | Wire `--coverage` for `core-types` + pack tools; dedupe pack-octree CI step | S | Gates already configured, just unplugged |

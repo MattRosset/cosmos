@@ -8,12 +8,28 @@
  * §5.3). The app resolves each `TourStep.targetId` to a world position and builds the
  * fly-to spline at step-change time.
  */
-import type { CameraSpline, Tour, UniversePosition } from '@cosmos/core-types';
+import { CONTEXT_UNIT_METERS, type CameraSpline, type Tour, type UniversePosition } from '@cosmos/core-types';
+import { DEFAULT_CONTEXT_SWITCH_POLICY } from '@cosmos/nav';
 
-/** The committed grand tour: the Sun, its ringed giant, then a famous exoplanet system. */
+/**
+ * Galaxy-scale framing for tour splines (BUG-2 / Option B). The tour stays in the
+ * galaxy context — it must NOT cross `enterSystemAtM` (~0.024 pc) or the nav
+ * controller auto-descends into the host system (the same reason searching Sol
+ * enters the solar system via `goto`, but the tour must not).
+ */
+export const TOUR_FRAMING_STANDOFF_PC =
+  (DEFAULT_CONTEXT_SWITCH_POLICY.enterSystemAtM / CONTEXT_UNIT_METERS.galaxy) * 1.85;
+
+/** Auto-orbit radius during a tour dwell — matches the galaxy framing distance. */
+export const TOUR_ORBIT_RADIUS_M = TOUR_FRAMING_STANDOFF_PC * CONTEXT_UNIT_METERS.galaxy;
+
+/**
+ * The committed grand tour: three distinct stars at galaxy scale (BUG-2 Option B).
+ * Planet targets and system descent are deferred to a future tour-design task.
+ */
 export const GRAND_TOUR: Tour = {
   id: 'grand-tour',
-  name: 'Grand tour: Sol → Saturn → TRAPPIST-1',
+  name: 'Grand tour: Sol → Betelgeuse → TRAPPIST-1',
   steps: [
     {
       targetId: 'sol',
@@ -25,11 +41,11 @@ export const GRAND_TOUR: Tour = {
       orbit: true,
     },
     {
-      targetId: 'sol:saturn',
-      title: 'Saturn',
+      targetId: 'hyg:27919',
+      title: 'Betelgeuse',
       narration:
-        'The ringed giant: bands of ice and rock a few metres thick but spanning nearly ' +
-        'the Earth–Moon distance. We descend into the Solar System to ride alongside it.',
+        'A red supergiant roughly 700 light-years away — if it sat where the Sun is, its ' +
+        'surface would swallow Mars. From here we see it as one of the brightest beacons in Orion.',
       dwellMs: 7000,
       orbit: true,
     },
@@ -59,7 +75,12 @@ export function buildFlyToSpline(
   id: string,
   from: UniversePosition,
   target: UniversePosition,
-  opts?: { readonly letterbox?: boolean; readonly durationMs?: number },
+  opts?: {
+    readonly letterbox?: boolean;
+    readonly durationMs?: number;
+    /** Minimum arrival offset in galaxy parsecs — keeps host-star tours in galaxy context. */
+    readonly minStandoffPc?: number;
+  },
 ): CameraSpline {
   const context = from.context;
   const [fx, fy, fz] = from.local;
@@ -68,7 +89,9 @@ export function buildFlyToSpline(
   const dy = ty - fy;
   const dz = tz - fz;
   const dist = Math.hypot(dx, dy, dz) || 1;
-  const standoff = Math.max(dist * ARRIVAL_FRACTION, MIN_STANDOFF);
+  const minStandoff =
+    opts?.minStandoffPc !== undefined && context === 'galaxy' ? opts.minStandoffPc : 0;
+  const standoff = Math.max(dist * ARRIVAL_FRACTION, MIN_STANDOFF, minStandoff);
   const ux = dx / dist;
   const uy = dy / dist;
   const uz = dz / dist;

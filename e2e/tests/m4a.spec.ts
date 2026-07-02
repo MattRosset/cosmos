@@ -235,6 +235,14 @@ test('M4a guided tour: cinematic flight + letterbox chrome, exit returns to free
   // Letterbox chrome is active during the cinematic.
   await expect(page.locator('.hud-letterbox--active')).toHaveCount(1);
 
+  // BUG-2: the tour auto-advances after the step-0 dwell (dwellMs=6000) instead of
+  // orbiting forever or requiring a manual Next click.
+  await page.waitForFunction(
+    () => (window.__cosmos as unknown as M4aHook | undefined)?.tour.stepIndex === 1,
+    undefined,
+    { timeout: RESULT_TIMEOUT_MS },
+  );
+
   // Exit returns to free flight (no cinematic, no tour).
   await page.getByRole('button', { name: 'Exit tour' }).click();
   await page.waitForFunction(
