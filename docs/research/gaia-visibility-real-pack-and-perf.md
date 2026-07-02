@@ -4,9 +4,20 @@ Investigation + work log for the "why don't I see Gaia?" thread (a continuation 
 TASK-052). Self-contained handoff: root causes, fixes landed, open bugs, how to build the
 real pack, and the Cloudflare path. Only the load-bearing findings are kept.
 
-Status: working tree, **not committed**. `pnpm verify` green.
+Status: **historical working-tree log (2026-06-25).** Several items below were later
+shipped on `main` — see the supersession block. `pnpm verify` green on current `main`.
 
-> **DECISION (end of thread): ship only the validated, discard the rest.**
+> **SUPERSESSION (2026-07-01) — read this first:**
+> - ✅ **BUG-8 push-down** — **SHIPPED** (`b205215`) + TASK-058 invariant (`4708461`).
+>   Canonical write-up: `docs/research/bug-8-combine-drops-source.md`. The "REVERTED" note
+>   below is **stale** — it records an intermediate decision during this thread, reversed
+>   when the fix was re-landed with tests.
+> - ✅ **BUG-10 P0** — **SHIPPED** (`5dedef1`). See `bug-10-streaming-density-wall.md`.
+> - ✅ **BUG-4** — **SHIPPED** (`1626985`). See `bug-4-universe-lag.md` §7.
+> - ⏳ **Still open:** env-configurable `GAIA_OCTREE_MANIFEST_URL` for production CDN/R2;
+>   dense-pack push-down decimation (§6 below); `idPrefix` mixing (BUG-8 follow-up).
+
+> **DECISION (end of original thread, 2026-06-25): ship only the validated, discard the rest.**
 > The user chose to keep only what was rigorously validated and revert everything carrying
 > unvalidated assumptions (so nothing half-baked ships). This document is the record so the
 > work can be revived when a real Gaia pack is actually deployed.

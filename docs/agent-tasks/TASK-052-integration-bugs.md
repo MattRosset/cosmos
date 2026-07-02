@@ -7,67 +7,88 @@ pre-fix analysis of 1–5 also lives in `docs/research/TASK-052-integration-bugs
 
 Status legend: `open` · `fixed` · `improved` · `deferred`
 
+**Sweep closure (2026-07-01):** 14/15 tracked items **closed** on `main`. Sole remaining
+open bug: **BUG-2** (guided tour). BUG-4 closed via `1626985` (global procgen cap); optional
+distance/tier LOD documented as future polish, not scheduled.
+
 ## Status summary
 
 | Bug | What | Status | Owner area / notes |
 |-----|------|--------|--------------------|
 | **6** | Octree tiles never load (`fetch` Illegal invocation) → coverage 0 | ✅ **fixed + committed** (`f8e6d89`) | `packages/data`; re-measured on the scripted path → coverage 1.0, tiles load, procgen fades (validated) |
 | **3** | Cinematic view can't be closed (button covered) | ✅ **fixed + committed** (`f8e6d89`) | `ui.css` z-index + `App.tsx` Esc |
-| **1** | Nebulae render as flat green bokeh discs | 🟡 **improved + committed** (`f8e6d89`) | `glue/nebulae.ts`; fine polish → **separate task** |
+| **1** | Nebulae render as flat green bokeh discs | 🟡 **improved + committed** (`f8e6d89`, `4929d6d`) | Tier-A overhaul in `glue/nebulae.ts` + shader tint; fine polish → **separate task**. Research: `docs/research/nebula-visual-quality.md` |
 | **2** | Guided tour gets stuck / Saturn won't move | ⏳ **open** | app glue; decision made (Option B) |
-| **4** | Universe view laggy | ⏳ **open — still structurally live, but GPU-dependent (latent)** | GPU fill-rate (procgen cloud overdraw, tier-independent); fix = count-LOD in `render-galaxy` (frozen). Re-measured 2026-06-28: unchanged in code (full 1.1M additive pts, `drawFraction=1` at universe); on a high-end GPU (RX 9070 XT) the universe frame is the costliest segment but only ~0.37 ms (invisible) — the 40 ms was weak-HW/SwiftShader fill cost. Full research: `docs/research/bug-4-universe-lag.md`. See §BUG-4 |
+| **4** | Universe / Milky Way view GPU lag (procgen overdraw) | ✅ **fixed + committed** (`1626985`) | Global `PROCGEN_MAX_DRAW_POINTS=90k` via `setDrawFraction` — cuts 1.1M→~90k whenever procgen is on. Resolves the fill-rate cliff on weak HW; spiral still reads at far vantage (user-verified high-end). **Future polish:** distance/tier LOD so high-end gets full cloud at ~49 kpc — see §BUG-4 + `procgen-lod-near-sol.md` §Future |
 | **G** | flythrough4 gate broken 3 ways (path ENOENT + degenerate baseline + metric misses the monolith) | ✅ **fixed + committed** (`ec51eeb`) | C1 path→`__dirname`, C3 metric→`gl.info.render` on toSol, C2 baseline re-recorded. Green on chromium+webkit+firefox in CI. See §Gate health |
 | **S** | soak3/soak4 churn gate broke (`requestsIssued>100` → got 8) | ✅ **fixed + committed** (`4d13f77`) | side-effect of the BUG-6 fix: tiles load+cache instead of re-request storm. Proxy re-targeted to `loadedMax>loadedMin`. See §Gate health |
-| **5** | Labels jitter when camera moves | ✅ **fixed** (working tree, not committed) | per-frame imperative projection replaces the 10 Hz `setInterval`+React-state path. App glue only (`glue/overlays.ts`, `scene/Overlays.tsx`, `hud/Hud.tsx`); `ui` untouched. Verified live: label `left` changes 39/39 frames under motion (was a ~6-frame staircase). See §BUG-5 |
-| **7** | Labels never render in the DOM (e2e) | ✅ **fixed** | Root cause: boot orientation frames none of the (distant, scattered) labelled giants → 0 in-frustum, not a gating bug. e2e now reorients via `__cosmosDev.focusFirstLabel`; also fixed a latent behind-camera phantom-label bug in the projection. App glue only. See §BUG-7 |
-| **8** | Gaia never renders inside the galaxy (combine drops a source) | ⏳ **root-caused; fix DEFERRED** (reverted, not shipped) | push-down design + test recorded in `docs/research/gaia-visibility-real-pack-and-perf.md`; revive with a real pack |
+| **5** | Labels jitter when camera moves | ✅ **fixed + committed** (`4606a55`) | per-frame imperative projection replaces the 10 Hz `setInterval`+React-state path. App glue only (`glue/overlays.ts`, `scene/Overlays.tsx`, `hud/Hud.tsx`); `ui` untouched. See §BUG-5 |
+| **7** | Labels never render in the DOM (e2e) | ✅ **fixed + committed** (`3322b87`) | Boot orientation frames none of the labelled giants → 0 in-frustum. e2e reorients via `__cosmosDev.focusFirstLabel`; latent behind-camera phantom-label bug fixed in projection. See §BUG-7 |
+| **8** | Gaia never renders inside the galaxy (combine drops a source) | ✅ **fixed + committed** (`b205215`; invariant `4708461`) | push-down at load time in `glue/octree-combined.ts`; unit tests + TASK-058 `assertTileContributions`. Research: `docs/research/bug-8-combine-drops-source.md`. See §BUG-8 |
 | **9** | Procgen Milky Way never renders (empty overview / "Milky Way black") | ✅ **fixed + committed** (`77db8ed`) | procgen fade now DISTANCE-driven, not `1−coverage` (which saturates ≡1 inside the galaxy-scale octree). Verified: spiral visible at the parked ~49 kpc vantage; CI green. Known follow-up: spiral pops in on arrival (off during flight to protect flythrough4 §5.4) — the §6 deferred item. See `docs/galaxy-rendering-model.md` + `docs/research/galaxy-procgen-coverage-regression.md` |
-| **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ✅ **P0 fixed + committed** (`5dedef1`); P1/P2 = agent briefs | Real cause was `enforceBudgets` **O(cut²)** collapse (99.6% of frame), NOT the push-down (reverted) or unbounded residency (re-measured: bounded). 384 ms→1.9 ms, **1.2→164 fps** on the 3M. See §BUG-10 |
+| **10** | Dense (~3M) Gaia pack thrashes streaming → hang on move | ✅ **P0 fixed + committed** (`5dedef1`); P1/P2 = agent briefs | Real cause was `enforceBudgets` **O(cut²)** collapse (99.6% of frame), NOT unbounded residency (re-measured: bounded). 384 ms→1.9 ms, **1.2→164 fps** on the 3M. See §BUG-10 |
+| **T** | Galaxy breadcrumb transit renders black (~90 % of flight) | ✅ **fixed + committed** (`df3e77c`, `1073dbf`, `51e0f17`) | distance-driven procgen during flight + Gaia octree kept visible + procgen floor (B+E). Design: `docs/research/galaxy-transit-procgen-floor-design.md` |
+| **E** | Gaia catalog stars near-invisible at default exposure | ✅ **fixed + committed** (`dabb99f`) | catalog-field exposure boost. Research: `docs/research/gaia-pack-completeness-and-exposure.md` |
+| **F** | m4a guided-tour e2e flake (step-0 cinematic mount race) | ✅ **fixed + committed** (`2021026`) | retry step-0 until controller mounts — CI stability only; underlying BUG-2 product defects remain. Research: `docs/research/m4a-tour-cinematic-flake-rootcause.md` |
 
-## Committed state (2026-06-24)
+## Committed state (2026-07-01)
 
-On `main`, pushed:
+On `main` (integration-bug sweep + post-sweep fixes), in chronological order:
+
+**2026-06-24 — initial sweep + gates**
 - `f8e6d89` fix m4a (BUG-1/3/6), `bde7dbd` perf pack-octree, `b473317` test phase-4a,
   `129299d` docs, `86c3fd3` chore gitignore.
-- `ec51eeb` **P1 — flythrough4 gate correct & green** (Gate health C1+C2+C3).
-- `4d13f77` **soak3/soak4 churn proxy fix** (Gate health S).
+- `ec51eeb` flythrough4 gate correct & green (Gate **G**: C1+C2+C3).
+- `4d13f77` soak3/soak4 churn proxy fix (Gate **S**).
+- `3322b87` **BUG-7** — m4a overlay label gate green.
+- `77db8ed` **BUG-9** — Milky Way spiral at far vantage.
+- `5dedef1` **BUG-10 P0** — `enforceBudgets` O(n²)→O(n).
 
-**CI status after these:** the only remaining red was **BUG-7** (`m4a.spec.ts:172` overlays —
-labels never render in the DOM). flythrough4 (×3 browsers), soak3, soak4 are all green;
-`verify` green. The first CI run of flythrough4/soak4 (the 2026-06-24 push) surfaced 6
-failures; P1 + S cleared 5, leaving BUG-7.
+**2026-06-25…27 — labels, nebula, galaxy transit, Gaia visibility**
+- `4606a55` **BUG-5** — per-frame imperative label projection.
+- `4929d6d` **BUG-1** Tier-A nebula visual overhaul.
+- `df3e77c`, `1073dbf`, `51e0f17` **T** — breadcrumb transit visibility (procgen fade +
+  Gaia visible during flight + procgen floor).
+- `dabb99f` **E** — Gaia catalog exposure boost.
+- `1626985` **BUG-4** — procgen LOD cap (`PROCGEN_MAX_DRAW_POINTS=90k`); also unblocks
+  flythrough4 §5.4 near-Sol budget (same commit).
 
-**BUG-7 now fixed (working tree, not yet committed).** All 4 m4a specs pass on chromium +
-`pnpm verify` green → **CI is expected 100% green.** App-glue only (`App.tsx`,
-`scene/Overlays.tsx`) + the e2e; no frozen package touched.
+**2026-06-28…07-01 — combine, diagnostics, tour flake**
+- `b205215` **BUG-8** — push-down combine (shallower catalog no longer dropped).
+- `c6dc9ed` TASK-057 streaming error phase (structural fix for BUG-6 silent-storm class).
+- `4708461` TASK-058 — `assertTileContributions` invariant on combine (BUG-8 class).
+- `076ef80` TASK-059 error gate e2e.
+- `2021026` **F** — m4a tour step-0 cinematic mount retry.
 
-## Recommended next steps (priority order, updated 2026-06-24)
+**CI status (2026-07-01):** all tracked gate specs green on `main` — m4a (×4 incl. tour),
+flythrough4 (×3 browsers), soak3/soak4, error-gate, `pnpm verify`. The 2026-06-24 push
+surfaced 6 failures; gates **G** + **S** cleared 5, **BUG-7** cleared the last.
 
-**DONE — P1 (gate correct & green, `ec51eeb`) + S (soak churn proxy).** See §Gate health.
+## Recommended next steps (priority order, updated 2026-07-01)
 
-**Next to GREEN CI — BUG-7** (`m4a.spec.ts:172`): the sole remaining e2e failure. Labels/
-constellation toggles drive the store but no label elements reach the DOM/HUD. Investigate
-with BUG-5 (same projection path) — the user DID see labels jitter in-app, so this may be
-test-env/timing or a real gate that only fires under the e2e's conditions.
+**DONE — gates G/S, BUG-4/5/7/8/9/10 P0, transit T, exposure E, tour flake F.** See table.
+**Sweep status: 14/15 tracked items closed.** Only **BUG-2** (guided tour product defects)
+remains open.
 
-**P2 — BUG-4 real fix: count-LOD the procgen cloud at universe scale.** The actual perf
-bug, most visible (40ms→~16ms target), but does NOT block CI (known perf, not a
-regression), is the biggest, and touches `render-galaxy` (frozen) → its own reviewed
-commit/task ([[frozen-package-defects]]). The flythrough4 gate now measures it correctly,
-so it can confirm the win.
+**Open product bug (1):**
+- **BUG-2** (tour) — `dwellMs` still unconsumed; `GRAND_TOUR` still has `sol:saturn`
+  (zero-length move). Option B: distinct-star steps + dwell auto-advance. Separate task for
+  full tour redesign (galaxy→system descent). Research: `docs/research/TASK-052-integration-bugs.md` §BUG-2.
 
-**Then (after BUG-7/P2):**
-- **BUG-2** (tour) — most self-contained; Option B (distinct-star steps + `dwellMs`).
-- **BUG-5 + BUG-7** (labels) — together (same projection path).
-- **Separate task:** nebula visual polish (BUG-1 deferred list).
-- **Separate task (decided):** full guided-tour redesign.
+**Optional follow-ups (not blocking — polish / future tasks):**
+- **BUG-4 polish** — distance/tier-aware procgen LOD: full cloud at far vantage on `high`,
+  keep 90k cap on `low`/integrated. See `procgen-lod-near-sol.md` §Future + `integrated-gpu-targeting.md` Step 1.
+- **BUG-1** nebula fine polish (iterative tuning loop).
+- **BUG-10 P1/P2** — eviction count backstop + cut/frustum optimisation (agent briefs exist).
+- **BUG-8 follow-up** — per-point catalog identity in combined tiles (`idPrefix` mixing;
+  rendering correct, picking/labels wrong for Gaia-in-HYG tiles).
+- **Gaia pack deploy** — env-configurable `GAIA_OCTREE_MANIFEST_URL` for production CDN/R2.
 
 ---
 
 ## BUG-1 — Nebula rendering looks wrong (green bokeh blobs)
-- **Status:** IMPROVED in working tree (provisional, not committed). Bokeh-disc read is
-  FIXED; further visual polish DEFERRED to a separate iterative task (user decision — it's
-  a tuning loop and this session is context-heavy). User confirmed the new look is better.
+- **Status:** IMPROVED + committed (`f8e6d89` initial fix, `4929d6d` Tier-A overhaul).
+  Bokeh-disc read is FIXED; further visual polish DEFERRED to a separate iterative task.
 - **Root cause:** the sprite (`createNebulaNoiseTexture`, `apps/web/src/glue/nebulae.ts`)
   was a plain radial gradient (no noise), and the shader's only per-layer variation is a UV
   *rotation* — a no-op on a radially symmetric texture → ~16 identical soft discs stacked
@@ -82,8 +103,7 @@ so it can confirm the win.
   - Faint value-noise "cellularity" visible in extreme close-ups (GRID/octaves; consider
     gradient/Perlin noise or higher base GRID for smoother wisps).
   - Far/boot-distance brightness + tint balance (additive `CLOUD`/opacity tuning).
-  - Optional: per-layer UV offset/scale in `render-fx` (frozen) for more variety; and
-    re-check overdraw cost (ties to BUG-4).
+  - Optional: per-layer UV offset/scale in `render-fx` (frozen) for more variety.
 - **Suspect/owning area:** `apps/web/src/glue/nebulae.ts` (sprite + field specs),
   `packages/render-fx` nebula shader (frozen — only if per-layer variance is pursued).
 
@@ -117,37 +137,33 @@ so it can confirm the win.
   Need an always-on-top exit affordance (or Esc to exit).
 - **Suspect area:** TASK-051 cinematic mode letterbox, TASK-050 overlay/tour chrome z-order.
 
-## BUG-4 — Universe view is laggy
-- **Status:** open — root cause **MEASURED twice**. **GPU fill-rate, NOT CPU.**
-- **Re-measurement (2026-06-24, real-browser Chromium, BUG-6 fix in place).** Ran the
-  flythrough4 probe in both tiers on the identical scripted path. Per-segment p50:
+## BUG-4 — Universe / Milky Way view GPU lag — ✅ FIXED (`1626985`)
 
-  | segment | M3 p50 | M4a p50 | pts | draws | coverage | procgen |
-  |---------|--------|---------|-----|-------|----------|---------|
-  | toGalaxy (universe) | **44.3 ms** | **40.0 ms** | 1.11M | 10 | 1.00 | **1.00** |
-  | toSol | 16.6 ms | 16.8 ms | 1.11M | 10 | 1.00 | 0.00 |
-  | toEarth | 16.6 ms | 16.7 ms | 1.11M | 10 | 1.00 | 1.00 |
-
-  Span profile (M4a, whole run, n=453 frames): `streaming.update` total 92 ms (avg
-  0.20 ms), `nav.update` 18 ms, `galaxy.render` 9 ms — **every CPU span sums to <0.3 ms
-  per frame.** So the 40–44 ms universe frames are pure GPU.
-- **Confirmed facts:**
-  1. The lag is **tier-independent** — M3 (44 ms) and M4a (40 ms) are equally slow in the
-     universe segment. It is NOT a tier-unification problem; it is the shared galaxy
-     composition. (toSol/toEarth are a healthy ~16 ms in both.)
-  2. In `toGalaxy`, `procgen=1.00` while `coverage=1.00` — the coverage-driven fade does
-     NOT apply in the universe context (correct: from outside, the procgen cloud *is* the
-     galaxy). So the cloud renders at full there by design and cannot simply be removed.
-  3. The procgen point SIZE is already clamped (`uMaxPointPx`, `galaxy.vert.glsl.ts`), so
-     the overdraw is from the **count** (1M overlapping additive points filling the disc),
-     not oversized points.
-- **Fix direction (P2):** **count-LOD** the procgen cloud when far out (universe scale) —
-  draw a fraction of the 1M points / a coarser cloud while the silhouette still reads;
-  optionally gate the additive nebula layers harder by distance. The point-size clamp is
-  not the lever. Verify on SwiftShader (CI exaggerates fill cost), not just real GL.
-- **Touches `render-galaxy` (frozen)** → own reviewed commit/task ([[frozen-package-defects]]).
-- **Suspect area:** procgen Milky Way cloud (`render-galaxy`, the cloud emit in the
-  streaming policy / glue), nebula additive layers (`render-fx` / `glue/nebulae.ts`).
+- **Status:** FIXED + committed. The procgen cloud is capped to `PROCGEN_MAX_DRAW_POINTS =
+  90_000` via `setDrawFraction` whenever the layer is on (~8% of the 1.1M cloud). App glue
+  only (`GalaxyScene.tsx`); `setDrawFraction` already existed in `render-galaxy`. CI green;
+  spiral readable at the ~49 kpc Milky Way vantage (user-verified on high-end hardware, 2026-07-01).
+- **What it was:** GPU fill-rate overdraw — the full ~1.1M-point procedural Milky Way cloud
+  drawn as additive sprites filling the disc from the far vantage (`toGalaxy` flythrough4
+  segment). CPU was innocent (<0.3 ms/frame spans); the original ~40 ms p50 was pure GPU on
+  weak hardware / SwiftShader. Tier-independent (M3 ≈ M4a). Research trail:
+  `docs/research/bug-4-universe-lag.md` (pre-fix measurement, 2026-06-28).
+- **Fix shipped (`1626985`, same commit that restored flythrough4 §5.4):** distance-
+  independent cap at 90k points through the existing `setDrawFraction` knob. Opacity
+  (`procgenBlend`) remains the sole visual fade — draw count is perf-only (avoids P2
+  "nebulas without stars"). Reconciles "procgen lit closer to Sol" (transit fix T) with the
+  near-Sol point budget gate.
+- **Acceptance:** on integrated/weak GPUs the overdraw cliff is gone (~12× fewer fragments).
+  On high-end discrete the spiral still reads; some inter-arm sparsity is visible — acceptable
+  for now (decision 2026-07-01: leave as-is, revisit as polish).
+- **Future polish (optional, not a bug):** the global 90k cap penalizes the Milky Way hero
+  shot on GPUs that could afford the full cloud. Better shape (documented, not scheduled):
+  1. **Distance LOD** — full `drawFraction` at ≥ `GAL_FADE_HI_PC` (~49 kpc); cap only in the
+     mid band where the real catalog + procgen overlap.
+  2. **Tier LOD** — wire `useQuality().tier` so `high` draws more at far vantage, `low`
+     keeps 90k (`integrated-gpu-targeting.md` Step 1).
+  3. **Brightest-N subset** instead of a uniform prefix (Option A in `procgen-lod-near-sol.md`).
+  Knob today: `PROCGEN_MAX_DRAW_POINTS` in `GalaxyScene.tsx`.
 
 ## Gate health — flythrough4 acceptance gate is broken 3 ways (NEW, 2026-06-24)
 The TASK-053 agent's `e2e/tests/flythrough4.spec.ts` ran in CI for the FIRST time on the
@@ -193,8 +209,8 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
   > 0` liveness floor + the existing `inFlightMax >= 2`. Gate on the correct deterministic
   proxy, no coping tooling ([[ci-test-infra-philosophy]]). Green: soak3 + soak4 on chromium.
 
-## BUG-5 — Labels jitter when camera moves — ✅ FIXED (working tree, not committed)
-- **Status:** FIXED in working tree. `pnpm verify` 22/22 green; verified live in-browser.
+## BUG-5 — Labels jitter when camera moves — ✅ FIXED (`4606a55`)
+- **Status:** FIXED + committed. `pnpm verify` green; verified live in-browser.
   App-glue only — no frozen package touched (`ui` `LabelLayer` left as-is; the app's HUD
   now owns an imperative label host).
 - **Root cause (as researched):** labels were projected on a `setInterval` at
@@ -224,11 +240,10 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
 - **Files:** `apps/web/src/glue/overlays.ts`, `apps/web/src/scene/Overlays.tsx`,
   `apps/web/src/hud/Hud.tsx`.
 
-## BUG-6 — Octree tiles never load (`fetch` Illegal invocation) → coverage always 0 (NEW)
-- **Status:** FIXED in working tree (`packages/data/src/octree.ts`). `pnpm verify` green.
-  Verified live: coverage 0 → **1.0**, octree tiles load (8 visible near Sol), procgen
-  fades to 0. **Frozen-package fix (`data`) — wants a separate reviewed commit**
-  ([[frozen-package-defects]]). Not yet committed.
+## BUG-6 — Octree tiles never load (`fetch` Illegal invocation) → coverage always 0 — ✅ FIXED (`f8e6d89`)
+- **Status:** FIXED + committed (`packages/data/src/octree.ts`). Verified live: coverage 0 →
+  **1.0**, octree tiles load, procgen fades to 0. TASK-057 adds structural error handling so
+  tile-load failures are no longer silently swallowed (the BUG-6 storm class).
 - **Was:** blocks the Phase 4a gate (ADR-006 §5.4) AND fails the pre-existing `m4a.spec.ts`
   "tier unification" test → a real defect, not a harness artifact.
 - **Root cause (measured live, not theory):** `OctreeSourceImpl.loadTile`
@@ -247,13 +262,12 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
   throw (only the real browser `fetch` enforces the Window receiver). And no gate asserted
   octree tiles actually reach `ready` (`loadedChunks ≡ 1` was tolerated through M3 + M4a).
   Follow-up: the gate should assert catalog tiles load (cf. [[ci-test-infra-philosophy]]).
-- **Knock-on:** also reduces overdraw near Sol (procgen now fades when catalog covers) —
-  relevant to BUG-4. The TASK-053 `flythrough4` near-Sol baseline numbers the agent
-  recorded are now stale (they were measured with the catalog tier dead) — re-record.
+- **Knock-on:** also reduces overdraw near Sol (procgen now fades when catalog covers).
+  The TASK-053 `flythrough4` near-Sol baseline was re-recorded after BUG-6 + BUG-4 fixes.
 
-## BUG-7 — Labels never render in the DOM (overlay e2e fail) — FIXED
-- **Status:** FIXED in working tree (app glue only; not committed). `m4a.spec.ts` overlays
-  passes; full m4a (×4) + `pnpm verify` green.
+## BUG-7 — Labels never render in the DOM (overlay e2e fail) — ✅ FIXED (`3322b87`)
+- **Status:** FIXED + committed (app glue only). `m4a.spec.ts` overlays passes; full m4a
+  (×4) + `pnpm verify` green.
 - **Root cause (measured, not theory — instrumented `publishLabels`/the projection and
   dumped NDC for all 40 labels at boot):** it was the test-environment tension, NOT a
   gating bug. The label set = the 40 brightest *named* stars = intrinsically luminous
@@ -280,13 +294,14 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
      (`z < 0 ⇒ in front`) before the NDC bounds. No regression for on-screen labels.
 - **Files:** `apps/web/src/App.tsx` (dev hook ×2 scenes + Window type), `apps/web/src/scene/
   Overlays.tsx` (projection), `e2e/tests/m4a.spec.ts`.
-- **Related:** BUG-5 (same projection path) is the per-frame-cadence jitter fix; still open,
-  but now decoupled — BUG-7 was never about cadence.
+- **Related:** BUG-5 (same projection path) is the per-frame-cadence jitter fix — also
+  closed (`4606a55`). BUG-7 was never about cadence.
 
-## BUG-8 — Gaia never renders inside the galaxy (combine drops a source) (NEW)
-- **Status:** FIXED in working tree + gated by a deterministic unit test (`pnpm verify`
-  green). NOT committed. App glue only (`apps/web/src/glue/octree-combined.ts`); no frozen
-  package touched.
+## BUG-8 — Gaia never renders inside the galaxy (combine drops a source) — ✅ FIXED (`b205215`)
+- **Status:** FIXED + committed + gated by deterministic unit tests (`pnpm verify` green).
+  TASK-058 (`4708461`) adds `assertTileContributions` as a runtime invariant on the combine
+  path. App glue only (`apps/web/src/glue/octree-combined.ts`); no frozen package touched.
+  Full write-up: `docs/research/bug-8-combine-drops-source.md`.
 - **Symptom:** inside the galaxy you see the HYG catalog (~120k) but **zero Gaia**, despite
   BUG-6 (tile loads) being fixed. The streaming catalog tier is `HYG ∪ Gaia` (deduped) and
   should show both — Gaia adds the faint nearby stars HYG lacks; it is *most* expected near
@@ -335,8 +350,8 @@ the monolith → `39 / 572` (clean drop, huge margin on points). Green on all 3 
   `parentKey` (Morton decode+encode, string ops) per element to find the deepest collapsible node.
   A 754-node cut (the 3M pack near Sol) ⇒ ~384 ms/frame ⇒ **~1.2 fps even static**. The render was
   0.1 ms; selection 0.1 ms. The original handoff's framing (unbounded loaded-tile count + push-down
-  per-tile cost) was **wrong on both counts**: the push-down is reverted (not in the tree), and
-  residency is bounded (see P1 below).
+  per-tile cost) was **wrong on both counts**: residency is bounded (see P1 below), and the
+  push-down is now shipped separately as BUG-8 (`b205215`).
 - **Fix:** rewrote `enforceBudgets` as an O(cut) deepest-first bucket-by-level collapse with
   incremental `pts`/`draws` totals — same greedy semantics, each node visited O(1) times.
   Re-measured on the 3M at Sol: enforce **384 ms → 1.9 ms**, update total **385 → 2.0 ms**,

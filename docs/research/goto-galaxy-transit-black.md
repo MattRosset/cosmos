@@ -1,6 +1,8 @@
 # Research: black transit on galaxy breadcrumb flights (◂ Milky Way / ◂ Galaxy)
 
-**Status:** **root cause confirmed** (live measurement) — fix not yet applied.
+**Status:** **FIXED** (`df3e77c`, `1073dbf`, `51e0f17` — transit **T** in
+`docs/agent-tasks/TASK-052-integration-bugs.md`). Design + contract:
+`docs/research/galaxy-transit-procgen-floor-design.md`.
 **Symptom owner:** the "goto se tilda / salta de pantalla / negro por segundo y algo"
 report. Reframed below: it is **not** a freeze.
 **Related:** `docs/research/TASK-040-breadcrumb-freeze.md` (the *previous*, perf, freeze —

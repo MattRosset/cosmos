@@ -1,22 +1,23 @@
 # BUG-4 — Universe-view lag: what it is and whether it is still live
 
-Research pass (2026-06-28) re-scoping BUG-4 after the procgen-floor + nebula commits that
-landed since the original 2026-06-24 measurement. Question from the user: *what does this
-bug actually refer to, and is it still vigente?*
+**Status: CLOSED (2026-07-01).** Fixed in `1626985` — global procgen draw cap
+(`PROCGEN_MAX_DRAW_POINTS = 90_000` via `setDrawFraction`). Handoff:
+`docs/agent-tasks/TASK-052-integration-bugs.md` §BUG-4. Implementation detail:
+`docs/research/procgen-lod-near-sol.md`.
 
-**TL;DR.** BUG-4 is the far-out "universe" view (the recorded path's `toGalaxy` segment)
-costing far more GPU than the inner segments because the full ~1.1M-point procedural Milky
-Way cloud is drawn as **additive sprites** that cover the whole galaxy disc from outside →
-massive **overdraw** (a fill-rate cost, not CPU). **It is still structurally present** — the
-cloud still full-draws at the universe vantage (`drawFraction` is hardwired to `1`,
-`procgenBlend = 1` there) and the recent `51e0f17` commit only removed the *in-flight* draw
-cap, explicitly keeping full draw at the resting far vantage. **But whether it manifests as
-visible lag is GPU/resolution-dependent.** Re-measured on this dev machine (AMD Radeon RX
-9070 XT) the universe frame is the single most GPU-expensive segment — but only **0.37 ms**
-median, i.e. invisible here. The original "40 ms" was a real GPU-bound stall on weaker
-hardware (and CI SwiftShader). So BUG-4 is a **latent fill-rate cliff**: real, unchanged,
-and it will bite on integrated/low-end GPUs, high-DPI/4K, or large windows — just not on a
-high-end discrete GPU.
+Research pass (2026-06-28) re-scoping BUG-4 after the procgen-floor + nebula commits that
+landed since the original 2026-06-24 measurement. The §3–§6 measurements below are
+**historical** (pre-fix). §7 records the resolution + optional future polish.
+
+**TL;DR (original symptom).** BUG-4 was the far-out Milky Way view (`toGalaxy` segment)
+costing far more GPU than inner segments because the full ~1.1M-point procedural cloud drew
+as **additive sprites** covering the whole disc → massive **overdraw** (fill-rate, not CPU).
+On weak HW / SwiftShader that was ~40 ms/frame; on high-end discrete it was sub-vsync.
+
+**TL;DR (resolution).** `1626985` caps drawn points to 90k whenever procgen is on (~12×
+fewer fragments). Acceptable spiral read at far vantage; some inter-arm sparsity on high-end
+(user-verified 2026-07-01). **Future polish (optional):** distance/tier LOD so `high` tier
+gets full cloud at ~49 kpc — see §7 and `integrated-gpu-targeting.md` Step 1.
 
 ---
 
@@ -40,34 +41,27 @@ and concluded (CPU spans all < 0.3 ms/frame) that it is **GPU fill-rate**, tier-
 (M3 ≈ M4a), caused by the procgen cloud's overdraw, not point *size* (already clamped via
 `uMaxPointPx`) — the cost is the **count** of overlapping additive points filling the disc.
 
-## 2. Mechanism (confirmed in the current code)
+## 2. Mechanism (confirmed in the current code — **historical pre-`1626985`**)
 
-`apps/web/src/scene/GalaxyScene.tsx`:
+`apps/web/src/scene/GalaxyScene.tsx` (as of 2026-06-28, before the LOD cap):
 - In the **universe** context, `procgenBlend` stays `1` (the `if (ctx === 'galaxy')`
   distance-fade block does not apply — from outside, the procgen cloud *is* the galaxy and
   must render at full). So the cloud is fully on.
-- `drawFraction` is **hardwired to `1`** (`const drawFraction = 1;`, line ~466). The comment
-  is explicit that it is a *perf-only* knob deliberately left at 1: opacity (`procgenBlend`)
-  is the sole visual fade so stars + nebula sprites fade together (avoiding the "nebulas
-  without stars" P2 regression). So all ~1.1M points are submitted whenever the layer is on.
+- `drawFraction` was **hardwired to `1`** (pre-`1626985`). Now capped at
+  `PROCGEN_MAX_DRAW_POINTS / batch.count` — see §7.
 - The cloud (`createGalaxyPoints`) draws with `AdditiveBlending`, `depthWrite:false` →
   every covered fragment is shaded and blended. **Overdraw cost is per-fragment and largely
   independent of opacity** — even at low `procgenBlend` the fragments still rasterize. From
   the universe vantage the disc fills most of the screen, so the overdraw factor is high.
 
-### Did the recent commits change it?
-No — they preserved it on purpose:
-- **`51e0f17`** (procgen floor B+E) **dropped only the in-flight draw cap**
-  (`GAL_FLIGHT_DRAW_MAX`). Its own comment: *"The resting far vantage already full-draws the
-  1M-point cloud continuously, so full draw in the mid-band during flight adds no new worst
-  case."* i.e. the universe-vantage full draw (the BUG-4 case) was already there and was kept.
-- **`4929d6d`** (nebula Tier A) added more faint additive layers, but those are the local
-  `NEBULA_FIELDS` (≤ 600 pc near Sol), capped off on the `low` tier; they are not the
-  galaxy-scale universe overdraw and subtend little from the ~49 kpc vantage.
+### Did the recent commits change it? (historical, pre-`1626985`)
 
-## 3. Re-measurement (2026-06-28, AMD Radeon RX 9070 XT, ANGLE/D3D11)
+Through 2026-06-28 the full 1M draw was preserved on purpose (`51e0f17` dropped only the
+in-flight cap). **`1626985` (2026-06-30)** added the global 90k cap — see §7.
 
-### 3a. Scene work — unchanged, full cloud at the universe vantage
+## 3. Re-measurement (2026-06-28, AMD Radeon RX 9070 XT — **pre-`1626985`**)
+
+### 3a. Scene work — full cloud at the universe vantage (pre-fix)
 `?debug=flythrough4` (m4a), per-segment peak `gl.info.render`:
 
 | segment | peak scene points | procgen opacity | sceneDraws |
@@ -110,55 +104,37 @@ GPU** (0.37 ms). (Instrument caveat: the timer query serialises the pipeline and
 run; `toGalaxy` only banked 50 samples. The relative ordering is robust; treat the absolute
 sub-ms numbers as order-of-magnitude.)
 
-## 4. Is it still vigente?
+## 4. Is it still vigente? (historical — pre-`1626985`)
 
-**Yes — as a latent fill-rate cliff, not as lag on this machine.**
-- **Structurally:** unchanged. Full ~1.1M additive points at the universe vantage,
-  `drawFraction = 1`, no count-LOD. Confirmed in code and by the scene-point peak.
-- **As experienced lag:** hardware- and resolution-dependent. Fill-rate cost ≈
-  `covered_pixels × overdraw × per-fragment_shading`. The RX 9070 XT has enormous fill rate,
-  so 0.37 ms; an integrated / low-end GPU has ~10–100× less fill throughput, which turns the
-  same draw into ~4–37 ms (and the 4.16 ms peak into 40 ms+) — matching the original report
-  and CI SwiftShader (software raster, where fill is the dominant cost). High-DPI/4K or a
-  maximised window scales `covered_pixels` and pushes the same way.
+**Was yes — as a latent fill-rate cliff.** Superseded by the global 90k cap (§7).
 
-So: if the target includes laptops/integrated GPUs/4K, **BUG-4 is real and worth fixing**.
-If the audience is high-end discrete GPUs only, it is currently invisible.
+## 5. Fix direction (historical — pre-`1626985`)
 
-## 5. Fix direction (unchanged in shape; now with a verification caveat)
+Count-LOD via `setDrawFraction` — the lever that was eventually used, but as a global cap
+rather than distance/tier-aware.
 
-**Count-LOD the procgen cloud at universe scale.** The lever already exists and is plumbed:
-`cloud.setDrawFraction(drawFraction)` in `makeProcgenMount.applyFrame`
-(`GalaxyScene.tsx`), currently fed a constant `1`. Drawing a fraction of the 1.1M points
-when far out (the silhouette still reads at that distance) directly cuts the overdraw.
+## 6. Recommendation (historical — pre-`1626985`)
 
-Constraints / traps:
-- **Keep opacity as the visual fade.** `drawFraction` must stay a *perf-only* knob —
-  tying it to `procgenBlend` re-creates the P2 "nebulas without stars" regression
-  (`51e0f17`). Reduce *count* by distance, independent of the opacity blend.
-- **`render-galaxy` is a frozen package** (`createGalaxyPoints`/`setDrawFraction`). If the
-  fix needs more than feeding a `<1` fraction from the glue (e.g. a smarter stride that
-  preserves the disc shape), it touches frozen code → **its own reviewed commit/task**
-  ([[frozen-package-defects]]).
-- **Verify on the right hardware.** Frame interval / FPS on a fast GPU will not move (§3b) —
-  the win is sub-vsync there. Verify with a GPU timer query (as in §3c), under SwiftShader
-  (CI; software raster exaggerates fill so the delta is visible), or on an integrated-GPU
-  profile. Confirm the spiral silhouette still reads after the count cut
-  ([[verify-render-before-perf]]).
+Lower priority than broken-behaviour bugs unless integrated-GPU targets matter. That
+priority call stood until `1626985` landed as a side-effect of the flythrough4 §5.4 fix.
 
-## 6. Recommendation
+## 7. Resolution + future polish (2026-07-01)
 
-- BUG-4 does **not** block CI (it is a known perf characteristic, not a regression) and is
-  invisible on high-end GPUs. It is **lower priority than the broken-behaviour bugs** unless
-  low-end/integrated/4K targets matter.
-- If pursued: it is the most visible single perf win on weak hardware, the gate
-  (`flythrough4`) already isolates the `toGalaxy` segment, and the `drawFraction` lever is
-  ready — but budget it as a frozen-package change with hardware-appropriate verification,
-  not a frame-interval check.
-- **The fix is now folded into the integrated-GPU strategy** (BUG-4's `drawFraction` becomes a
-  per-tier knob — Step 1): see `docs/research/integrated-gpu-targeting.md`, which also holds
-  the M1 validation playbook and the reusable GPU-timer-query instrument.
+**Shipped (`1626985`):** `PROCGEN_MAX_DRAW_POINTS = 90_000` in `GalaxyScene.tsx` feeds
+`setDrawFraction` whenever procgen is on. Same commit that restored flythrough4 near-Sol
+budgets. App glue only; no frozen-package change.
+
+**Acceptance:** overdraw cliff addressed on weak HW; Milky Way spiral still reads at ~49 kpc
+(user screenshot, high-end PC, 2026-07-01). Decision: leave the global cap as-is; revisit as
+optional polish.
+
+**Future polish (optional — not scheduled):**
+1. **Distance LOD** — `drawFraction = 1` at ≥ `GAL_FADE_HI_PC`; cap only in the mid band.
+2. **Tier LOD** — `high` draws more at far vantage, `low` keeps 90k (`integrated-gpu-targeting.md` Step 1).
+3. **Brightest-N** subset instead of uniform prefix (`procgen-lod-near-sol.md` Option A full form).
+
+Knob today: `PROCGEN_MAX_DRAW_POINTS` in `GalaxyScene.tsx`.
 
 See also: `docs/agent-tasks/TASK-052-integration-bugs.md` §BUG-4,
-`docs/research/galaxy-transit-procgen-floor-design.md` (the `drawFraction`/opacity split),
-and the memory notes [[verify-render-before-perf]], [[frozen-package-defects]].
+`docs/research/procgen-lod-near-sol.md`, `docs/research/galaxy-transit-procgen-floor-design.md`
+(the `drawFraction`/opacity split), and `docs/research/integrated-gpu-targeting.md`.

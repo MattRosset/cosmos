@@ -5,6 +5,10 @@ integrated GPUs**, not just high-end discrete. Self-contained so it can be picke
 the validation machine (an Apple M1). Pairs with `docs/research/bug-4-universe-lag.md`
 (the fill-rate measurement that motivated this).
 
+> **Update (2026-07-01):** BUG-4 is **closed** via a global 90k procgen cap (`1626985`).
+> Step 1 below is **partially done** (cap exists, but not tier/distance-aware). Full Step 1
+> remains optional polish — see `procgen-lod-near-sol.md` §Future.
+
 ## 0. Decision (settled)
 
 - **Target floor:** modern integrated — **Intel Iris Xe (2020+) / Apple M1** class.
@@ -38,10 +42,11 @@ atmosphere is the per-planet O'Neil shell (only near Earth), not a galaxy/univer
 
 ## 3. Gaps for integrated GPUs
 
-1. **The procgen Milky Way cloud — the #1 fill offender — does NOT respond to the tier.**
-   `GalaxyScene.tsx` never reads `useQuality`; `drawFraction` is hardwired to `1`. So the
-   worst-case universe overdraw (full ~1.1M additive points, BUG-4) is drawn identically on
-   `low` and `high`. **This is the main gap.**
+1. **The procgen Milky Way cloud — the #1 fill offender — does NOT yet respond to quality tier.**
+   `GalaxyScene.tsx` caps at `PROCGEN_MAX_DRAW_POINTS = 90_000` globally (`1626985`, closes
+   BUG-4), but does not read `useQuality` — `high` and `low` get the same count. **Remaining
+   gap:** tier/distance LOD so integrated GPUs keep the cap while `high` gets full cloud at
+   far vantage. See `procgen-lod-near-sol.md` §Future.
 2. **Always starts at `high`** and only steps down after `PerformanceMonitor` detects jank →
    the first seconds on an integrated GPU are a stutter before it adapts.
 3. **Retina pixel-ratio multiplier.** `min(dpr,2) * resolutionScale`: on M1 Retina `dpr=2`,
@@ -53,13 +58,12 @@ atmosphere is the per-planet O'Neil shell (only near Earth), not a galaxy/univer
 
 ## 4. Plan (ordered by impact)
 
-### Step 1 — Tier-scale the procgen cloud (= the BUG-4 fix, reframed as a tier knob)
-Wire `useQuality().tier` into `GalaxyScene` and drive `drawFraction` (and/or swap to the
-impostor earlier) by tier — `medium`/`low` draw a fraction of the 1.1M points at the universe
-vantage. **Not a frozen-package change:** `cloud.setDrawFraction` is already exposed by
-`render-galaxy` and plumbed through `makeProcgenMount.applyFrame`; feeding it `<1` from the
-glue is legal. (Only a smarter stride that preserves the disc silhouette would touch
-`render-galaxy` → its own reviewed commit, [[frozen-package-defects]].)
+### Step 1 — Tier/distance-scale the procgen cloud (optional polish; BUG-4 closed via global cap)
+
+**Partial (2026-07-01):** global 90k cap (`1626985`) addresses weak-GPU overdraw. **Remaining:**
+wire `useQuality().tier` and/or distance into `drawFraction` so `high` draws the full cloud
+at ≥ `GAL_FADE_HI_PC` while `low` keeps the cap. **Not a frozen-package change** for the
+simple case: `cloud.setDrawFraction` is already exposed.
 **Trap:** keep `drawFraction` a *perf-only* knob driven by tier/distance — do NOT tie it to
 `procgenBlend` (opacity), which re-creates the P2 "nebulas without stars" regression
 (see `galaxy-transit-procgen-floor-design.md`). Biggest single overdraw win.

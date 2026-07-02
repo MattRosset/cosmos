@@ -1,21 +1,21 @@
 # Procgen LOD near Sol — the real cause of the broken `flythrough4` §5.4 gate, and how to fix it
 
-**Status:** **IMPLEMENTED (Option A, 2026-06-30)** — `GalaxyScene.tsx` caps the drawn
-procgen cloud points to `PROCGEN_MAX_DRAW_POINTS = 90_000` via `setDrawFraction` (a
-uniform prefix of the well-mixed placement sequence), at full opacity, distance-
-independent. App-glue only; no frozen package, no regeneration, no determinism change.
-Measured `flythrough4` `toSol` `scenePts`: `1,004,802 → 94,802 / 94,802 / 90,571`
-(chromium/webkit/firefox, all ≤ 109,971 budget); m4a + the gate's procgen-fade clause
-still pass. Supersedes the diagnosis in
-`docs/research/nav-camera-roll-and-ci-deploy-findings.md` **Part 3a**, which named the
-wrong layer (an empirically-decomposed root cause + the LOD design follow).
+**Status:** **IMPLEMENTED (Option A simplified, 2026-06-30; closes BUG-4, 2026-07-01)** —
+`GalaxyScene.tsx` caps the drawn procgen cloud points to `PROCGEN_MAX_DRAW_POINTS = 90_000`
+via `setDrawFraction` (a uniform prefix of the well-mixed placement sequence), at full
+opacity, distance-independent. App-glue only; no frozen package, no regeneration, no
+determinism change. Also closes **BUG-4** (universe/Milky Way GPU overdraw) — see
+`docs/research/bug-4-universe-lag.md` §7. Measured `flythrough4` `toSol` `scenePts`:
+`1,004,802 → 94,802 / 94,802 / 90,571` (chromium/webkit/firefox, all ≤ 109,971 budget);
+m4a + the gate's procgen-fade clause still pass. Supersedes the diagnosis in
+`docs/research/nav-camera-roll-and-ci-deploy-findings.md` **Part 3a**.
 
-**Open / tunable:** the visual density of the 90k-capped cloud at the cloud-hero
-mid-band was NOT screenshot-verified (the heavy 3D scene would not render in the local
-preview; CI's breadcrumb-perf is the visual budget gate). `PROCGEN_MAX_DRAW_POINTS` is a
-single knob — if the arms read too sparse, raise it and pair with §5 Option C (narrow the
-§5.4 assertion to the sub-`GAL_FADE_LO_PC` band) so the gate stays green. §6 (dense-Gaia
-push-down decimation) is still open + latent.
+**Acceptance (2026-07-01):** Milky Way spiral readable at ~49 kpc on high-end hardware
+(user-verified screenshot). Some inter-arm sparsity vs a full 1M draw — acceptable for now;
+decision: leave global cap as-is.
+
+**Future polish (optional — see §Future below):** distance/tier-aware LOD so high-end gets
+full cloud at far vantage while weak GPUs keep the cap.
 
 **TL;DR:** CI has been red on `main` since 2026-06-27. The failing assertion
 (`e2e/tests/flythrough4.spec.ts:154`, "near-Sol budgets drop vs M3 baseline") fails
@@ -206,18 +206,31 @@ fixing alongside A so "load the big Gaia pack" doesn't immediately re-break the 
 
 ---
 
-## 7. Concrete next steps (when we implement)
+## 7. Concrete next steps
 
-1. **A:** add `nEff` to `selectProcgen` (distance/SSE → point count), thread it to the
-   worker, keep brightest-N + full-opacity; set `c.pointCount = nEff` so stats/`gl.info`
-   reflect it. Re-measure `flythrough4` `toSol` `scenePts`.
-2. Guard against P1/P2: confirm via the luminance probe (the floor doc's method) that the
-   mid-band still shows stars+nebulas together and no black band, at the reduced N.
-3. **C (optional):** restrict the §5.4 near-Sol assertion to the sub-`GAL_FADE_LO_PC`
-   tail, OR re-record the M4a-expected near-Sol number with LOD on and assert against it.
-4. Verify the §5.8 hard caps (inFlight ≤6, points ≤2M, draws ≤300) and the procgen
-   determinism golden hash (ADR-004) still hold.
-5. Then rebase PR #1 (`fix/nav-antipodal-orientation-roll`) onto the green `main` — it
-   inherits the fix; its own diff is unrelated (nav only).
-6. **Deferred / separate:** §6 dense-Gaia push-down decimation; the `Deploy` workflow
-   no-op (Part 3b of the nav doc — `gh variable set CLOUDFLARE_ACCOUNT_ID`).
+**Done (shipped `1626985`):** global 90k cap via `setDrawFraction` — closes BUG-4 + restores
+flythrough4 §5.4. CI green; Milky Way vista acceptable on high-end (2026-07-01).
+
+**Deferred (optional polish — not scheduled):**
+1. **Distance LOD** — full `drawFraction` at ≥ `GAL_FADE_HI_PC`; cap only mid-band.
+2. **Tier LOD** — wire `useQuality().tier` (`integrated-gpu-targeting.md` Step 1).
+3. **Brightest-N** — replace uniform prefix with magnitude-biased subset (§5 Option A full).
+4. **§6 dense-Gaia push-down decimation** — latent when a real dense pack is wired.
+5. **Option C** — narrow §5.4 assertion to sub-`GAL_FADE_LO_PC` if raising the global cap.
+
+---
+
+## Future — distance/tier-aware procgen LOD (optional polish)
+
+The shipped fix uses one global cap everywhere procgen is on. That is correct for CI
+budget + weak-GPU perf, but **over-caps the Milky Way hero shot** on high-end discrete
+GPUs where the full cloud would be affordable and would fill inter-arm space better.
+
+Recommended shape when revisited (no code scheduled):
+- **Near Sol (`< GAL_FADE_LO_PC`):** procgen off (unchanged) — catalog owns the view.
+- **Mid band (1.5–45 kpc):** cap at 90k (or tier-scaled) — reconciles transit + §5.4 gate.
+- **Far vantage (≥ `GAL_FADE_HI_PC`):** `drawFraction = 1` on `high` tier; keep cap on
+  `medium`/`low` for integrated GPUs.
+
+Trap unchanged: never tie `drawFraction` to `procgenBlend` (P2 regression). Knob today:
+`PROCGEN_MAX_DRAW_POINTS` in `GalaxyScene.tsx`.
