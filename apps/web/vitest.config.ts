@@ -1,3 +1,4 @@
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 /**
@@ -7,9 +8,10 @@ import { defineConfig } from 'vitest/config';
  * e2e suite, not here.
  */
 export default defineConfig({
+  plugins: [react()],
   test: {
     environment: 'node',
-    include: ['src/glue/**/*.test.ts'],
+    include: ['src/glue/**/*.test.{ts,tsx}'],
     coverage: {
       provider: 'v8',
       include: ['src/glue/octree-combined.ts'],

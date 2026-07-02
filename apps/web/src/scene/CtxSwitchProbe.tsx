@@ -3,8 +3,8 @@ import { useFrame, useThree } from '@react-three/fiber';
 import type { BodyId, UniversePosition } from '@cosmos/core-types';
 import type { OriginManager, ScaleFrameTree } from '@cosmos/coords';
 import type { CombinedSource } from '@cosmos/data';
+import { useFlightController } from '../glue/useFlightController';
 import {
-  useFlightController,
   type ContextSwitchEvent,
   type FlightController,
 } from '@cosmos/nav';

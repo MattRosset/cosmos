@@ -1,27 +1,25 @@
 # @cosmos/nav
 
-Scale-aware free-flight camera controller (architecture §5.3). Replaces orbit-style
-controls with WASD + mouse-look where speed scales with distance-to-nearest-surface.
+Scale-aware free-flight camera controller (architecture §5.3). WASD + mouse-look where
+speed scales with distance-to-nearest-surface. Pure math + DOM input — **no Three.js,
+no React**. The R3F camera-sync hook lives in app glue
+(`apps/web/src/glue/useFlightController.tsx`, TASK-060); `@cosmos/nav` exposes
+`createFlightController` only.
 
 **Public API freezes at the end of Phase 0 (TASK-006).**
 
 ## Purpose
 
-The universe spans ~26 orders of magnitude; linear zoom speed is unusable. This
-package provides:
-
-- **Log-scaled flight:** `speed = clamp(speedScale × distanceToNearestSurface, min, max)`
-- **f64 position tracking** via `UniversePosition` (never reads Three.js camera back)
-- **Quaternion-only orientation** (no Euler accumulation / gimbal lock)
-- **Transparent rebasing** when `coords` fires a `RebaseEvent`
-
-Phase 1 adds **go-to-target** animated flight (TASK-013). Orbit mode, picking,
-and context auto-switching remain Phase 2.
+The universe spans ~26 orders of magnitude; linear zoom speed is unusable. This package
+provides log-scaled flight
+(`speed = clamp(speedScale × distanceToNearestSurface, min, max)`), f64 position tracking
+via `UniversePosition` (never reads the Three.js camera back), quaternion-only orientation
+(no Euler / gimbal lock), and transparent rebasing when `coords` fires a `RebaseEvent`.
 
 ## API
 
 ```ts
-import { createFlightController, useFlightController } from '@cosmos/nav';
+import { createFlightController } from '@cosmos/nav';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
 
 const tree = createScaleFrameTree();
@@ -31,44 +29,30 @@ const flight = createFlightController({ origin, initial: { position, orientation
 flight.attach(canvasElement);
 flight.setDistanceToNearestSurface(400); // host supplies each frame
 flight.update(dtMs);
-
-// React / R3F (inside SceneHost Canvas tree):
-useFlightController({ origin, initial: { position, orientation } });
 ```
+
+The R3F hook `useFlightController({ origin, initial })` lives in app glue
+(`apps/web/src/glue/useFlightController.tsx`) — it is the only place that touches the camera.
 
 ### Go-to-target (Phase 1 — TASK-013)
 
-Double-click-a-star UX: exponential-decay flight that decelerates as it
-approaches, turns to face early, and never overshoots.
+Double-click-a-star UX: exponential-decay flight that decelerates as it approaches, turns
+to face early, and never overshoots.
 
 ```ts
-// Start an animated flight
 flight.goTo({
   target: { context: 'galaxy', local: [-1.82, -1.9, -0.42] },
   arrivalDistanceM: 1e13, // ~67 AU — star fills the view
   durationMs: 6000,       // optional, default 6000, clamped [1000, 20000]
 });
-
-// Listen for completion (fires once; returns unsubscribe fn)
-const unsub = flight.onGoToEnd((completed) => {
-  if (completed) console.log('arrived');
-  else console.log('cancelled by user input');
-});
-
-// Abort manually
-flight.cancelGoTo();
-
-// Query
-console.log(flight.goToActive); // boolean
+const unsub = flight.onGoToEnd((completed) => {/* true=arrived, false=cancelled */});
+flight.cancelGoTo(); flight.goToActive; // boolean
 ```
 
-**Motion law:** distance decays as `d(t) = d0 × exp(−k × t)` where
-`k = ln(d0 / arrivalDistanceM) / durationMs` — constant *perceived* speed
-across orders of magnitude. Orientation slews to face the target with a time
-constant of `durationMs / 5`.
-
-**Cancellation:** any WASD/RF key or pointer drag beyond the 2 px deadzone
-cancels the flight automatically and resumes free flight that same frame.
+**Motion law:** distance decays as `d(t) = d0 × exp(−k × t)`,
+`k = ln(d0 / arrivalDistanceM) / durationMs` — constant *perceived* speed across orders of
+magnitude. Orientation slews to face the target (time constant `durationMs / 5`). Any
+WASD/RF key or pointer drag past the 2 px deadzone cancels and resumes free flight.
 
 ### Input (v1)
 
@@ -77,135 +61,90 @@ cancels the flight automatically and resumes free flight that same frame.
 | `W` / `S` / `A` / `D` | Forward / back / strafe |
 | `R` / `F` | Up / down |
 | Pointer drag | Look (2 px deadzone) |
-| `Shift` | ×10 speed |
-| `Ctrl` | ×0.1 speed |
+| `Shift` / `Ctrl` | ×10 / ×0.1 speed |
 
-Touch: deferred — see architecture §5.3.
+Touch: deferred (architecture §5.3).
 
-### Context switching (v4 — TASK-037): universe⇄galaxy
+### Context switching (v3 — TASK-027): galaxy⇄system
 
-The M3 zoom chain extends one level up: when the camera nears a `GalaxyAnchor`
-the controller switches `universe → galaxy` (and back on leaving), with the same
-hysteresis / velocity-rescaling / zero-discontinuity guarantees as the
-galaxy⇄system boundary.
-
-```ts
-// PRECONDITION — glue sets the tree anchor FIRST; nav never touches the tree:
-tree.setAnchor('galaxy', galaxy.positionMpc);   // galaxy → galaxy origin
-flight.setGalaxyAnchor({ id: 'proc:milkyway', positionMpc: galaxy.positionMpc });
-
-// Procedural local group (pure, seeded, no Three.js):
-import { generateLocalGroup } from '@cosmos/nav';
-const galaxies = generateLocalGroup({ seed: 7 });   // 12 GalaxyRecords, ≤ 1.5 Mpc
-```
-
-**Glue contract (mirrors galaxy⇄system):**
-- Call `tree.setAnchor('galaxy', positionMpc)` before the camera enters — a
-  dev-only guard throws if the galaxy is not at the galaxy-frame origin.
-- While `contextId` is `'galaxy'` or deeper, `setGalaxyAnchor` with a **different**
-  id is ignored — wait for exit to universe before re-anchoring. `null` clears.
-- Hysteresis: `enterGalaxyAtM` default `1.543e21` (≈ 50 kpc), `exitGalaxyAtM`
-  default `3.086e21`. Constructor throws `RangeError` if exit < 1.5× enter.
-
-### Context switching (v3 — TASK-027)
-
-Seamless galaxy⇄system zoom (architecture §5.3, ADR-001 §3–§4). When the camera
-nears an anchored star system the controller flips the active scale context
-`galaxy → system` (and back on leaving), with hysteresis, rescaling velocity to
-the new unit, **with zero positional discontinuity** — the camera's absolute
-point in space is identical before and after.
+Seamless galaxy⇄system zoom (ADR-001 §3–§4). When the camera nears an anchored star
+system the controller flips the active scale context `galaxy → system` (and back on
+leaving), with hysteresis, velocity rescaling, **and zero positional discontinuity**.
 
 ```ts
 // PRECONDITION — the glue sets the tree anchor FIRST; nav never touches the tree:
 tree.setAnchor('system', star.positionPc);          // host star → system origin
 flight.setSystemAnchor({ id: 'sol', positionPc: star.positionPc });
-
 flight.contextId;                                    // mirrors origin.context
-const unsub = flight.onContextSwitch((e) => {        // fires AFTER a switch
-  console.log(e.from, '→', e.to, e.anchorId);        // same frame
-});
+const unsub = flight.onContextSwitch((e) => {/* e.from → e.to, e.anchorId; same frame */});
 flight.setSystemAnchor(null);                        // clears → exits next update
 ```
 
 **Glue contract:**
 
-- The controller **never** calls `tree.setAnchor` — the glue owns the tree and
-  must set `'system'` to `positionPc` *before* the camera enters. A dev-only
-  guard throws if the host star is not at the system origin after a switch
-  (skipped in production builds).
-- While `contextId === 'system'`, `setSystemAnchor` with a **different** id is
-  ignored — wait for exit before re-anchoring. `null` always clears.
-- Hysteresis: `enterSystemAtM` default `7.5e14` (≈5,000 AU), `exitSystemAtM`
-  default `1.5e15`. The constructor throws `RangeError` unless
-  `exitSystemAtM ≥ 1.5 × enterSystemAtM` (§5.8 anti-flapping).
-- Velocity rescales by the unit ratio so physical speed is unchanged; speed
-  **caps** stay as configured (context-agnostic units/s — documented asymmetry).
-- Orientation is **untouched** by a switch (axes are identical across contexts;
-  only the unit changes). An in-flight `goTo` survives the switch unchanged.
+- The controller **never** calls `tree.setAnchor` — the glue owns the tree and must set
+  `'system'` to `positionPc` *before* the camera enters. A dev-only guard throws if the
+  host star is not at the system origin after a switch (skipped in production).
+- While `contextId === 'system'`, `setSystemAnchor` with a **different** id is ignored —
+  wait for exit before re-anchoring. `null` always clears.
+- Hysteresis: `enterSystemAtM` default `7.5e14` (≈5,000 AU), `exitSystemAtM` default
+  `1.5e15`. Constructor throws `RangeError` unless `exitSystemAtM ≥ 1.5 × enterSystemAtM`.
+- Velocity rescales by the unit ratio so physical speed is unchanged; speed **caps** stay
+  as configured (context-agnostic units/s). Orientation is untouched by a switch; an
+  in-flight `goTo` survives it unchanged.
+
+### Context switching (v4 — TASK-037): universe⇄galaxy
+
+The M3 zoom chain extends one level up: nearing a `GalaxyAnchor` switches
+`universe → galaxy` (and back), with the same hysteresis / velocity-rescaling /
+zero-discontinuity guarantees as galaxy⇄system.
+
+```ts
+tree.setAnchor('galaxy', galaxy.positionMpc);   // galaxy → galaxy origin (glue, FIRST)
+flight.setGalaxyAnchor({ id: 'proc:milkyway', positionMpc: galaxy.positionMpc });
+
+import { generateLocalGroup } from '@cosmos/nav';
+const galaxies = generateLocalGroup({ seed: 7 });   // 12 GalaxyRecords, ≤ 1.5 Mpc, seeded
+```
+
+Same glue contract as galaxy⇄system: `tree.setAnchor('galaxy', positionMpc)` before entry
+(dev-guard throws otherwise); a **different** id is ignored while `contextId` is `'galaxy'`
+or deeper; `null` clears. Hysteresis: `enterGalaxyAtM` default `1.543e21` (≈50 kpc),
+`exitGalaxyAtM` default `3.086e21`; constructor throws `RangeError` if exit < 1.5× enter.
 
 ### Cinematic mode (v5 — TASK-051)
 
-Spline-driven camera playback for tours and intros (architecture §5.3 / §5.12).
-Additive over the v1–v4 API: a cinematic obeys the **same motion discipline as
-`goTo`** — pausable, cancels on user input, survives a rebase and a context
-switch.
+Spline-driven playback for tours/intros (§5.3 / §5.12). Additive: a cinematic obeys the
+**same motion discipline as `goTo`** — pausable, cancels on user input, survives a rebase
+and a context switch.
 
 ```ts
 import type { CameraSpline } from '@cosmos/core-types';
 
-// Play a Catmull-Rom path. Keyframes carry UniversePositions, so the path is
-// interpolated IN THE ACTIVE CONTEXT'S FRAME and survives context switches.
 flight.playSpline(spline, { onEnd: (completed) => {/* true=done, false=cancelled */} });
-
-// Auto-orbit a world point (the §5.3 sub-mode — a tour dwell uses this):
-flight.orbitBody({
-  center: { context: 'system', local: [0, 0, 0] },
-  radiusM: 1.5e11,        // ~1 AU
-  ratePerSec: 0.1,        // optional; default DEFAULT_ORBIT_RATE_PER_SEC (0.1 rad/s)
-});
-
-flight.pauseCinematic();  // freeze the path clock (a tour's pause drives this)
-flight.resumeCinematic(); // continue from the same parameter
-flight.cancelCinematic(); // stop → free flight (like cancelGoTo)
-
-flight.cinematicActive;   // boolean — spline OR orbit playing
-flight.letterboxActive;   // true while a `letterbox` spline plays (chrome reads this)
+flight.orbitBody({ center: { context: 'system', local: [0, 0, 0] }, radiusM: 1.5e11, ratePerSec: 0.1 });
+flight.pauseCinematic(); flight.resumeCinematic(); flight.cancelCinematic();
+flight.cinematicActive;   // spline OR orbit playing; flight.letterboxActive → chrome reads
 ```
 
-**Interpolation:** position and look-at are interpolated with **centripetal**
-Catmull-Rom (`alpha = 0.5`, Barry–Goldman form — `catmullRomCentripetal` is
-exported). Centripetal spacing is chosen over uniform to avoid the cusps /
-self-intersections uniform CR produces at unevenly spaced keyframes (the §5.3
-"linear/teleporting spline at scale boundaries" trap). The four control
-keyframes are reconverted to render space **every frame** via
-`origin.toRenderSpace`, so a path animates in whatever context the camera is in
-and crosses a galaxy⇄system / universe⇄galaxy boundary (or a floating-origin
-rebase) with no discontinuity.
+**Interpolation:** position and look-at use **centripetal** Catmull-Rom (`alpha = 0.5`,
+Barry–Goldman; `catmullRomCentripetal` is exported) — centripetal spacing avoids the cusps
+uniform CR produces at uneven keyframes. Control keyframes are reconverted to render space
+**every frame** via `origin.toRenderSpace`, so a path crosses a boundary / rebase with no
+discontinuity. Orientation slews look-at quaternion-only (200 ms). Any WASD/RF key or drag
+past the 2 px deadzone cancels playback that frame; cinematic and `goTo` are mutually
+exclusive; the per-frame `update()` is allocation-free (module-scoped scratch).
 
-**Orientation** slews to the interpolated look-at quaternion-only (no Euler — the
-existing rule), with a 200 ms time constant. **Auto-orbit** circles `center` in
-the context's XY plane at `radiusM` (converted to context units each frame) and
-faces the center.
+## Frame loop & boundaries
 
-**Cancellation / exclusivity:** any WASD/RF key or pointer drag past the 2 px
-deadzone cancels playback and resumes free flight that same frame (the `goTo`
-cancel path). Cinematic and `goTo` are mutually exclusive — `playSpline` /
-`orbitBody` cancel any in-flight `goTo` first. The per-frame cinematic `update()`
-path is allocation-free (module-scoped scratch).
-
-## Frame loop
-
-Subscribe via `useFlightController` at `PRIORITY_NAV` (-200). The host must call
+The glue hook subscribes at `PRIORITY_NAV` (-200). The host must call
 `setDistanceToNearestSurface` **before** `update()` each frame — register a
-`useFrameContext` callback at `PRIORITY_NAV - 1` in the app.
-
-## Boundaries
-
-- **Core controller** (`createFlightController`): pure math + DOM — no Three.js/React.
-- **Hook** (`useFlightController`): the only file that touches the R3F camera.
-- Does not modify scene content; selection and picking live elsewhere.
+`useFrameContext` callback at `PRIORITY_NAV - 1` in the app. The core controller
+(`createFlightController`) is pure math + DOM (no Three.js/React); camera sync is the app
+glue hook's job (`apps/web/src/glue/useFlightController.tsx`), the only file that touches the
+R3F camera. Nav does not modify scene content; selection and picking live elsewhere.
 
 ## Testing
 
-`pnpm --filter @cosmos/nav test` — speed law, quaternion stability, rebase
-transparency, input dispose, zero-allocation `update()`.
+`pnpm --filter @cosmos/nav test` — speed law, quaternion stability, rebase transparency,
+input dispose, zero-allocation `update()`.

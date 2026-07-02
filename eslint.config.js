@@ -48,7 +48,13 @@ export default tseslint.config(
     },
   },
   {
-    files: ['packages/core-types/**', 'packages/procgen/**'],
+    files: [
+      'packages/core-types/**',
+      'packages/procgen/**',
+      'packages/coords/**',
+      'packages/orbits/**',
+      'packages/sim-time/**',
+    ],
     rules: {
       'no-restricted-properties': [
         'error',
@@ -64,6 +70,30 @@ export default tseslint.config(
           paths: [
             { name: 'three', message: 'This package must stay pure (no Three.js).' },
             { name: 'react', message: 'This package must stay pure (no React).' },
+          ],
+          patterns: [
+            {
+              group: ['@cosmos/*/src/*'],
+              message: 'Deep imports banned: use the package public API (index.ts).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // §5.3 + §4: nav is pure controller math + DOM input. The R3F camera-sync hook
+    // lives in apps/web/src/glue/useFlightController.tsx (TASK-060).
+    files: ['packages/nav/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'three', message: 'nav must not import Three.js (§5.3).' },
+            { name: 'react', message: 'nav must not import React (TASK-060: the hook lives in app glue).' },
+            { name: '@react-three/fiber', message: 'nav must not import R3F (TASK-060).' },
+            { name: '@cosmos/scene-host', message: 'Only apps/web glue crosses groups (§4).' },
           ],
           patterns: [
             {

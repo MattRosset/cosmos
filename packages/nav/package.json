@@ -13,17 +13,9 @@
   },
   "dependencies": {
     "@cosmos/coords": "workspace:*",
-    "@cosmos/core-types": "workspace:*",
-    "@cosmos/scene-host": "workspace:*",
-    "@react-three/fiber": "^9.6.1",
-    "react": "^19.2.7",
-    "three": "^0.184.0"
+    "@cosmos/core-types": "workspace:*"
   },
   "devDependencies": {
-    "@react-three/test-renderer": "^9.1.0",
-    "@types/react": "^19.2.17",
-    "@types/three": "^0.184.1",
-    "@vitejs/plugin-react": "^6.0.2",
     "jsdom": "^26.1.0"
   }
 }

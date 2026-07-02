@@ -4,8 +4,8 @@ import type { BodyId, UniversePosition } from '@cosmos/core-types';
 import type { OriginManager, ScaleFrameTree } from '@cosmos/coords';
 import type { CombinedSource } from '@cosmos/data';
 import type { GalaxyRecord } from '@cosmos/core-types';
+import { useFlightController } from '../glue/useFlightController';
 import {
-  useFlightController,
   type ContextSwitchEvent,
   type FlightController,
 } from '@cosmos/nav';
