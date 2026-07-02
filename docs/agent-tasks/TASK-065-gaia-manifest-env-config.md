@@ -13,11 +13,19 @@ The app can point at the production Gaia DR3 octree pack (~4.7M stars, built by
 without a code change. Today the URL is a hardcoded const with a comment saying "the
 full pack URL is a deploy-time config" and "Swap this line to the pack under test" —
 i.e. the mechanism was always intended but never built (source:
-`docs/research/gaia-visibility-real-pack-and-perf.md` open item "env-configurable
-`GAIA_OCTREE_MANIFEST_URL`"; flagged as the biggest unvalidated risk in
-`docs/research/project-state-architecture-testing-review.md` §4). The committed
-135-star sample stays the default, so every existing gate, baseline, and dev flow is
-untouched when the variable is unset.
+`docs/research/gaia-visibility-real-pack-and-perf.md` open item).
+
+**What this task does and does not mean:**
+- **Local dev has already validated full Gaia packs** — dense multi-million-star catalogs
+  built locally and pointed at via `.env.local` / manifest URL swap during the TASK-052
+  sweep (BUG-8, BUG-10, visibility). That is not the gap.
+- **The gap is production:** committed builds and CI default to the 135-star
+  `octree-gaia-sample`; end users on the deployed site do not yet get the full catalog
+  until the pack is uploaded to CDN/R2 and the build env points at it. TASK-065 formalizes
+  that deploy-time switch.
+
+The committed 135-star sample stays the default when the env var is unset, so every
+existing gate, baseline, and CI flow is untouched.
 
 Out of scope, explicitly: building/uploading the production pack itself (an
 ops/reference-machine activity — the commands live in `tools/pack-octree/README.md`),

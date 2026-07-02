@@ -14,8 +14,11 @@ shipped on `main` — see the supersession block. `pnpm verify` green on current
 >   when the fix was re-landed with tests.
 > - ✅ **BUG-10 P0** — **SHIPPED** (`5dedef1`). See `bug-10-streaming-density-wall.md`.
 > - ✅ **BUG-4** — **SHIPPED** (`1626985`). See `bug-4-universe-lag.md` §7.
-> - ⏳ **Still open:** env-configurable `GAIA_OCTREE_MANIFEST_URL` for production CDN/R2;
->   dense-pack push-down decimation (§6 below); `idPrefix` mixing (BUG-8 follow-up).
+> - ⏳ **Still open (production deploy):** build-time manifest URL for **CDN/R2** so deployed
+>   sites serve the full ~4.7M pack (TASK-065). **Local validation with full dense packs
+>   already happened** during this thread (see `bug-10-streaming-density-wall.md`,
+>   `gaia-visibility-and-realness-problem.md`); CI/commit default stays the 135-star sample.
+>   Also open: dense-pack push-down decimation (§6 below); `idPrefix` mixing (BUG-8 follow-up).
 
 > **DECISION (end of original thread, 2026-06-25): ship only the validated, discard the rest.**
 > The user chose to keep only what was rigorously validated and revert everything carrying
