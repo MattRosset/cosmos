@@ -6,13 +6,14 @@ import {
   createFlightController,
   type FlightController,
   type FlightControllerOptions,
-} from './controller.js';
+} from '@cosmos/nav';
 
 const renderPosScratch: [number, number, number] = [0, 0, 0];
 
 /**
- * React glue: creates the controller, subscribes at PRIORITY_NAV, and copies
- * state into the R3F camera each frame (the ONLY place that touches camera).
+ * App glue (TASK-060, formerly packages/nav): creates the controller, subscribes at
+ * PRIORITY_NAV, and copies state into the R3F camera each frame (the ONLY place that
+ * touches camera).
  */
 export function useFlightController(
   opts: Omit<FlightControllerOptions, 'origin'> & { origin: OriginManager },

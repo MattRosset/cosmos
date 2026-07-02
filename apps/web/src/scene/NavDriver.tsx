@@ -5,8 +5,8 @@ import type { OriginManager, ScaleFrameTree } from '@cosmos/coords';
 import type { StarDataSource, CombinedSource } from '@cosmos/data';
 import { PRIORITY_NAV, useFrameContext } from '@cosmos/scene-host';
 import type { StreamingPolicy } from '@cosmos/streaming';
+import { useFlightController } from '../glue/useFlightController';
 import {
-  useFlightController,
   type FlightController,
   type ContextSwitchEvent,
 } from '@cosmos/nav';

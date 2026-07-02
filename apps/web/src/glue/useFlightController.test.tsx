@@ -1,9 +1,10 @@
+// @vitest-environment jsdom
 import { create } from '@react-three/test-renderer';
 import { describe, it } from 'vitest';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
-import { FrameLoopRoot } from '../../scene-host/src/SceneHost';
+import { FrameLoopRoot } from '@cosmos/scene-host';
 import { useMemo } from 'react';
-import { useFlightController } from '../src/useFlightController';
+import { useFlightController } from './useFlightController';
 
 function FlightProbe(): null {
   const origin = useMemo(

@@ -108,6 +108,9 @@ importers:
         specifier: ^0.184.0
         version: 0.184.0
     devDependencies:
+      '@react-three/test-renderer':
+        specifier: ^9.1.0
+        version: 9.1.0(@react-three/fiber@9.6.1(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0))(react@19.2.7)(three@0.184.0)
       '@types/react':
         specifier: ^19.2.17
         version: 19.2.17
@@ -187,31 +190,7 @@ importers:
       '@cosmos/core-types':
         specifier: workspace:*
         version: link:../core-types
-      '@cosmos/scene-host':
-        specifier: workspace:*
-        version: link:../scene-host
-      '@react-three/fiber':
-        specifier: ^9.6.1
-        version: 9.6.1(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0)
-      react:
-        specifier: ^19.2.7
-        version: 19.2.7
-      three:
-        specifier: ^0.184.0
-        version: 0.184.0
     devDependencies:
-      '@react-three/test-renderer':
-        specifier: ^9.1.0
-        version: 9.1.0(@react-three/fiber@9.6.1(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(three@0.184.0))(react@19.2.7)(three@0.184.0)
-      '@types/react':
-        specifier: ^19.2.17
-        version: 19.2.17
-      '@types/three':
-        specifier: ^0.184.1
-        version: 0.184.1
-      '@vitejs/plugin-react':
-        specifier: ^6.0.2
-        version: 6.0.2(vite@8.0.16(@types/node@22.19.21)(esbuild@0.28.0)(tsx@4.22.4))
       jsdom:
         specifier: ^26.1.0
         version: 26.1.0

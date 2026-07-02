@@ -10,7 +10,6 @@ export type {
   GoToOptions,
 } from './controller.js';
 export { createFlightController } from './controller.js';
-export { useFlightController } from './useFlightController.js';
 export type {
   ContextSwitchEvent,
   ContextSwitchPolicy,

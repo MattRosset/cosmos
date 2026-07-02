@@ -5,7 +5,7 @@ import type { ContextId, UniversePosition } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
 import type { OriginManager, Vec3Tuple } from '@cosmos/coords';
 import { PRIORITY_COORDS, PRIORITY_NAV, useFrameContext } from '@cosmos/scene-host';
-import { useFlightController } from '@cosmos/nav';
+import { useFlightController } from '../glue/useFlightController';
 import { debugHudState } from './DebugHud';
 
 /**
