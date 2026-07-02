@@ -103,11 +103,17 @@ describe('sampleArmAzimuth', () => {
     const r = 5000;
     const center = armPhase(r, ARM);
     let nearArm = 0;
+    let minPhi = Infinity;
+    let maxPhi = -Infinity;
     const n = 20000;
+    // Accumulate the range invariant instead of two expect() calls per iteration:
+    // 40k matcher invocations inside this hot loop made the test timing-sensitive
+    // and flaky on loaded CI runners (2-core shared) near vitest's 5s cap. Assert
+    // the min/max once after the loop — same invariant, ~200x fewer matcher calls.
     for (let i = 0; i < n; i++) {
       const phi = sampleArmAzimuth(prng.next, r, ARM);
-      expect(phi).toBeGreaterThanOrEqual(0);
-      expect(phi).toBeLessThan(2 * Math.PI + 1e-9);
+      if (phi < minPhi) minPhi = phi;
+      if (phi > maxPhi) maxPhi = phi;
       // distance to nearest arm (arms at center, center+π) wrapped to [0, π/2]
       const d = Math.min(
         wrapAbs(phi - center),
@@ -116,6 +122,9 @@ describe('sampleArmAzimuth', () => {
       );
       if (d < 0.4) nearArm++;
     }
+    // φ ∈ [0, 2π) over every draw.
+    expect(minPhi).toBeGreaterThanOrEqual(0);
+    expect(maxPhi).toBeLessThan(2 * Math.PI + 1e-9);
     // Arm-concentrated, not uniform: a ±0.4 rad band around two arms covers
     // ~1.6/2π ≈ 25% of the circle uniformly; observed concentration is clearly
     // higher (density-wave arms are real).
