@@ -6,9 +6,14 @@ Built web-first with React, TypeScript, Three.js (React Three Fiber), and Web Wo
 
 ## Status
 
-**Phase 3 (M3) complete — Phase 4 (Depth & Beauty) spec in progress.** The full technical design lives in
+**Phase 4a (M4a) complete — Phase 4b (terrain) spec in progress.** The full technical design lives in
 [`docs/architecture.md`](docs/architecture.md). Execution is tracked task-by-task in
 [`docs/agent-tasks/README.md`](docs/agent-tasks/README.md) — agents: start there.
+
+> **GATE (Phase 4a / M4a frozen):** as of TASK-053, the public APIs of `render-fx`, `render-planets`
+> (v2 atmosphere), `data` (v4 constellations), `app-state`/`ui` (v3), `nav` (v5), `streaming` (v1.1),
+> and the Gaia/octree pack surface are **frozen**. The **Phase 4b (terrain) thaw** is the next
+> sanctioned change window.
 
 ## Key Documents
 
