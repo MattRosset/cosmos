@@ -123,6 +123,7 @@ cosmos/
 │   │       ├── orbits.ts         # KeplerElements
 │   │       └── events.ts         # typed event map
 │   ├── coords/                   # scale contexts, floating origin, transforms
+│   ├── scene-host/               # R3F Canvas + render-loop owner (§5.1)
 │   ├── sim-time/                 # epoch clock, time acceleration
 │   ├── orbits/                   # Kepler math (pure functions, no Three.js)
 │   ├── procgen/                  # deterministic generators (pure, seedable)
@@ -135,15 +136,19 @@ cosmos/
 │   ├── nav/                      # camera controller + input mapping
 │   ├── ui/                       # HUD components (React only, no Three.js)
 │   ├── app-state/                # Zustand stores, persistence
-│   └── workers/                  # worker entry points + Comlink contracts
+│   ├── workers/                  # worker entry points + Comlink contracts
+│   └── diagnostics/              # central error sink + dev overlay + assertInvariant — hardening track, TASK-055
 ├── tools/
 │   ├── pack-stars/               # build script: HYG/Gaia CSV → stars.bin
 │   ├── pack-exoplanets/          # NASA archive → exoplanets.bin
-│   └── pack-octree/              # spatial tiling of catalogs
+│   ├── pack-solar/               # JPL table → systems-sol.json + KTX2 textures
+│   ├── pack-octree/              # spatial tiling of catalogs
+│   ├── pack-constellations/      # IAU line list → constellations.json
+│   └── check-bundle-size/        # CI bundle-size gate (apps/web JS ≤ 1.2 MB gz)
 └── e2e/                          # Playwright suites + visual baselines
 ```
 
-**Hard dependency rules (enforced by ESLint `import/no-restricted-paths` + Turborepo graph):**
+**Hard dependency rules (enforced by ESLint `no-restricted-imports` blocks per package group in `eslint.config.js`; see TASK-060):**
 
 - `core-types` imports nothing.
 - `orbits`, `procgen`, `sim-time` import only `core-types` (pure, fully unit-testable, no DOM/Three).
@@ -298,7 +303,7 @@ Each subsystem below follows the required template: responsibilities, boundaries
   - Point size in world units only (clamp screen-space size to [1px, ~64px] in vertex shader or near stars become screen-filling squares).
   - Updating buffers by recreating geometry (use `BufferAttribute.set` + `needsUpdate`, preallocate to tile max).
   - sRGB/linear confusion making stars look washed out — define color pipeline once in scene-host and document it.
-- **Validation criteria:** 2M points at 60 fps on reference GPU; visual regression snapshots of Orion region match baseline (SSIM > 0.98); buffer swap on tile load causes no frame > 20 ms.
+- **Validation criteria:** 2M points at 60 fps on reference GPU; a canvas-only screenshot of the Orion region matches its committed baseline within tolerance (reference-machine only, testing-conventions §1.4); buffer swap on tile load causes no frame > 20 ms.
 
 ---
 
@@ -416,6 +421,8 @@ the galaxy; procgen fades to impostor-only at universe scale; retire redundant d
 | Educational overlay system (constellation lines, labels, guided tours) | M |
 | Cinematic camera mode (spline paths, letterbox, auto-orbit) | S |
 
+Phase 4 executes as 4a (all rows except terrain — gate TASK-053) + 4b (CDLOD terrain, ADR-007, specs not yet authored). See `docs/agent-tasks/README.md`.
+
 **Milestone M4:** "Wow" build — atmospheric Earth flyover, descend toward procedural exoplanet terrain, guided tour mode for education use.
 
 ### Phase 5 — Stretch (evaluate, don't promise)
@@ -488,7 +495,7 @@ Single R3F canvas, single scene graph with per-context root groups (`<group name
 
 - **Hosting:** Cloudflare Pages (or Vercel) — static app + data packs on the same CDN, immutable cache headers on hashed assets, `index.html` no-cache.
 - **Environments:** preview deploy per PR (automatic), `staging` on main, `production` on tagged release. Data packs deploy independently of app code (separate artifact path + manifest pointer), so catalog updates don't require app releases.
-- **CI pipeline (GitHub Actions, Turborepo-cached):** `lint → typecheck → unit (Vitest) → build → E2E smoke (Playwright, chromium+webkit) → visual regression → bundle-size check (fail if apps/web JS > 1.2 MB gz) → perf smoke (recorded flythrough on a pinned runner, assert p95 frame time)`. Visual baselines stored in repo via Git LFS; update requires explicit `update-baselines` label.
+- **CI pipeline (GitHub Actions, Turborepo-cached):** `lint → typecheck → unit (Vitest, coverage-gated) → build → milestone unit gates → cold-boot perf gate (boot-perf) → E2E deterministic gate (Playwright chromium/webkit/firefox, --grep-invert @perf) → bundle-size check (fail if apps/web JS > 1.2 MB gz)`. Visual baselines are committed PNGs (canvas-only), compared on the reference machine only — never in CI (testing-conventions §1.4); updates go through the `update-snapshots` workflow_dispatch workflow. Perf regression gating is deterministic work-budget caps (points / draw calls / in-flight) in the e2e gate; wall-clock perf is `@perf`-tagged and reference-machine only.
 - **Release:** changesets for versioning packages; tag → production deploy + Sentry release + source maps upload.
 - **Monitoring:** Sentry (errors + WebGL context-loss events), simple web-vitals beacon. Context-loss handling (restore or graceful reload prompt) is a Phase 1 requirement, not an afterthought.
 
@@ -498,13 +505,15 @@ Single R3F canvas, single scene graph with per-context root groups (`<group name
 
 | Layer | Tool | What |
 |---|---|---|
-| Unit (pure) | Vitest | `coords`, `orbits`, `procgen`, `sim-time`, pack tools — high coverage, property-based where math-heavy (fast-check) |
+| Unit (pure) | Vitest | `coords`, `orbits`, `procgen`, `sim-time`, pack tools — high coverage, property-style seeded-PRNG loops (`createPrng`) — see `docs/testing-conventions.md` |
 | Unit (render) | Vitest + headless GL where feasible | shader compile checks, buffer layout assertions |
 | Integration | Vitest + jsdom/mocks | store ↔ event bus ↔ scene-host wiring |
 | E2E | Playwright | search→fly→select flows, bookmarks persistence, context-switch flythrough |
-| Visual regression | Playwright screenshots + SSIM | star field baselines, planet renders, transition keyframes |
-| Performance | Playwright + CDP tracing | recorded flythroughs, frame-time p95, long-task count, memory soak |
+| Visual regression | Playwright `toHaveScreenshot` (canvas-only, 5% tolerance), reference-machine only | star field baselines, planet renders, transition keyframes |
+| Performance | Playwright + CDP tracing | recorded flythroughs, frame-time p95, long-task count, memory soak; wall-clock is reference-machine/`@perf` only; CI gates work-budget proxies (testing-conventions §1.4) |
 | Data validation | pack-build step | schema, unit ranges, known-star spot checks |
+
+The operative testing doctrine lives in `docs/testing-conventions.md`; where this table and that document disagree, the conventions document wins (doctrine change approved at the TASK-041 gate).
 
 **Golden rule for agent-built features:** a task is not done until its acceptance tests (listed in the task spec) pass in CI. Human review focuses on the *spec and the visuals*, not line-by-line code.
 

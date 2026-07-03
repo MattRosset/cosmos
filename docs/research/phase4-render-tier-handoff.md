@@ -1,5 +1,10 @@
 # Research / handoff: unify galaxy render tiers in Phase 4 (procgen vs catalog)
 
+**Status (TASK-064):** the unification described here was IMPLEMENTED in TASK-052 (combined
+HYG+Gaia octree, coverage-driven procgen fade, gated monolith) and budget-gated in TASK-053
+(flythrough4). This document is retained as the design rationale; the task files are the
+record of what shipped.
+
 **Status:** open — design note for Phase 4 / M4 integration  
 **Raised:** 2026-06-19 (M3 post-mortem discussion)  
 **Blocks:** Gaia tiled pack + M4 `apps/web` integration task(s)  
