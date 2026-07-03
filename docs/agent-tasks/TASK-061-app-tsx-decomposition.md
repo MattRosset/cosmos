@@ -50,7 +50,7 @@ which are authoritative).
 | `app/Soak4ProbeApp.tsx` | `Soak4ProbeApp` (lines ~968–1133). |
 | `app/StreamingProbeApp.tsx` | `StreamingProbeApp` (lines ~1135–1288). |
 | `app/DebugApp.tsx` | `DebugApp` (lines ~1460–1479). |
-| `app/StarApp.tsx` | `StarApp` (lines ~1481–2018) — the production composition, moved whole. It may end up ~560 lines; that is acceptable for this task (see Constraints). |
+| `app/StarApp.tsx` | `StarApp` (lines ~1481–2018) — the production composition, moved whole. Verbatim it lands at ~654 lines (the earlier ~560 estimate did not count the standalone import block); that is acceptable for this task (see Constraints). Do NOT extract a hook to shrink it — the ≤660 cap below exists precisely so the move stays mechanical. |
 | `hud/Crosshair.tsx` | `Crosshair` (lines ~1290–1303). |
 | `hud/Breadcrumb.tsx` | `Breadcrumb` (lines ~1305–1398). |
 | `hud/SpeedReadout.tsx` | `fmtSpeed` (unexported) + `SpeedReadout` (lines ~1400–1447). |
@@ -120,7 +120,7 @@ export function App() {
 
 - **Input:** `apps/web/src/App.tsx` @ 1,867 lines, `pnpm verify` + `pnpm test:e2e` green.
 - **Output:** same behavior; `App.tsx` < 100 lines; no file under `apps/web/src/` other
-  than `app/StarApp.tsx` exceeds 520 lines; `app/StarApp.tsx` ≤ 620 lines.
+  than `app/StarApp.tsx` exceeds 520 lines; `app/StarApp.tsx` ≤ 660 lines.
 
 ## Constraints & Forbidden Actions
 
@@ -156,7 +156,7 @@ The task is DONE only when all pass:
 2. `pnpm test:e2e` exits 0 (chromium deterministic gate — exercises `ctxswitch`, `m3`,
    `m4a`, `flythrough3/4`, `soak3/4`, `errorgate` = every moved debug app).
 3. Line-count gate (PowerShell, from repo root):
-   `Get-ChildItem apps/web/src -Recurse -Include *.ts,*.tsx | ForEach-Object { [pscustomobject]@{ n = $_.FullName; c = (Get-Content $_).Count } } | Where-Object { $_.c -gt 620 }`
+   `Get-ChildItem apps/web/src -Recurse -Include *.ts,*.tsx | ForEach-Object { [pscustomobject]@{ n = $_.FullName; c = (Get-Content $_).Count } } | Where-Object { $_.c -gt 660 }`
    returns nothing, and `(Get-Content apps/web/src/App.tsx).Count` < 100.
 4. `?debug=breadcrumb-profile` still populates `window.__breadcrumbProfile` (run
    `pnpm --filter @cosmos/e2e exec playwright test breadcrumb-profile --project=chromium`
