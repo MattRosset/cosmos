@@ -34,9 +34,10 @@ import { test, expect, type Page } from '@playwright/test';
  * prominent ordinary frame (margin: ~0.72 vs ~2.4). The 2-switches and 250 ms
  * gates are unchanged. See e2e/README.md and the TASK-030 deviation note.
  *
- * The keyframe screenshots committed here are the visual backstop; like every
- * WebGL baseline in this suite they are recorded on CI/SwiftShader (see
- * e2e/README.md "Updating baselines"), never on a dev machine.
+ * The keyframe screenshots committed here are a reference-machine-only visual
+ * backstop (see e2e/README.md "Updating baselines"); CI never records or compares
+ * them (testing-conventions §1.4; TASK-063) — the frame-delta assertions above
+ * are the authoritative CI gate.
  */
 
 const RESULT_TIMEOUT_MS = 90_000;
@@ -80,7 +81,11 @@ async function screenshotAfterSwitch(page: Page, n: number, name: string): Promi
     { timeout: RESULT_TIMEOUT_MS },
   );
   await page.waitForTimeout(KEYFRAME_SETTLE_MS);
-  await expect(page).toHaveScreenshot(name);
+  // Visual backstop — reference-machine only (testing-conventions §1.4; TASK-063).
+  // The frame-delta rule below is the authoritative "invisible" gate in CI.
+  if (!process.env['CI']) {
+    await expect(page).toHaveScreenshot(name);
+  }
 }
 
 test('context-switch gate: switches are invisible against ordinary flight motion', async ({
