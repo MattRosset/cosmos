@@ -6,7 +6,8 @@ Built web-first with React, TypeScript, Three.js (React Three Fiber), and Web Wo
 
 ## Status
 
-**Phase 4a (M4a) complete — Phase 4b (terrain) spec in progress.** The full technical design lives in
+**Phase 4a complete (gate TASK-053) — Phase 4b (chunked planet terrain, ADR-007) is the next
+planning pass.** The full technical design lives in
 [`docs/architecture.md`](docs/architecture.md). Execution is tracked task-by-task in
 [`docs/agent-tasks/README.md`](docs/agent-tasks/README.md) — agents: start there.
 
