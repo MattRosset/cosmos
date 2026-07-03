@@ -20,8 +20,9 @@ import { percentile } from './helpers/frame-stats';
  * sampled into `window.__m3StreamMax` each frame so the §5.8 budget caps can be
  * asserted across the whole flight.
  *
- * WebGL screenshot baselines (`m3-*.png`) are recorded on CI / with CI's
- * SwiftShader flag — see e2e/README.md "Updating baselines". Chromium-only.
+ * WebGL screenshot baselines (`m3-*.png`) are reference-machine-only (see
+ * e2e/README.md "Updating baselines"); CI never records or compares them
+ * (testing-conventions §1.4; TASK-063). Chromium-only.
  */
 
 const RESULT_TIMEOUT_MS = 60_000;
@@ -99,7 +100,11 @@ async function screenshotAtPhase(page: Page, switchCount: number, name: string):
     { timeout: RESULT_TIMEOUT_MS },
   );
   await page.waitForTimeout(KEYFRAME_SETTLE_MS);
-  await expect(page).toHaveScreenshot(name);
+  // Visual backstop — reference-machine only (testing-conventions §1.4; TASK-063).
+  // The frame-delta rule below is the authoritative "invisible" gate in CI.
+  if (!process.env['CI']) {
+    await expect(page).toHaveScreenshot(name);
+  }
 }
 
 test('M3 continuous zoom: universe → galaxy → system with no loading screen', async ({

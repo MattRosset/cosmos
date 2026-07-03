@@ -14,13 +14,14 @@ deterministic ones** — see [docs/architecture.md](../docs/architecture.md) and
 |---|---|---|
 | **Deterministic — correctness** | context-switch sequences, `finalContext`/`contextId`, selection/UI text, error counts, jitter sub-pixel stability, heap plateau (regression slope), pixel-delta invisibility | **yes** |
 | **Deterministic — work budget** | `streamingPeak.{inFlight ≤ 6, renderedPoints ≤ 2M, drawCalls ≤ 300}`, `requestsIssued`, churn throughput | **yes** |
-| **Visual** | `toHaveScreenshot` — **canvas only**, not full page (the HUD's `backdrop-filter` blur never settles under SwiftShader) | **yes** |
+| **Visual** | `toHaveScreenshot` — **canvas only**, not full page (the HUD's `backdrop-filter` blur never settles under SwiftShader) | **no** — reference-machine only (`!process.env.CI`); see testing-conventions §1.4 |
 | **Wall-clock perf** | `p95`/`p50`/`maxFrameMs` ms, `longTasks`, span ms, blank-by-time | **no** — see below |
 
 **Why wall-clock perf does not gate CI:** CI runs on SwiftShader on a CPU-capped
 shared runner, where a frame-time number measures the runner, not the code — a
 *different renderer measuring a different thing*, not a noisy version of the GPU
-number. So those assertions are either guarded behind `if (!process.env.CI)`
+number. The same SwiftShader cross-build AA drift makes pixel screenshots weak as
+a gate too, so those assertions are either guarded behind `if (!process.env.CI)`
 (reference-machine only) or live in `@perf`-tagged tests that CI excludes. The
 numbers are still **logged every run** (`console.log`) for trend. The strict
 timing target is the manual reference-GPU checklist. A real perf regression still
@@ -31,7 +32,8 @@ When you add a test:
 - Pure wall-clock / capture-diagnostic? Tag it `{ tag: '@perf' }`.
 - Mixed (deterministic caps + a timing check in one expensive run)? Keep the caps
   unconditional and guard the timing with `if (!process.env.CI)` + a `console.log`.
-- Screenshot? Shoot `page.locator('canvas')`, never `page`.
+- Screenshot? Shoot `page.locator('canvas')`, never `page`, and guard it with
+  `if (!process.env.CI)` — visual baselines never block CI.
 
 ## Running locally
 
@@ -58,6 +60,9 @@ pnpm --filter @cosmos/e2e update-baselines
 ```
 
 Commit the updated PNGs and flag the PR as an intentional visual change.
+
+Baselines are exercised by local / reference-machine runs only; CI does not
+compare them (TASK-063).
 
 ## CI behaviour
 

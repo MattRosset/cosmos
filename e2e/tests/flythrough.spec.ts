@@ -16,8 +16,11 @@ test('flythrough — no page errors, rebase counter increases, frame perf logged
   // Let the scene stabilize before taking the baseline screenshot
   await page.waitForTimeout(1_500);
 
+  // Visual baseline — reference-machine only (testing-conventions §1.4; TASK-063).
   // Canvas only — HUD fps/backdrop-filter vary by runner; scene pixels are the signal.
-  await expect(page.locator('canvas')).toHaveScreenshot('flythrough-at-rest.png');
+  if (!process.env['CI']) {
+    await expect(page.locator('canvas')).toHaveScreenshot('flythrough-at-rest.png');
+  }
 
   // Record rebase count before input begins
   const getRebaseCount = async () => {
