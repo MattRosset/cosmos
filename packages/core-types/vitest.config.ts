@@ -7,8 +7,7 @@ export default defineConfig({
       provider: 'v8',
       include: ['src/**/*.ts'],
       thresholds: {
-        // TASK-062: measured 80.3% at wiring time; ratchet up, never down.
-        statements: 80,
+        statements: 90,
       },
     },
   },

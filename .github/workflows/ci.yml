@@ -83,7 +83,10 @@ jobs:
       - name: Procgen determinism gate (§5.6)
         run: pnpm --filter @cosmos/procgen test
 
-      - name: Octree pack determinism gate (§5.7)
+      # Also the Phase 4a Gaia-ingest gate (ADR-006 §1–§4): the pack-octree suite
+      # covers both the ADR-003 tiling determinism and the Gaia ingest mode, so one
+      # run asserts both milestone gates (deduped in TASK-062).
+      - name: Octree pack determinism gate (§5.7 + ADR-006 §1–§4)
         run: pnpm --filter @cosmos/pack-octree test
 
       - name: Streaming LOD/evict gate (§5.8)
@@ -91,12 +94,8 @@ jobs:
 
       # ── Phase 4a acceptance gate (TASK-053, §6 M4a / ADR-006 §5.4) ───────────
       # The render-tier-unification lanes, named explicitly so a skipped or cached
-      # unit job cannot mask them in the milestone-closing run. pack-octree is
-      # re-listed here for its Gaia ingest mode (ADR-006 §1–§4); render-fx covers
+      # unit job cannot mask them in the milestone-closing run. render-fx covers
       # the nebula/line-set; render-planets covers the atmosphere shell.
-      - name: Octree pack Gaia-mode determinism gate (ADR-006 §1–§4)
-        run: pnpm --filter @cosmos/pack-octree test
-
       - name: Constellation pack determinism gate (TASK-045)
         run: pnpm --filter @cosmos/pack-constellations test
 

@@ -119,6 +119,13 @@ The task is DONE only when all pass:
 5. Sanity: temporarily set core-types' threshold to `99` and confirm
    `pnpm --filter @cosmos/core-types test` FAILS, then restore — proves the gate is live.
 
+## Notes
+
+- `pack-solar`: coverage below wiring floor: 57.7% statements (measured at wiring time).
+  Left at plain `vitest run`, per Deliverable 4 — not wired to `--coverage`, threshold
+  config untouched. Needs a real test-writing pass (`cli.ts` is at 0% coverage; `convert.ts`
+  is already at 91%) before it can clear the 60% floor and be wired in a future task.
+
 ## Context Files
 
 - `packages/core-types/package.json`
