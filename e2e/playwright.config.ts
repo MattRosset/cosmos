@@ -13,7 +13,13 @@ export default defineConfig({
   // held. So one worker is what lets these heavy specs finish inside their
   // waitForFunction timeouts. To cut wall-clock, shard across runners (each serial) —
   // don't raise workers here.
-  workers: CI ? 1 : undefined,
+  //
+  // Local (non-CI) is capped at 2 — NOT Playwright's default (~half the logical cores).
+  // The heavy WebGL specs each boot a full SwiftShader scene; letting the default fan
+  // out saturates every core and can lock up a dev machine (and orphans chromium on
+  // interrupt). Two is the ceiling that stays responsive; drop to `--workers=1` for a
+  // single heavy spec.
+  workers: CI ? 1 : 2,
 
   use: {
     viewport: { width: 1280, height: 720 },
