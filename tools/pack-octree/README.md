@@ -89,3 +89,16 @@ pnpm --filter @cosmos/pack-octree build:gaia -- \
 
 The output is byte-reproducible (golden hashes in `test/fixtures/gaia-golden-hash.json`).
 To regenerate, re-run the command from the repo root and commit the updated directory.
+
+## Deploying a production pack (TASK-065)
+
+1. Build the full pack with `build:gaia` (no `--sample`) against the real Gaia
+   snapshot, writing to a local `--out` directory.
+2. Upload that entire output directory as-is (manifest + `tiles/*.bin`) to static
+   hosting — same-origin path or a CORS-enabled CDN/R2 bucket. Tile URLs in the
+   manifest resolve via `new URL(tileUrl, manifestUrl)`, i.e. relative to the
+   manifest's own location, so the manifest and its `tiles/` must stay together at
+   whatever URL you publish.
+3. Set `VITE_GAIA_OCTREE_MANIFEST_URL` to the manifest's public URL in the deploy
+   environment (see root `.env` for the commented example) and rebuild
+   `apps/web`. Do not set this variable in CI or commit a dense pack.
