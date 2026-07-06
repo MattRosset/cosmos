@@ -30,14 +30,24 @@ reference-machine activity (§Step 3), NOT part of this task's gate.
 
 ## Deliverables
 
-1. **Boot GPU detect** in scene-host init: read `WEBGL_debug_renderer_info`
-   UNMASKED_RENDERER; if it matches an integrated-class pattern (case-insensitive:
-   `Apple M`, `Intel.*(Iris|UHD|HD Graphics)`, `Mali`, `Adreno`), initial tier =
-   `medium`; otherwise (including Safari's masked string / extension unavailable) keep
-   today's `high`. Export the detection as a pure function `classifyRenderer(s: string
-   | null): 'integrated' | 'unknown'` — the heuristic is fragile by design and the
-   PerformanceMonitor backstop is the contract, so keep it dumb and testable, don't
-   grow a device database.
+1. **Boot GPU detect** — wiring decided 2026-07-05 after reading the call sites:
+   `initialQualityTier="high"` is passed *explicitly* by `StarApp.tsx` AND six probe
+   apps (`M3App`, `M4aApp`, `Flythrough4ProbeApp`, `StreamingProbeApp`, `Soak4ProbeApp`,
+   `ErrorGateApp`), so a detection default buried inside SceneHost would be dead code —
+   the prop always wins. Therefore:
+   - In `packages/scene-host`, export a pure `classifyRenderer(s: string | null):
+     'integrated' | 'unknown'` matching (case-insensitive) `Apple M`,
+     `Intel.*(Iris|UHD|HD Graphics)`, `Mali`, `Adreno` ⇒ integrated; anything else —
+     including Safari's masked string, SwiftShader/ANGLE, `null` — ⇒ unknown. Keep it
+     dumb and testable; the PerformanceMonitor backstop is the contract, don't grow a
+     device database.
+   - Also export `detectInitialTier(): QualityTier` that creates a throwaway offscreen
+     WebGL context, reads `WEBGL_debug_renderer_info` UNMASKED_RENDERER, and maps
+     integrated ⇒ `medium`, unknown ⇒ `high`. Any exception ⇒ `high`.
+   - **Only `StarApp.tsx` switches** to `initialQualityTier={detectInitialTier()}`.
+     The six probe apps stay pinned to `"high"` — they are deterministic e2e fixtures
+     and must not depend on the host GPU. This also satisfies "detect before the first
+     render pass" for free: detection runs before SceneHost mounts.
 2. **Pixel-ratio cap:** change the formula at `SceneHost.tsx:112` so the *effective*
    pixel ratio is additionally clamped per tier — `high`: unchanged (`min(dpr,2)`),
    `medium`/`low`: `min(dpr, 1.5)` / `min(dpr, 1)` before applying `resolutionScale`.
@@ -63,8 +73,12 @@ reference-machine activity (§Step 3), NOT part of this task's gate.
   existing e2e baseline that implicitly assumes `high` shifts. Add SwiftShader strings
   to the unit-test fixtures explicitly. If any e2e spec breaks, that spec was coupled
   to the boot tier — fix per doctrine (query, don't assume), not by special-casing CI.
-- **Detection after first frame:** reading the extension after the renderer has already
-  drawn frame 1 at `high` defeats the point — detect before the first render pass.
+- **Detection after first frame:** handled by the decided wiring (detection runs in
+  `StarApp` before SceneHost mounts, via a throwaway context). Do NOT instead read the
+  extension from SceneHost's own renderer post-mount and call `setTier` — that draws
+  frame 1 at `high` and defeats the point.
+- **Probe-app drift:** if any probe app is "helpfully" switched to detection, its e2e
+  determinism breaks on real hardware. Only `StarApp.tsx` changes.
 - **dpr changes** (window moved between monitors): the existing tier-change handler
   re-applies pixel ratio; make sure the new clamp lives inside that same path, not a
   parallel one.
@@ -75,7 +89,11 @@ reference-machine activity (§Step 3), NOT part of this task's gate.
 2. Unit (`classifyRenderer`): `"Apple M1"`, `"Apple M3 Pro"`, `"Intel(R) Iris(R) Xe"`,
    `"Intel HD Graphics 620"` ⇒ integrated; `"NVIDIA GeForce RTX 4090"`,
    `"AMD Radeon RX 9070 XT"`, `"Google SwiftShader"`, `"ANGLE (…SwiftShader…)"`,
-   `null`, `""` ⇒ unknown.
+   `null`, `""` ⇒ unknown. Also `"ANGLE (Apple, ANGLE Metal Renderer: Apple M1, …)"`
+   ⇒ integrated (Chrome-on-Mac reports through an ANGLE wrapper — match the patterns
+   by substring anywhere in the string, never by prefix/whole-string; SwiftShader
+   strings contain no integrated pattern, so substring matching classifies them
+   `unknown` with no special-casing).
 3. Unit: effective-pixel-ratio formula per (tier, dpr) table — dpr 2 × medium ⇒ 1.5 ×
    resolutionScale, etc.
 4. `pnpm test:e2e` fully green under SwiftShader with **zero spec changes** — proof CI

@@ -15,24 +15,29 @@ flies the camera to it. This is realness axis 3 from
 one of the ~4.6M real stars is *reachable* — which, combined with TASK-069, closes the
 loop "real, findable, verifiable" that justifies shipping a real catalog at all.
 
-## Step 0 — Decide the reverse-lookup strategy (bounded decision, rules below)
+## Step 0 — Reverse-lookup strategy (DECIDED 2026-07-05: option 2, build-time reverse index)
 
-TASK-069 established the forward mapping (index → source_id). Search needs the reverse.
-Options, in preference order — take the **first** whose precondition holds; record the
-choice + measured numbers in the PR:
+TASK-069 established the forward mapping (catalogId → source_id). Search needs the
+reverse, plus a *position* to fly to. Option 1 (on-demand full-sidecar scan) was ruled
+out by inspecting the pack: it contains only `octree.json` + `tiles/` + the sidecar —
+**there is no pack-global positions buffer**, and `ingestGaia` assigns catalogId in
+snapshot order (spatially agnostic), so a sidecar hit index gives no way to locate the
+star's tile/position without an index. Do not revisit unless the pack layout changed.
 
-1. **Full-sidecar scan on demand.** If the sidecar is one global file: on first `gaia:`
-   query, ensure it's loaded (TASK-069's loader), linear-scan for the id (~4.6M
-   BigUint64 compares — measure; expected well under 200 ms), map hit index → star
-   position. Precondition: dense index → position is derivable without fetching every
-   tile (check how gaia-ingest orders stars vs. tile membership).
-2. **Build-time reverse index.** If (1)'s precondition fails: extend `tools/pack-octree`
-   gaia-ingest to also emit `gaia-sourceids-index.bin` — pairs sorted by source_id:
-   `(source_id: u64, tileId: u32, indexInTile: u32)` — fetched lazily, binary-searched.
-   This touches the pack tool: keep it additive (new optional file, existing outputs
-   byte-identical — the determinism gate must stay green), and regenerate the sample pack.
-3. If neither is implementable without changing existing pack file formats: STOP, mark
-   blocked, write up what you found. Do not redesign the pack.
+**The decided path:** extend `tools/pack-octree` gaia-ingest to also emit
+`gaia-sourceids-index.bin` — records sorted by source_id for binary search:
+`(source_id: i64, tileId: u32, indexInTile: u32)` (16 bytes/record; match the sidecar's
+signedness per TASK-069 Step 0(a)). Runtime: fetch lazily on first `gaia:` query,
+binary-search the id, fetch that one tile (reuse the existing tile loader), read the
+star's position at `indexInTile`. Constraints:
+
+- **Additive only:** new optional file; every existing pack output stays byte-identical
+  (the pack-octree determinism gate must stay green). Regenerate the sample pack so it
+  ships the new index.
+- `tileId`/`indexInTile` must reference the *on-disk* tile layout (pre-combine) — the
+  runtime lookup goes through the plain octree source, not the combined view.
+- If this turns out to require changing an *existing* pack file format: STOP, mark
+  blocked, write up what you found. Do not redesign the pack.
 
 ## Frozen Interface
 
@@ -42,7 +47,9 @@ choice + measured numbers in the PR:
 
 ## Deliverables
 
-1. Reverse lookup in `packages/data` per Step 0, lazy (zero cost until a `gaia:` query).
+1. Reverse lookup in `packages/data` per Step 0 (option 2), lazy (zero cost until a
+   `gaia:` query); pack-tool side: the new sorted index file + its determinism-covered
+   writer + regenerated sample pack.
 2. SearchPalette: input matching `/^(gaia:)?\d{5,19}$/` triggers Gaia lookup; hit shows
    one result row (`Gaia DR3 <id>`); selecting it issues the same fly-to/goTo used by
    named-star results (reuse, don't reimplement). Miss shows the normal empty state.
@@ -60,16 +67,22 @@ choice + measured numbers in the PR:
 
 - **BigInt again:** ids > 2^53 must survive input-parse → compare → display as
   bigint/string. Test with a real 19-digit id.
-- **Main-thread stall:** a 37 MB fetch+decode on keystroke will jank the render loop.
-  Decode in a worker or chunked; the acceptance test asserts the palette stays
-  responsive (assert via the existing frame-budget/work proxies, not wall-clock).
+- **Main-thread stall / payload size:** the full index for the real pack is ~74 MB
+  (4.6M × 16 B) — do NOT eagerly fetch it whole on keystroke. Preferred implementation:
+  binary-search via HTTP **Range requests** (fixed 16-byte records make this trivial;
+  ~23 range reads per query), with a one-time full fetch + worker-side decode as the
+  fallback if range support proves unreliable in dev/CI — record which path shipped in
+  the PR. Either way, nothing multi-MB is decoded on the main thread mid-frame; the
+  acceptance test asserts the palette stays responsive via the existing
+  frame-budget/work proxies, not wall-clock.
 - **Sample-pack blindness:** CI only has the 135-star sample. Make the unit tests run
   the *real* lookup path against the sample sidecar (known id → known position), so the
   logic is gated even though scale isn't. Scale numbers go in the PR as reference info.
 
 ## Acceptance Tests
 
-1. `pnpm verify` exits 0; pack-octree determinism gates green (critical if option 2).
+1. `pnpm verify` exits 0; pack-octree determinism gates green (critical — option 2
+   touches the pack tool).
 2. Unit: known sample-pack source_id resolves to the correct position; unknown id
    resolves to a miss; `gaia:`-prefixed and bare forms both parse; >2^53 id exact.
 3. e2e: type a sample-pack source_id into the palette (role locators), select the
