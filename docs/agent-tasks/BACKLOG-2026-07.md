@@ -1,6 +1,13 @@
 # Backlog — July 2026 spec set (TASK-069…074)
 
-Written 2026-07-04. Six specs covering the open fronts identified across
+Written 2026-07-04; **fact-checked against the codebase 2026-07-05** — every cited
+file/line/symbol was verified, three drift bugs were fixed (069's combine path lives in
+`apps/web/src/glue/`, not `packages/data`; the sidecar is signed BigInt64; 072's
+detection must wire through the `initialQualityTier` prop in `StarApp`, since 7 call
+sites pass it explicitly), and the bounded decisions in 069/070/072 Step 0s were
+**pre-resolved** from code inspection (069: index space = per-star `catalogIds` buffer;
+070: option 2, reverse index file; 072: prop-level wiring, probes stay pinned). Six
+specs covering the open fronts identified across
 `docs/research/`, each written to be executable by a smaller model with the judgment
 decisions already made (or, for 074, explicitly quarantined into a design task).
 Read the spec before starting; each has its own Frozen/Out-of-scope/Failure-modes.

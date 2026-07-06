@@ -37,9 +37,13 @@ like*, drawFraction = *how much we can afford to rasterize*.
 
 1. Replace the single const with a per-tier budget in `GalaxyScene.tsx`:
    `high: Infinity` (full cloud), `medium: 250_000`, `low: 90_000`. Read the current
-   tier via the existing quality hook; recompute drawFraction on tier change (the
-   existing `setDrawFraction` call sites at lines ~235/~519 — keep the "contiguous
-   prefix" contract documented there).
+   tier via `useQuality().tier` from `@cosmos/scene-host` — note (verified 2026-07-05)
+   GalaxyScene does **not** consume quality yet; copy the import/usage pattern from
+   `Overlays.tsx:47` (sibling scene, re-renders only on tier change). Recompute
+   drawFraction on tier change at the existing `setDrawFraction` call sites (lines
+   ~235/~519 — keep the "contiguous prefix" contract documented there); the ~519 site
+   computes from `m.batch.count`, so a tier change after load must re-run that same
+   computation with the live count, not a stale one.
 2. Update the comment block (lines ~112–119) to describe the tier mapping and point at
    this task + integrated-gpu-targeting.md.
 3. The `medium` value is a placeholder pending M1 calibration (integrated-gpu-targeting
@@ -80,4 +84,5 @@ like*, drawFraction = *how much we can afford to rasterize*.
 - `docs/research/integrated-gpu-targeting.md` §2–§4 (existing quality infra — do not rebuild)
 - `docs/research/procgen-lod-near-sol.md` (§Future — this task implements it)
 - `docs/research/galaxy-transit-procgen-floor-design.md` (the trap's history)
-- `apps/web/src/glue/quality.ts` (how glue already consumes tiers)
+- `apps/web/src/scene/Overlays.tsx` line ~47 (the `useQuality().tier` consumption
+  pattern to copy; `glue/quality.ts` is post-chain wiring, not the hook)
