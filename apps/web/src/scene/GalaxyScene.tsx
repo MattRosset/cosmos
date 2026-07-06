@@ -7,6 +7,7 @@ import type { FlightController } from '@cosmos/nav';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import { useSettingsStore } from '@cosmos/app-state';
 import { createStarPoints, type StarPoints } from '@cosmos/render-stars';
+import type { QualityTier } from '@cosmos/core-types';
 import {
   createGalaxyPoints,
   createDustLanes,
@@ -15,7 +16,7 @@ import {
   type DustLanes,
   type GalaxyImpostor,
 } from '@cosmos/render-galaxy';
-import { PRIORITY_RENDER, PRIORITY_STREAMING, useFrameContext } from '@cosmos/scene-host';
+import { PRIORITY_RENDER, PRIORITY_STREAMING, useFrameContext, useQuality } from '@cosmos/scene-host';
 import {
   createDustTexture,
   createHiiTexture,
@@ -26,6 +27,7 @@ import {
 import { milkyWayArmGeometry } from '../glue/milky-way-gen';
 import { profileSpan } from '../glue/frame-profiler';
 import { procgenOpacityHolder } from '../glue/test-hook';
+import { computeProcgenDrawFraction } from '../glue/procgen-draw-budget';
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -101,11 +103,19 @@ const GAL_FADE_LO_PC = 1_500;
 const GAL_FADE_HI_PC = 45_000;
 
 /**
- * Procgen LOD cap (ADR-006 §5.4 / docs/research/procgen-lod-near-sol.md). The Milky Way
- * cloud carries `MILKY_WAY_STAR_COUNT` (1,000,000) points, but procgen has no per-distance
- * LOD: whenever the layer is on it would draw the full 1M. That is the sole cause of the
- * `flythrough4` §5.4 near-Sol regression — the inner approach band (just above
- * `GAL_FADE_LO_PC`) full-draws 1M while the gate budgets ≤109,971 total scene points.
+ * Procgen LOD cap (ADR-006 §5.4 / docs/research/procgen-lod-near-sol.md), now tier-aware
+ * (TASK-071 / docs/research/integrated-gpu-targeting.md §3). The Milky Way cloud carries
+ * `MILKY_WAY_STAR_COUNT` (1,000,000) points, but procgen has no per-distance LOD: whenever
+ * the layer is on it draws up to a per-tier budget. On integrated GPUs the sole cause of the
+ * `flythrough4` §5.4 near-Sol regression was the inner approach band (just above
+ * `GAL_FADE_LO_PC`) full-draws 1M while the gate budgets ≤109,971 total scene points — hence
+ * the `low` tier stays capped at exactly 90_000 (a shipped bug fix; load-bearing, do not
+ * change). Capable GPUs (`high` tier) don't need the cap at all: draw the full cloud to
+ * restore inter-arm density at the far vantage. `medium` is a placeholder mid-point pending
+ * real M1/integrated-GPU calibration (TASK-072+) — it may move once measured. The
+ * tier→budget table and the pure `computeProcgenDrawFraction` mapping live in
+ * `../glue/procgen-draw-budget` (DOM/THREE-free, so the node-env unit tests can exercise it
+ * directly per `vitest.config.ts`'s `src/glue/**` scope).
  *
  * The cloud never NEEDS 1M to read as a dense field: the far vantage is the impostor
  * (cloudFactor→0, lod≥LOD_IMPOSTOR_FULL) and the near field is the real catalog. So cap
@@ -113,10 +123,12 @@ const GAL_FADE_HI_PC = 45_000;
  * well-mixed seeded placement sequence — a representative uniform thin of the disc, not a
  * bright-core bias). The cap is on COUNT only, at FULL opacity — it does NOT re-create P2
  * ("nebulas without stars"): P2 was the count AND opacity both collapsing together at low
- * blend; here opacity still carries the whole fade and ~90k points stay lit under the
- * nebula sprites. Headroom: 90k cloud + ~5k near-Sol octree + ~600 overlay ≈ 96k < 109,971.
+ * blend; here opacity still carries the whole fade and the capped points stay lit under the
+ * nebula sprites. Headroom (low tier): 90k cloud + ~5k near-Sol octree + ~600 overlay ≈ 96k
+ * < 109,971. `drawFraction` is a PERF-ONLY knob — it must never be derived from or fed by
+ * `procgenBlend` (the visual fade); see the contract at the `setDrawFraction` call site below.
  */
-const PROCGEN_MAX_DRAW_POINTS = 90_000;
+
 /** Octree tile mounts deferred during flight — flushed gradually after arrival. */
 const OCTREE_FLUSH_PER_FRAME = 2;
 
@@ -286,6 +298,16 @@ export function GalaxyScene({
 }: GalaxySceneProps) {
   const size = useThree((s) => s.size);
   const dpr = useThree((s) => s.viewport.dpr);
+
+  // Quality tier drives the procgen draw-fraction cap (TASK-071). useQuality re-renders
+  // only on a tier change (pattern copied from Overlays.tsx); the frame loop below is a
+  // useFrameContext callback (not a React re-render), so it reads a ref kept in sync by
+  // effect, never the hook value directly.
+  const tier = useQuality().tier;
+  const tierRef = useRef<QualityTier>(tier);
+  useEffect(() => {
+    tierRef.current = tier;
+  }, [tier]);
 
   // Caller-owned galaxy assets (render-galaxy injects none): built once.
   const assets = useMemo(
@@ -471,16 +493,18 @@ export function GalaxyScene({
     procgenOpacityHolder.current = procgenBlend;
 
     // drawFraction is the procgen LOD knob (how many of the cloud's points to draw),
-    // capped to PROCGEN_MAX_DRAW_POINTS — a perf/budget LOD, NOT part of the visual fade.
-    // It is DISTANCE-INDEPENDENT and FULL-OPACITY: opacity (= procgenBlend) remains the
-    // sole visibility factor, shared by the cloud AND the nebula sprites so they fade
-    // together. This is why it does not re-create P2 ("nebulas without stars"): P2 tied
+    // capped per-tier via PROCGEN_MAX_DRAW_POINTS_BY_TIER — a perf/budget LOD, NOT part of
+    // the visual fade. It is DISTANCE-INDEPENDENT and FULL-OPACITY: opacity (= procgenBlend)
+    // remains the sole visibility factor, shared by the cloud AND the nebula sprites so they
+    // fade together. This is why it does not re-create P2 ("nebulas without stars"): P2 tied
     // the count to the BLEND, so at low blend the cloud was doubly dimmed (few points ×
-    // low opacity) while the fixed-count sprites survived. Here the count cap is fixed
-    // (~90k points, always lit at the layer's full opacity); below GAL_FADE_LO_PC the
-    // whole layer is hidden (skipped below). The cap is applied per-mount from its own
-    // point count, so a mount carrying ≤ the cap draws in full (fraction 1).
-    // See docs/research/procgen-lod-near-sol.md.
+    // low opacity) while the fixed-count sprites survived. Here the count cap is fixed per
+    // tier (always lit at the layer's full opacity); below GAL_FADE_LO_PC the whole layer is
+    // hidden (skipped below). The cap is applied per-mount from its own point count via
+    // `computeProcgenDrawFraction`, so a mount carrying ≤ the tier's budget draws in full
+    // (fraction 1) — a live tier change (PerformanceMonitor stepping up/down) re-runs this
+    // computation every frame from the mount's own current count, never a stale value.
+    // See docs/research/procgen-lod-near-sol.md and docs/research/integrated-gpu-targeting.md §3.
     const procgenLayerOn = procgenBlend > 0.0001;
     const opacityBlend = flying ? Math.min(1, procgenBlend * 1.15) : procgenBlend;
 
@@ -516,7 +540,7 @@ export function GalaxyScene({
             m.hide();
             continue;
           }
-          const drawFraction = Math.min(1, PROCGEN_MAX_DRAW_POINTS / Math.max(1, m.batch.count));
+          const drawFraction = computeProcgenDrawFraction(tierRef.current, m.batch.count);
           m.applyFrame(offScratch, v.opacity * opacityBlend, v.lod, drawFraction);
         } else {
           m.applyFrame(offScratch, v.opacity, v.lod);
