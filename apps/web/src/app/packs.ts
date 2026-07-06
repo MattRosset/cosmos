@@ -13,11 +13,17 @@ export const HYG_MANIFEST_URL = '/packs/manifest.json';
 export const SOL_PACK_URL = '/packs/systems-sol.json';
 export const EXO_PACK_URL = '/packs/systems-exo.json';
 export const OCTREE_MANIFEST_URL = '/packs/octree/octree.json';
-/** Gaia DR3 octree sample (ADR-006); the full pack URL is a deploy-time config.
- *  BUG-10 measurement: local dense packs built out-of-band (gitignored) —
- *  octree-gaia (3M/884 tiles), octree-gaia-1m (~939k/395 tiles). Swap this line to
- *  the pack under test; the committed sample is '/packs/octree-gaia-sample/octree.json'. */
-export const GAIA_OCTREE_MANIFEST_URL = '/packs/octree-gaia-sample/octree.json';
+/**
+ * Gaia DR3 octree manifest (ADR-006). The committed 135-star sample is the default;
+ * production/dense packs are selected at BUILD time via VITE_GAIA_OCTREE_MANIFEST_URL
+ * (TASK-065) — e.g. a CDN/R2 URL for the ~4.7M-star pack, or a local dense pack
+ * (gitignored) for BUG-10 measurement. Vite inlines the value at build; it is not a
+ * runtime switch.
+ * BUG-10 measurement: local dense packs built out-of-band (gitignored) —
+ * octree-gaia (3M/884 tiles), octree-gaia-1m (~939k/395 tiles).
+ */
+export const GAIA_OCTREE_MANIFEST_URL: string =
+  import.meta.env.VITE_GAIA_OCTREE_MANIFEST_URL ?? '/packs/octree-gaia-sample/octree.json';
 export const CONSTELLATIONS_URL = '/packs/constellations.json';
 
 export interface Sources {
