@@ -133,6 +133,17 @@ export function Flythrough4ProbeApp({ baseline }: { baseline: boolean }): React.
       wireQuality(streaming, (tier) => {
         testHook.qualityTier = tier;
       })(qc);
+      // Pin the tier to `low` and freeze the PerformanceMonitor (setTier overrides
+      // auto-stepping). The §5.4 near-Sol gate below is a BUDGET-DROP integration
+      // invariant, not a tier-detection test: it must hold the tier constant so the
+      // measured scene-point peak is deterministic, not a function of how far CI's
+      // software renderer happened to step the monitor down mid-flight (which is
+      // exactly the machine-specific value CLAUDE.md rules 4–5 forbid gating on).
+      // `low` is the correct constant: the baseline was recorded under the fixed 90k
+      // procgen cap, which is now the `low` budget, and a near-Sol budget floor is
+      // meaningful at the weakest (integrated-GPU) tier. Tier detection is covered by
+      // scene-host/test/quality.test.ts; per-tier density by procgen-draw-budget.test.ts.
+      qc.setTier('low');
     },
     [streaming],
   );
@@ -152,7 +163,7 @@ export function Flythrough4ProbeApp({ baseline }: { baseline: boolean }): React.
   return (
     <SceneHost
       epochProvider={epochProvider}
-      initialQualityTier="high"
+      initialQualityTier="low"
       onQualityController={handleQc}
     >
       <color attach="background" args={['#02030a']} />
