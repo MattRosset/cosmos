@@ -126,6 +126,27 @@ button.hud-breadcrumb-exit:disabled {
   white-space: nowrap;
 }
 
+/* Movement-mode badge — top-center, dim, never intercepts input (TASK-066 S2). */
+.hud-mode-badge {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-accent);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 5;
+}
+
 /* Off-screen but screen-reader-visible; hosts throttled aria-live mirrors. */
 .sr-only {
   position: absolute;

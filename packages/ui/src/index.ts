@@ -26,6 +26,7 @@ export {
   formatCrossingTime,
 } from './format';
 export { STRINGS, SCALE_JUMP_THRESHOLD_PC, type StringKey } from './strings';
+export { ModeBadge, type ModeBadgeProps } from './ModeBadge';
 export { OverlayControls } from './OverlayControls';
 export { LabelLayer } from './LabelLayer';
 export { TourChrome } from './TourChrome';

@@ -162,6 +162,14 @@ export const streamingHolder: { current: StreamingPolicy | null } = {
 };
 
 /**
+ * Last goTo's snapshotted straight-line distance in parsecs, written by the goTo
+ * coordinator at flight start (via `tree.distanceMeters`, never re-derived from
+ * mid-flight camera state). The mode badge (TASK-066) reads it alongside
+ * `goToActive` to tell a threshold-gated scale jump from a short hop.
+ */
+export const jumpDistancePcHolder: { current: number } = { current: 0 };
+
+/**
  * Module-scoped procgen-opacity holder. GalaxyScene writes the coverage-driven
  * cloud opacity it applied each frame (a plain primitive write — zero alloc); the
  * ≤ 4 Hz mirror reads it. Replaces M3's hard-coded floor in the test hook.

@@ -29,6 +29,7 @@ import { wireQuality } from '../glue/quality';
 import { Crosshair } from '../hud/Crosshair';
 import { Breadcrumb } from '../hud/Breadcrumb';
 import { SpeedReadout } from '../hud/SpeedReadout';
+import { ModeBadgeHost } from '../hud/ModeBadgeHost';
 import { ContextLostOverlay } from '../hud/ContextLostOverlay';
 import { HYG_MANIFEST_URL, SOL_PACK_URL, EXO_PACK_URL, OCTREE_MANIFEST_URL, GAIA_OCTREE_MANIFEST_URL, CONSTELLATIONS_URL, type PackState } from './packs';
 import { DEBUG_BREADCRUMB_PROFILE } from './flags';
@@ -595,6 +596,7 @@ export function StarApp() {
         ) : null}
         <div className={`hud-chrome${chromeHidden ? ' hud-chrome--hidden' : ''}`}>
           {pack.status === 'ready' ? <SpeedReadout /> : null}
+          {pack.status === 'ready' ? <ModeBadgeHost /> : null}
           <div className="hud-panel hud-panel--info">
             <h1>cosmos</h1>
             {pack.status === 'loading' ? (

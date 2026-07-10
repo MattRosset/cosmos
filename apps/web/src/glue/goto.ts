@@ -10,6 +10,7 @@ import type { CombinedSource, SystemsSource } from '@cosmos/data';
 import type { SimClock } from '@cosmos/sim-time';
 import { DEFAULT_CONTEXT_SWITCH_POLICY, type FlightController } from '@cosmos/nav';
 import { systemFeed } from './system-feed';
+import { jumpDistancePcHolder } from './test-hook';
 
 /** Host/star arrival — inside the 7.5e14 enter threshold so the context flips. */
 const HOST_ARRIVAL_M = 5e14;
@@ -112,6 +113,22 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
   let firstLegUnsub: (() => void) | null = null;
   let restoreUnsub: (() => void) | null = null;
 
+  /**
+   * Every flight goes through here so the mode badge (TASK-066) can tell a scale
+   * jump from a short hop: snapshot the straight-line start→target distance in pc
+   * at flight start via the frame tree (query real state, never re-derive the
+   * exponential motion mid-flight).
+   */
+  function flyTo(
+    controller: FlightController,
+    opts: Parameters<FlightController['goTo']>[0],
+  ): void {
+    jumpDistancePcHolder.current =
+      deps.tree.distanceMeters(controller.state.position, opts.target) /
+      CONTEXT_UNIT_METERS.galaxy;
+    controller.goTo(opts);
+  }
+
   function systemOfBody(id: BodyId): StarSystemRecord | undefined {
     for (const s of deps.sources) {
       const sys = s.systemOfBody(id);
@@ -151,7 +168,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       controller.contextId === 'system' && controller.systemAnchor?.id === systemId;
     const live = anchoredHere ? livePosition(planetId) : null;
     if (live !== null) {
-      controller.goTo({ target: live, arrivalDistanceM: planetArrivalM(radiusKm) });
+      flyTo(controller, { target: live, arrivalDistanceM: planetArrivalM(radiusKm) });
       return;
     }
 
@@ -161,7 +178,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       deps.combined.hostPositionPc(systemId) ?? systemOfBody(planetId)?.star.positionPc;
     if (hostPos === undefined) return;
     pendingPlanetId = planetId;
-    controller.goTo({
+    flyTo(controller, {
       target: { context: 'galaxy', local: [hostPos[0], hostPos[1], hostPos[2]] },
       arrivalDistanceM: HOST_ARRIVAL_M,
     });
@@ -184,7 +201,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       // Host stars descend into their system at a framing distance; lone stars
       // keep the default close-approach (no system to frame).
       const sys = systemOfBody(record.id);
-      controller.goTo({
+      flyTo(controller, {
         target: { context: 'galaxy', local: [record.positionPc[0], record.positionPc[1], record.positionPc[2]] },
         arrivalDistanceM: sys !== undefined ? systemArrivalM(sys) : HOST_ARRIVAL_M,
       });
@@ -205,7 +222,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     if (sys === undefined || controller.systemAnchor?.id !== sys.id) return;
     const target = livePosition(planet.id);
     if (target === null) return; // scene not built yet
-    controller.goTo({ target, arrivalDistanceM: planetArrivalM(planet.radiusKm) });
+    flyTo(controller, { target, arrivalDistanceM: planetArrivalM(planet.radiusKm) });
     clearPending();
   }
 
@@ -237,7 +254,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       len = 1; // camera sitting on the host — pick an arbitrary outward axis
     }
     const s = EXIT_DISTANCE_PC / len;
-    controller.goTo({
+    flyTo(controller, {
       target: {
         context: 'galaxy',
         local: [host[0] + dx * s, host[1] + dy * s, host[2] + dz * s],
@@ -255,7 +272,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
   function viewGalaxy(): void {
     const controller = deps.controllerRef.current;
     if (controller === null) return;
-    controller.goTo({
+    flyTo(controller, {
       target: { context: 'galaxy', local: [0, 0, GALAXY_VIEW_VANTAGE_PC] },
       arrivalDistanceM: GALAXY_VIEW_ARRIVAL_M,
       durationMs: GALAXY_VIEW_DURATION_MS,
@@ -268,7 +285,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
   function enterGalaxy(): void {
     const controller = deps.controllerRef.current;
     if (controller === null) return;
-    controller.goTo({
+    flyTo(controller, {
       target: { context: 'galaxy', local: [0, 0, GALAXY_FIELD_VANTAGE_PC] },
       arrivalDistanceM: GALAXY_FIELD_ARRIVAL_M,
       durationMs: GALAXY_FIELD_DURATION_MS,
@@ -313,7 +330,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       len = 1; // camera on the star — pick an arbitrary framing axis
     }
     const s = frameAu / len;
-    controller.goTo({
+    flyTo(controller, {
       target: { context: 'system', local: [dx * s, dy * s, dz * s] },
       arrivalDistanceM: Math.max(frameAu * 0.02 * CONTEXT_UNIT_METERS.system, 1e6),
       lookAtTarget: { context: 'system', local: [0, 0, 0] },
@@ -333,7 +350,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
       }
     }
 
-    controller.goTo({ target: bookmark.position, arrivalDistanceM: BOOKMARK_ARRIVAL_M });
+    flyTo(controller, { target: bookmark.position, arrivalDistanceM: BOOKMARK_ARRIVAL_M });
 
     // Orientation is applied on arrival via a one-shot onGoToEnd (TASK-029).
     restoreUnsub?.();
