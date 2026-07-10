@@ -33,7 +33,7 @@ import { ModeBadgeHost } from '../hud/ModeBadgeHost';
 import { GalacticHint } from '../hud/GalacticHint';
 import { ContextLostOverlay } from '../hud/ContextLostOverlay';
 import { HYG_MANIFEST_URL, SOL_PACK_URL, EXO_PACK_URL, OCTREE_MANIFEST_URL, GAIA_OCTREE_MANIFEST_URL, CONSTELLATIONS_URL, type PackState } from './packs';
-import { DEBUG_BREADCRUMB_PROFILE } from './flags';
+import { DEBUG_BREADCRUMB_PROFILE, DEBUG_BUILD_STATS } from './flags';
 import './dev-surface';
 
 /**
@@ -618,10 +618,10 @@ export function StarApp() {
             {pack.status === 'ready' && streaming !== null && !galaxyNavReady ? (
               <div className="dim">preparing Milky Way view…</div>
             ) : null}
-            <div className="dim">
-              WASD move · R/F up·down · drag to look · double-click to fly · Ctrl+K search · G frame · H clean
-            </div>
-            {pack.status === 'ready' ? (
+            {/* Permanent help wall + build stats retired from the production HUD
+                (TASK-066 V1): movement literacy now lives in the first-run overlay,
+                and build stats are dev-only (`?debug=buildstats`). */}
+            {pack.status === 'ready' && DEBUG_BUILD_STATS ? (
               <div className="dim">
                 M4a — {pack.sources.stars.batch.count.toLocaleString('en-US')} stars (HYG) +
                 Gaia field · Sol + {pack.sources.exo.systems.length} exoplanet systems

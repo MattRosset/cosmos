@@ -526,6 +526,103 @@
   color: var(--hud-text);
 }
 
+/* First-run `?` re-open button — a text glyph, sized to match the icon buttons. */
+.cosmos-ui-dock-help {
+  width: 24px;
+  height: 24px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* First-run teaching overlay (TASK-066 V1) — modal-ish glass card over a dimmed
+ * backdrop, reusing the flight-instrument tokens. */
+.cosmos-ui-firstrun-backdrop {
+  pointer-events: auto;
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.72);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+.cosmos-ui-firstrun {
+  max-width: 520px;
+  width: 100%;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text);
+  padding: 24px 28px;
+}
+
+.cosmos-ui-firstrun-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--hud-accent);
+  margin: 0 0 16px;
+}
+
+.cosmos-ui-firstrun-modes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cosmos-ui-firstrun-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cosmos-ui-firstrun-mode-title {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--hud-accent);
+}
+
+.cosmos-ui-firstrun-mode-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--hud-text-dim);
+}
+
+.cosmos-ui-firstrun-hint {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--hud-text-dim);
+}
+
+.cosmos-ui-firstrun-dismiss {
+  margin-top: 18px;
+  background: var(--hud-accent-fill);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 16px;
+}
+
+.cosmos-ui-firstrun-dismiss:hover {
+  background: var(--hud-accent-fill-hover);
+  color: #ffffff;
+}
+
 /* Center icons inside the transport buttons. */
 .cosmos-ui-time button {
   display: inline-flex;

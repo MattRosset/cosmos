@@ -58,6 +58,15 @@ export interface DockProps {
   readonly onOpenSearch: () => void;
   /** Open the bookmarks panel. */
   readonly onOpenBookmarks: () => void;
+  /** Re-open the first-run movement guide (TASK-066 V1). Omit ⇒ no `?` button. */
+  readonly onOpenHelp?: () => void;
+}
+
+export interface FirstRunOverlayProps {
+  /** Whether the teaching overlay is visible. */
+  readonly open: boolean;
+  /** Dismiss (button / backdrop / Esc). The host persists the seen flag. */
+  readonly onDismiss: () => void;
 }
 
 /** A body label already projected to screen space by the app (ui never sees

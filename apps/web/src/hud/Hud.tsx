@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BodyId, BookmarkRecord } from '@cosmos/core-types';
 import type { CombinedSource } from '@cosmos/data';
 import { useHudStore, useOverlayStore } from '@cosmos/app-state';
@@ -7,6 +7,7 @@ import {
   SearchPalette,
   BookmarksPanel,
   Dock,
+  FirstRunOverlay,
   OverlayControls,
   TourChrome,
 } from '@cosmos/ui';
@@ -54,6 +55,8 @@ export function Hud({
   const bookmarksOpen = useHudStore((s) => s.bookmarksOpen);
   const setBookmarksOpen = useHudStore((s) => s.setBookmarksOpen);
 
+  const { firstRunOpen, openHelp, dismissFirstRun } = useFirstRun();
+
   const adapter = useMemo<BodyLookupAdapter>(
     () => ({
       getBody: (id) => source.getBody(id),
@@ -76,7 +79,9 @@ export function Hud({
         onSyncToNow={onSyncToNow}
         onOpenSearch={() => setSearchOpen(true)}
         onOpenBookmarks={() => setBookmarksOpen(true)}
+        onOpenHelp={openHelp}
       />
+      <FirstRunOverlay open={firstRunOpen} onDismiss={dismissFirstRun} />
       <SearchPalette
         adapter={adapter}
         onGoTo={onGoTo}
@@ -103,6 +108,42 @@ export function Hud({
       <Letterbox />
     </>
   );
+}
+
+/**
+ * First-run teaching overlay state (TASK-066 V1). The overlay auto-opens on the very
+ * first launch (no localStorage flag), teaching the three movement modes; dismissing
+ * persists the flag so it never auto-shows again. The dock's `?` re-opens it any time
+ * WITHOUT touching the flag. localStorage access is guarded so a private-mode / disabled
+ * storage never breaks the HUD (worst case: the overlay just re-shows each load).
+ */
+const FIRST_RUN_KEY = 'cosmos.firstrun.v1';
+
+function useFirstRun(): {
+  firstRunOpen: boolean;
+  openHelp: () => void;
+  dismissFirstRun: () => void;
+} {
+  const [firstRunOpen, setFirstRunOpen] = useState(false);
+  useEffect(() => {
+    let seen: boolean;
+    try {
+      seen = window.localStorage.getItem(FIRST_RUN_KEY) !== null;
+    } catch {
+      seen = false;
+    }
+    if (!seen) setFirstRunOpen(true);
+  }, []);
+  const openHelp = useCallback(() => setFirstRunOpen(true), []);
+  const dismissFirstRun = useCallback(() => {
+    setFirstRunOpen(false);
+    try {
+      window.localStorage.setItem(FIRST_RUN_KEY, '1');
+    } catch {
+      /* storage unavailable — overlay simply re-shows next load */
+    }
+  }, []);
+  return { firstRunOpen, openHelp, dismissFirstRun };
 }
 
 /** Max labels shown at once (de-clutter); the buffer is pre-sorted by priority. */

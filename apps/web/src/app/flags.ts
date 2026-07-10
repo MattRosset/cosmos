@@ -51,6 +51,13 @@ export const SOAK3_LOOPS = (() => {
 export const DEBUG_BREADCRUMB_PROFILE =
   new URLSearchParams(window.location.search).get('debug') === 'breadcrumb-profile';
 
+/**
+ * TASK-066 V1: build stats (`M4a — N stars … Gaia field · Sol + N exoplanet systems`)
+ * are dev-only chrome, off the production HUD. `?debug=buildstats` restores the line.
+ */
+export const DEBUG_BUILD_STATS =
+  new URLSearchParams(window.location.search).get('debug') === 'buildstats';
+
 /** TASK-052 M4a debug gate (`?debug=m4a`): scripted descent with the M4a composition. */
 export const DEBUG_M4A = new URLSearchParams(window.location.search).get('debug') === 'm4a';
 

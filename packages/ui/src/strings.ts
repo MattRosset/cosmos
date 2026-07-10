@@ -22,6 +22,22 @@ export const STRINGS = {
   // InfoPanel light-travel lead-in (V1 honesty: real distances, real time)
   lightTravelPrefix: 'light takes',
   lightTravelSuffix: 'to reach us',
+
+  // First-run overlay (V1) — teaches the three movement modes (research §5.1). This
+  // is the whole thesis: users don't know three distinct modes exist. The three-mode
+  // body absorbs the retired permanent help wall's WASD/controls literacy.
+  firstRunTitle: 'Three ways to move through the cosmos',
+  firstRunJumpTitle: 'Scale jump',
+  firstRunJumpBody:
+    'Double-click a star, or use the breadcrumb, to leap across the galaxy. The trip always takes a few seconds — distance does not matter.',
+  firstRunExploreTitle: 'Free flight',
+  firstRunExploreBody:
+    'WASD to fly, R/F for up/down, drag to look, G to frame. Speed scales to whatever is nearest, so it feels slow at galactic vantage — that is expected.',
+  firstRunTourTitle: 'Guided tour',
+  firstRunTourBody: 'Press ▶ Guided tour to sit back for a narrated cinematic path through the highlights.',
+  firstRunDismiss: 'Start exploring',
+  firstRunReopenLabel: 'Movement guide',
+  firstRunHint: 'Ctrl+K to search · H for a clean view',
 } as const satisfies Readonly<Record<string, string>>;
 
 export type StringKey = keyof typeof STRINGS;
