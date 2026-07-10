@@ -147,6 +147,21 @@ button.hud-breadcrumb-exit:disabled {
   z-index: 5;
 }
 
+/* Scale-aware descend hint at the whole-galaxy vantage — dim, centered, passive. */
+.hud-galactic-hint {
+  position: fixed;
+  bottom: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 90vw;
+  padding: 4px 12px;
+  color: var(--hud-text-dim);
+  font-size: 12px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 4;
+}
+
 /* Off-screen but screen-reader-visible; hosts throttled aria-live mirrors. */
 .sr-only {
   position: absolute;
