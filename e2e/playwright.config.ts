@@ -25,6 +25,19 @@ export default defineConfig({
     viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1,
     animations: 'disabled',
+    // Seed the first-run "seen" flag (TASK-066 V1) for every spec so the one-time
+    // teaching overlay never covers the HUD the other gates drive. The dedicated
+    // first-run spec opts back into a fresh context via `test.use({ storageState })`.
+    // Origin must match the preview webServer below (baseURL defaults to it).
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: 'http://localhost:4173',
+          localStorage: [{ name: 'cosmos.firstrun.v1', value: '1' }],
+        },
+      ],
+    },
   },
 
   expect: {
