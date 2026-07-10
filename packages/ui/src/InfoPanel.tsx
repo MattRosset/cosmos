@@ -2,7 +2,8 @@ import { type JSX } from 'react';
 import { useSelectionStore } from '@cosmos/app-state';
 import type { BodyId, PlanetRecord } from '@cosmos/core-types';
 import { spectralClassFromBV } from './spectral';
-import { formatOrbitalPeriod } from './format';
+import { formatOrbitalPeriod, formatLightTravel, formatEtaAtC } from './format';
+import { STRINGS } from './strings';
 import { Icon } from './Icon';
 import type { InfoPanelProps } from './types';
 
@@ -131,8 +132,9 @@ export function InfoPanel({
   const star = body;
   const [x, y, z] = star.positionPc;
   const dist = Math.sqrt(x * x + y * y + z * z);
+  const distLy = dist * PC_TO_LY;
   const distPcStr = fmtSig3(dist);
-  const distLyStr = fmtSig3(dist * PC_TO_LY);
+  const distLyStr = fmtSig3(distLy);
   const hip = extractHip(star.id);
   const spectral = spectralClassFromBV(star.colorIndexBV);
   const hostSystemId = adapter.hostSystemIdFor?.(star.id) ?? null;
@@ -158,8 +160,11 @@ export function InfoPanel({
       <dl className="cosmos-ui-info-data">
         <dt>Distance</dt>
         <dd className="cosmos-ui-info-distance">
-          {distPcStr} pc / {distLyStr} ly
+          {distLyStr} ly — {STRINGS.lightTravelPrefix} {formatLightTravel(distLy)}{' '}
+          {STRINGS.lightTravelSuffix}
         </dd>
+        <dt>Travel</dt>
+        <dd className="cosmos-ui-info-eta">{formatEtaAtC(distLy)}</dd>
         <dt>Abs. Magnitude</dt>
         <dd className="cosmos-ui-info-absmag">{fmtSig3(star.absMag)}</dd>
         <dt>Spectral Class</dt>
@@ -172,6 +177,8 @@ export function InfoPanel({
             <dd className="cosmos-ui-info-hip">{hip}</dd>
           </>
         )}
+        <dt className="cosmos-ui-info-detail">Distance (pc)</dt>
+        <dd className="cosmos-ui-info-detail cosmos-ui-info-distance-pc">{distPcStr} pc</dd>
       </dl>
       <button className="cosmos-ui-info-goto" onClick={onAction} aria-label={actionAria}>
         {actionLabel}

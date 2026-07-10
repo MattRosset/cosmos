@@ -79,11 +79,22 @@
 }
 
 .cosmos-ui-palette-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   padding: 8px 12px;
   border-radius: var(--hud-radius-sm);
   color: var(--hud-text-dim);
   cursor: pointer;
   font-size: 0.9rem;
+}
+
+.cosmos-ui-palette-item-eta {
+  flex-shrink: 0;
+  font-size: 0.72rem;
+  color: var(--hud-text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .cosmos-ui-palette-item--highlighted,
@@ -150,6 +161,16 @@
 .cosmos-ui-info-data dd {
   margin: 0;
   color: var(--hud-text);
+}
+
+/* Secondary detail rows (e.g. parsecs, demoted below the ly hero line). */
+.cosmos-ui-info-data .cosmos-ui-info-detail {
+  font-size: 0.72rem;
+  color: var(--hud-text-dim);
+}
+
+.cosmos-ui-info-eta {
+  color: var(--hud-accent);
 }
 
 .cosmos-ui-info-goto {
