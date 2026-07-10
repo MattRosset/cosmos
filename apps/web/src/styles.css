@@ -126,6 +126,19 @@ button.hud-breadcrumb-exit:disabled {
   white-space: nowrap;
 }
 
+/* Off-screen but screen-reader-visible; hosts throttled aria-live mirrors. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Persistent aiming reticle — small, dim, centered, never intercepts input. */
 .hud-crosshair {
   position: fixed;

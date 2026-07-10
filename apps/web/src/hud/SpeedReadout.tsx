@@ -1,26 +1,25 @@
 import { useEffect, useRef } from 'react';
-import { Icon } from '@cosmos/ui';
+import { Icon, formatSpeedKmS } from '@cosmos/ui';
 import { controllerHolder } from '../glue/test-hook';
 
-function fmtSpeed(v: number): string {
-  if (v >= 100) return Math.round(v).toLocaleString('en-US');
-  if (v >= 1) return v.toFixed(1);
-  if (v >= 0.01) return v.toFixed(2);
-  return v.toPrecision(2);
-}
+/** Screen readers should hear speed changes, but not per-frame — throttle announcements. */
+const ARIA_THROTTLE_MS = 3000;
 
 /**
  * Speed/scale readout (bottom-left). Reads the live controller on a rAF loop and
  * writes to the DOM imperatively — never React state — so per-frame speed changes
  * cost zero renders (§5.12). Hidden while stationary to keep the view clean; the
- * unit tracks the scale context (pc/s in the galaxy, AU/s inside a system).
+ * visible label pairs the context unit with its km/s equivalent (`formatSpeedKmS`),
+ * and a throttled aria-live mirror voices it for assistive tech (S5).
  */
 export function SpeedReadout(): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null);
   const valueRef = useRef<HTMLSpanElement>(null);
+  const ariaRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     let raf = 0;
     let last = '';
+    let lastAria = 0;
     const loop = (): void => {
       const c = controllerHolder.current;
       const container = containerRef.current;
@@ -31,10 +30,15 @@ export function SpeedReadout(): React.JSX.Element {
           container.style.visibility = 'hidden';
         } else {
           container.style.visibility = 'visible';
-          const txt = `${fmtSpeed(v)} ${c.contextId === 'system' ? 'AU/s' : 'pc/s'}`;
+          const txt = formatSpeedKmS(v, c.contextId);
           if (txt !== last) {
             value.textContent = txt;
             last = txt;
+            const now = performance.now();
+            if (ariaRef.current && now - lastAria >= ARIA_THROTTLE_MS) {
+              ariaRef.current.textContent = txt;
+              lastAria = now;
+            }
           }
         }
       }
@@ -44,9 +48,10 @@ export function SpeedReadout(): React.JSX.Element {
     return () => cancelAnimationFrame(raf);
   }, []);
   return (
-    <div className="hud-speed" ref={containerRef} aria-hidden="true">
+    <div className="hud-speed" ref={containerRef}>
       <Icon name="gauge" size={14} />
       <span ref={valueRef} className="hud-speed-value" />
+      <span ref={ariaRef} className="sr-only" aria-live="polite" />
     </div>
   );
 }
