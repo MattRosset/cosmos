@@ -1,6 +1,16 @@
 import { type JSX, useCallback, useEffect, useRef, useState } from 'react';
 import type { BodyRecord } from '@cosmos/core-types';
+import { formatEtaAtC } from './format';
 import type { SearchPaletteProps } from './types';
+
+const PC_TO_LY = 3.26156;
+
+/** "at c: …" travel estimate for a star result, or null for non-star records. */
+function rowEtaAtC(record: BodyRecord): string | null {
+  if (record.kind !== 'star') return null;
+  const [x, y, z] = record.positionPc;
+  return formatEtaAtC(Math.sqrt(x * x + y * y + z * z) * PC_TO_LY);
+}
 
 /**
  * Opens on Ctrl+K or "/" (when no input focused); Esc closes; ↑/↓ + Enter navigate.
@@ -126,24 +136,28 @@ export function SearchPalette({
             No matches
           </li>
         ) : (
-          results.map((star, i) => (
-            <li
-              key={star.id}
-              role="option"
-              aria-selected={i === highlighted}
-              className={
-                i === highlighted
-                  ? 'cosmos-ui-palette-item cosmos-ui-palette-item--highlighted'
-                  : 'cosmos-ui-palette-item'
-              }
-              onClick={() => {
-                onGoTo(star.id);
-                closePalette();
-              }}
-            >
-              {star.name ?? star.id}
-            </li>
-          ))
+          results.map((star, i) => {
+            const eta = rowEtaAtC(star);
+            return (
+              <li
+                key={star.id}
+                role="option"
+                aria-selected={i === highlighted}
+                className={
+                  i === highlighted
+                    ? 'cosmos-ui-palette-item cosmos-ui-palette-item--highlighted'
+                    : 'cosmos-ui-palette-item'
+                }
+                onClick={() => {
+                  onGoTo(star.id);
+                  closePalette();
+                }}
+              >
+                <span className="cosmos-ui-palette-item-name">{star.name ?? star.id}</span>
+                {eta !== null && <span className="cosmos-ui-palette-item-eta">{eta}</span>}
+              </li>
+            );
+          })
         )}
       </ul>
     </div>

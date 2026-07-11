@@ -5,6 +5,7 @@ export type {
   TimeControlsProps,
   BookmarksPanelProps,
   DockProps,
+  FirstRunOverlayProps,
   ProjectedLabel,
   LabelLayerProps,
   TourChromeProps,
@@ -17,7 +18,17 @@ export { ExposureControl } from './ExposureControl';
 export { BookmarksPanel } from './BookmarksPanel';
 export { Dock } from './Dock';
 export { Icon, type IconName } from './Icon';
-export { formatEpochJD, formatOrbitalPeriod } from './format';
+export {
+  formatEpochJD,
+  formatOrbitalPeriod,
+  formatSpeedKmS,
+  formatLightTravel,
+  formatEtaAtC,
+  formatCrossingTime,
+} from './format';
+export { STRINGS, SCALE_JUMP_THRESHOLD_PC, type StringKey } from './strings';
+export { ModeBadge, type ModeBadgeProps } from './ModeBadge';
+export { FirstRunOverlay } from './FirstRunOverlay';
 export { OverlayControls } from './OverlayControls';
 export { LabelLayer } from './LabelLayer';
 export { TourChrome } from './TourChrome';

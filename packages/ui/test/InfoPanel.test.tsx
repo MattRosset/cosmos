@@ -43,10 +43,16 @@ describe('InfoPanel — star data display', () => {
     // Name
     expect(screen.getByText('Sirius')).not.toBeNull();
 
-    // Distance: sqrt(1.8²+1.9²+0.4²) = sqrt(7.01) ≈ 2.648 → 2.65 pc, 8.64 ly
-    const distEl = screen.getByText(/pc.*ly/);
-    expect(distEl.textContent).toContain('pc');
+    // Distance leads with ly + light-travel phrase; pc is demoted to a detail row.
+    // sqrt(1.8²+1.9²+0.4²) = sqrt(7.01) ≈ 2.648 → 2.65 pc, 8.64 ly
+    const distEl = screen.getByText(/ly — light takes/);
     expect(distEl.textContent).toContain('ly');
+    expect(distEl.textContent).toContain('light takes');
+    expect(distEl.textContent).not.toContain('pc'); // pc moved out of the primary line
+    // @ c ETA line present
+    expect(screen.getByText(/at c:/)).not.toBeNull();
+    // pc still available as a secondary detail
+    expect(screen.getByText(/2\.65 pc/)).not.toBeNull();
 
     // absMag
     expect(screen.getByText('1.45')).not.toBeNull();
@@ -70,8 +76,9 @@ describe('InfoPanel — star data display', () => {
     };
     useSelectionStore.setState({ selectedId: 'hyg:1' });
     render(<InfoPanel adapter={makeAdapter(star)} onGoTo={vi.fn()} />);
-    // dist = 10.0 pc → "10" pc; ly = 32.6156 → "32.6" ly
-    expect(screen.getByText(/10 pc \/ 32.6 ly/)).not.toBeNull();
+    // dist = 10.0 pc → primary "32.6 ly", pc demoted to "10 pc" detail row
+    expect(screen.getByText(/32\.6 ly/)).not.toBeNull();
+    expect(screen.getByText('10 pc')).not.toBeNull();
   });
 
   it('does not show HIP for non-hyg ids', () => {

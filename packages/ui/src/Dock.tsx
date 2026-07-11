@@ -2,6 +2,7 @@ import { type JSX } from 'react';
 import { TimeControls } from './TimeControls';
 import { ExposureControl } from './ExposureControl';
 import { Icon } from './Icon';
+import { STRINGS } from './strings';
 import type { DockProps } from './types';
 
 /**
@@ -11,7 +12,12 @@ import type { DockProps } from './types';
  * groups shed their own positioning/chrome when inside `.cosmos-ui-dock` (see
  * ui.css) — the dock provides the surface; the groups are just inline segments.
  */
-export function Dock({ onSyncToNow, onOpenSearch, onOpenBookmarks }: DockProps): JSX.Element {
+export function Dock({
+  onSyncToNow,
+  onOpenSearch,
+  onOpenBookmarks,
+  onOpenHelp,
+}: DockProps): JSX.Element {
   return (
     <div className="cosmos-ui-dock" role="toolbar" aria-label="Controls">
       <TimeControls {...(onSyncToNow ? { onSyncToNow } : {})} />
@@ -28,6 +34,15 @@ export function Dock({ onSyncToNow, onOpenSearch, onOpenBookmarks }: DockProps):
       >
         <Icon name="bookmark" />
       </button>
+      {onOpenHelp ? (
+        <button
+          className="cosmos-ui-dock-btn cosmos-ui-dock-help"
+          aria-label={STRINGS.firstRunReopenLabel}
+          onClick={onOpenHelp}
+        >
+          ?
+        </button>
+      ) : null}
     </div>
   );
 }
