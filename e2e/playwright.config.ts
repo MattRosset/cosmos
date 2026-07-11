@@ -24,7 +24,6 @@ export default defineConfig({
   use: {
     viewport: { width: 1280, height: 720 },
     deviceScaleFactor: 1,
-    animations: 'disabled',
     // Seed the first-run "seen" flag (TASK-066 V1) for every spec so the one-time
     // teaching overlay never covers the HUD the other gates drive. The dedicated
     // first-run spec opts back into a fresh context via `test.use({ storageState })`.
@@ -42,6 +41,10 @@ export default defineConfig({
 
   expect: {
     toHaveScreenshot: {
+      // Freeze CSS/animations so screenshot diffs never catch a mid-transition frame.
+      // (This is the valid home for `animations` — it is a screenshot option, not a
+      // top-level `use` option, where it was a silently-ignored type error.)
+      animations: 'disabled',
       // SwiftShader is deterministic per-build, but win32 and linux Chromium ship
       // different SwiftShader/Skia builds, so AA edges and canvas-texture text
       // rasterize ~3% differently against a single shared baseline. This ratio
