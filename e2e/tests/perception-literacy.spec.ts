@@ -57,9 +57,14 @@ test.describe('movement-mode badge (S2) + galactic hint (D8)', () => {
     await page.waitForFunction(() => window.__cosmos?.goToActive === true, undefined, {
       timeout: 5_000,
     });
-    // `not.toHaveText` passes whether the badge is absent or reads something else —
-    // the invariant is only that a sub-threshold hop never says "Scale jump".
-    await expect(page.locator('.hud-mode-badge')).not.toHaveText(SCALE_JUMP_LABEL);
+    // The invariant is only that a sub-threshold hop never shows a "Scale jump"
+    // badge. During the goTo the badge is ABSENT (null label), and `not.toHaveText`
+    // errors on a missing element rather than passing — so assert on a text-filtered
+    // locator instead: zero scale-jump badges exist, whether the badge is absent or
+    // reads "Exploring".
+    await expect(
+      page.locator('.hud-mode-badge', { hasText: SCALE_JUMP_LABEL }),
+    ).toHaveCount(0);
 
     // Let the (two-leg) descent settle inside the Sol system.
     await page.waitForFunction(
