@@ -16,6 +16,8 @@ import { test, expect, type Page } from '@playwright/test';
 const SCALE_JUMP_LABEL = 'Scale jump';
 // packages/ui/src/strings.ts → STRINGS.lightTravelPrefix
 const LIGHT_TRAVEL_PREFIX = 'light takes';
+// packages/ui/src/strings.ts → STRINGS.galacticDescendHint (D8)
+const GALACTIC_HINT = 'Barely moving? Use ◂ Galaxy to descend to a star.';
 // packages/ui/src/strings.ts → STRINGS.firstRunTitle / dismiss / reopen labels
 const FIRST_RUN_TITLE_RE = /Three ways to move/i;
 const FIRST_RUN_DISMISS = 'Start exploring';
@@ -37,13 +39,16 @@ async function searchAndGo(page: Page, query: string, resultText: string): Promi
   await input.press('Enter');
 }
 
-test.describe('movement-mode badge (S2)', () => {
-  test('short in-system fly stays unlabeled; viewGalaxy jump shows "Scale jump"', async ({
+test.describe('movement-mode badge (S2) + galactic hint (D8)', () => {
+  test('sub-threshold fly unlabeled; viewGalaxy shows "Scale jump" then the descend hint', async ({
     page,
   }) => {
     await page.goto('/');
     await waitReady(page);
     expect(await page.evaluate(() => window.__cosmos?.contextId)).toBe('galaxy');
+    // D8 gate: near Sol (0.06 pc from the origin) the galactic descend hint is absent —
+    // it is scale-gated, not always-on.
+    await expect(page.locator('.hud-galactic-hint')).toHaveCount(0);
 
     // ── Short fly: descend into Sol (boot camera sits 0.06 pc from Sol, far below
     // the 100 pc scale-jump threshold). While that goTo runs, the badge must NOT
@@ -75,12 +80,24 @@ test.describe('movement-mode badge (S2)', () => {
     await page.waitForFunction(() => window.__cosmos?.goToActive === true, undefined, {
       timeout: 5_000,
     });
+    // CI-triagable (conventions §6): record what the badge actually reads mid-jump.
+    const badgeAtJump = await page.locator('.hud-mode-badge').textContent();
+    console.log(
+      `[perception] mode badge during viewGalaxy jump = "${badgeAtJump}" ` +
+        `(context=${await page.evaluate(() => window.__cosmos?.contextId)})`,
+    );
     await expect(page.locator('.hud-mode-badge')).toHaveText(SCALE_JUMP_LABEL);
 
     await page.waitForFunction(() => window.__cosmos?.goToActive === false, undefined, {
       timeout: 30_000,
     });
     await expect(page.locator('.hud-mode-badge')).toHaveCount(0);
+
+    // D8 gate: settled at the whole-galaxy vantage (~49 kpc, galaxy context), the
+    // descend hint now renders. `toHaveText` reads the DOM regardless of the idle
+    // chrome fade (opacity), so it is independent of auto-hide timing.
+    expect(await page.evaluate(() => window.__cosmos?.contextId)).toBe('galaxy');
+    await expect(page.locator('.hud-galactic-hint')).toHaveText(GALACTIC_HINT);
   });
 });
 
