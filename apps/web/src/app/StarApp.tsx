@@ -28,6 +28,8 @@ import { getCosmosPool, createMilkyWayStreaming } from '../glue/streaming';
 import { wireQuality } from '../glue/quality';
 import { Crosshair } from '../hud/Crosshair';
 import { Breadcrumb } from '../hud/Breadcrumb';
+import { JumpHudHost } from '../hud/JumpHudHost';
+import { ScaleRulerHost } from '../hud/ScaleRulerHost';
 import { SpeedReadout } from '../hud/SpeedReadout';
 import { ModeBadgeHost } from '../hud/ModeBadgeHost';
 import { GalacticHint } from '../hud/GalacticHint';
@@ -595,6 +597,11 @@ export function StarApp() {
             onEnterGalaxy={() => goto?.enterGalaxy()}
           />
         ) : null}
+        {/* TASK-067 perception v2 — persistent (survive clean view, like the
+            breadcrumb): the scale ruler always answers "what scale am I at?",
+            and the Jump HUD narrates large jumps even with chrome hidden. */}
+        {pack.status === 'ready' ? <ScaleRulerHost /> : null}
+        {pack.status === 'ready' ? <JumpHudHost tree={tree} /> : null}
         <div className={`hud-chrome${chromeHidden ? ' hud-chrome--hidden' : ''}`}>
           {pack.status === 'ready' ? <SpeedReadout /> : null}
           {pack.status === 'ready' ? <ModeBadgeHost /> : null}

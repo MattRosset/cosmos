@@ -38,6 +38,25 @@ export const STRINGS = {
   firstRunDismiss: 'Start exploring',
   firstRunReopenLabel: 'Movement guide',
   firstRunHint: 'Ctrl+K to search · H for a clean view',
+
+  // W1 breadcrumb tooltips (TASK-067) — name the mechanism: a scale link, not flight.
+  breadcrumbMilkyWayTip: 'Jump to Milky Way view (scale link)',
+  breadcrumbStarfieldTip: 'Return to star field',
+
+  // W2 unified Jump HUD (TASK-067) — progress readout + arrival summary card.
+  jumpRemainingSuffix: 'ly remaining',
+  jumpArrivedPrefix: 'Jumped',
+  jumpFovPrefix: 'Field of view: ~',
+  jumpFovSuffix: 'ly across',
+  jumpDismiss: 'Dismiss',
+
+  // D3 scale ruler (TASK-067) — one label per ScaleRulerSegment + the bar's name.
+  rulerLabel: 'Scale',
+  rulerPlanet: 'Planet',
+  rulerSystem: 'System',
+  rulerStarfield: 'Star field',
+  rulerGalacticSurvey: 'Galactic survey',
+  rulerUniverse: 'Universe',
 } as const satisfies Readonly<Record<string, string>>;
 
 export type StringKey = keyof typeof STRINGS;

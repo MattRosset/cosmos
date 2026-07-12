@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import type { CombinedSource } from '@cosmos/data';
 import { useSelectionStore } from '@cosmos/app-state';
+import { STRINGS } from '@cosmos/ui';
 
 /**
  * Persistent location breadcrumb: `Galaxy › <System> › <Body>`. Always visible
@@ -42,13 +43,14 @@ export function Breadcrumb({
       key: 'milkyway',
       label: 'Milky Way',
       onClick: onViewGalaxy,
-      title: 'Fly out to see the whole Milky Way',
+      // W1 (TASK-067): tooltips name the mechanism — a scale link, not flight.
+      title: STRINGS.breadcrumbMilkyWayTip,
     },
     {
       key: 'galaxy',
       label: 'Galaxy',
       onClick: inSystem ? onExit : onEnterGalaxy,
-      title: inSystem ? 'Exit to the galaxy (Esc)' : 'Descend into the Sol star field',
+      title: inSystem ? 'Exit to the galaxy (Esc)' : STRINGS.breadcrumbStarfieldTip,
     },
     ...(inSystem ? [{ key: 'system', label: systemName }] : []),
     ...(bodyCrumb !== null ? [{ key: 'body', label: bodyCrumb }] : []),

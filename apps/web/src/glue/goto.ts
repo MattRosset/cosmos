@@ -117,7 +117,9 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
    * Every flight goes through here so the mode badge (TASK-066) can tell a scale
    * jump from a short hop: snapshot the straight-line start→target distance in pc
    * at flight start via the frame tree (query real state, never re-derive the
-   * exponential motion mid-flight).
+   * exponential motion mid-flight). TASK-067 extends the same snapshot with the
+   * target position, the Jump HUD's only lawful source for the live distance
+   * remaining (`tree.distanceMeters(state.position, target)` each ≤10 Hz tick).
    */
   function flyTo(
     controller: FlightController,
@@ -126,6 +128,10 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     jumpDistancePcHolder.current =
       deps.tree.distanceMeters(controller.state.position, opts.target) /
       CONTEXT_UNIT_METERS.galaxy;
+    jumpDistancePcHolder.target = {
+      context: opts.target.context,
+      local: [opts.target.local[0], opts.target.local[1], opts.target.local[2]],
+    };
     controller.goTo(opts);
   }
 
