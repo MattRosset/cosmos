@@ -37,33 +37,65 @@ New additive `@cosmos/ui` surface (sanctioned by this task):
 
 ```ts
 // Pure mapping for the scale ruler — unit-tested, no DOM. Segments are a function of
-// ONLY (contextId, cameraDistanceFromAnchorM); no other inputs. This is the research
-// doc's pinned D3 mapping — do NOT invent segments the engine cannot report.
+// ONLY (contextId, cameraLocalDistanceM); no other inputs. This is the research
+// doc's pinned D3 mapping (§4, D3 row) — do NOT invent segments the engine cannot report.
+//
+// cameraLocalDistanceM is `|state.position.local| × CONTEXT_UNIT_METERS[contextId]` —
+// the magnitude of the camera's local coordinate in the CURRENT context frame, i.e.
+// distance from the context-frame ORIGIN (NOT from a system/Sol anchor; the research
+// doc pins the source as `|cameraLocal|`). Production MUST feed exactly this scalar so
+// the e2e (test 5) can recompute it from `__cosmos.cameraPosition.local` and get an
+// identical number — a norm of a queried vector, not a re-derivation of the motion law.
 export type ScaleRulerSegment = 'planet' | 'system' | 'starfield' | 'galactic-survey' | 'universe';
-export function scaleRulerSegment(contextId: ContextId, cameraDistanceM: number): ScaleRulerSegment;
-export const GALACTIC_SURVEY_MIN_PC: number; // starfield → galactic-survey split, named constant
+export function scaleRulerSegment(contextId: ContextId, cameraLocalDistanceM: number): ScaleRulerSegment;
+// starfield → galactic-survey split. PINNED to 2_000 (pc). Rationale: the galaxy frame
+// origin ≈ Sol (NavDriver INITIAL_CAMERA = galaxy [0,0,0.06]), so the Sol-boot vantage has
+// |cameraLocal| ≈ 0.06 pc → 'starfield', and the post-viewGalaxy vantage has
+// |cameraLocal| ≈ 49_000 pc (GALAXY_VIEW_ARRIVAL_M ≈ 49 kpc) → 'galactic-survey'. 2_000 sits
+// well inside that band so the two e2e vantages straddle it deterministically.
+export const GALACTIC_SURVEY_MIN_PC: number; // = 2_000
 
 // Jump HUD model — pure state machine, DOM component consumes it
 export interface JumpHudModel {
   phase: 'idle' | 'jumping' | 'arrived';
-  distanceTotalLy: number;      // |target − start| snapshotted at goTo start
-  distanceRemainingLy: number;
+  distanceTotalLy: number;      // snapshotted at goTo start = jumpDistancePcHolder × 3.2616 (pc→ly)
+  distanceRemainingLy: number;  // LIVE: tree.distanceMeters(controller.state.position, target) → ly.
+                                // NOT total×(1−progress): the controller exposes no progress/remaining
+                                // scalar (see Inputs). Requires the snapshotted target position (below).
   etaAtC: string;               // formatEtaAtC(distanceTotalLy)
   showFullArrivalCard: boolean; // W2a dampening decision
   letterbox: boolean;           // W2a: first large jump only (default)
 }
 ```
 
-The letterbox reuses the existing `.hud-letterbox` CSS (`apps/web/src/styles.css`,
-`Hud.tsx`) — a second activation *source*, not a new mechanism. `packages/nav`'s
-cinematic letterbox flag is untouched.
+The letterbox reuses the existing `.hud-letterbox` CSS (`apps/web/src/styles.css:461`,
+`Hud.tsx` `Letterbox`) — an *additional* activation source. `Hud.tsx:224` already ORs two
+(`cinematic || letterboxActive`); add the jump-letterbox flag as a third disjunct. No new
+mechanism, and `packages/nav`'s cinematic letterbox flag is untouched.
+
+<!-- Provenance: spec-review 2026-07-11 against post-TASK-066 code. Verified all 3 consumed
+     066 exports exist (formatEtaAtC/STRINGS/SCALE_JUMP_THRESHOLD_PC). Fixed: ruler distance
+     arg semantics (|cameraLocal|, not anchor) + pinned GALACTIC_SURVEY_MIN_PC=2000;
+     distanceRemainingLy source (live camera vs snapshotted target — controller has no
+     progress scalar); reconciled Inputs with 066's existing flyTo/jumpDistancePcHolder
+     (scalar pc, extend not fork); named the e2e-test-5 hook read source. -->
+
 
 ## Inputs / Outputs
 
-- **Inputs:** `goTo` start/target positions snapshotted by app glue at `goTo()` call sites
-  (`apps/web/src/glue/goto.ts` callers — the glue already owns these; snapshot d₀ there
-  and pass it down, do NOT reconstruct from mid-flight camera state); `onGoToEnd` for the
-  arrival transition; `localStorage` counters for dampening.
+- **Inputs:** TASK-066 already centralised every flight through `flyTo(controller, opts)`
+  in `apps/web/src/glue/goto.ts` (lines ~122–130), which snapshots the straight-line jump
+  distance into `jumpDistancePcHolder.current` (`test-hook.ts`, **in parsecs, scalar only**)
+  — the mode badge reads it. TASK-067 **EXTENDS** this, it does not add a parallel path:
+  widen the holder to `{ distancePc, target }` (or add a sibling `jumpTargetHolder`) so the
+  Jump HUD can compute `distanceRemainingLy` as
+  `tree.distanceMeters(controller.state.position, target)` each tick. The controller exposes
+  NO progress/remaining scalar (verified: `FlightController` has only `goToActive`,
+  `onGoToEnd`, live `state.position`; the internal `GoToState.target` is not public), so the
+  target snapshot is the only lawful source — do NOT reconstruct totals from the exponential
+  mid-flight motion. `distanceTotalLy` = `distancePc × 3.2616`. `onGoToEnd(completed)` drives
+  the arrival transition (completed=true) vs. cancel (false); `localStorage` counters for
+  dampening.
 - **Outputs (behavioral):**
   - **Jump HUD (W2):** mounts only when `goToActive` AND jump distance ≥
     `SCALE_JUMP_THRESHOLD_PC`. While jumping: distance remaining (ly), @ c equivalent.
@@ -83,6 +115,9 @@ cinematic letterbox flag is untouched.
 
 - Zero nav changes: no `GoToOptions`, durations, thresholds, hysteresis edits.
 - Do not modify `packages/core-types`, `packages/nav`, `packages/scene-host`.
+- `goto.ts` `flyTo` and `test-hook.ts` `jumpDistancePcHolder` are TASK-066-owned and read by
+  the mode badge. EXTEND them in place; do not fork a parallel snapshot or change the units
+  the mode badge already reads (`jumpDistancePcHolder.current` stays pc). Additive only.
 - No new dependencies; no Three.js in `packages/ui`.
 - Jump HUD + ruler updates: imperative DOM on rAF or ≤10 Hz store — no per-frame React
   re-renders of `SceneHost` (research §11 criterion 8).
@@ -114,17 +149,20 @@ DONE only when these pass in CI (`pnpm verify` + `pnpm test:e2e`):
 3. **E2E — dampening:** repeat the jump 3×; assert letterbox class absent from jump 2 on,
    and arrival card is the one-line variant from jump 4 on (storage-driven, deterministic).
 4. **E2E — threshold:** short in-system fly → jump HUD and letterbox never mount.
-5. **E2E — ruler:** at Sol vantage vs. post-`viewGalaxy` vantage, assert highlighted
-   segment matches `scaleRulerSegment(__cosmos.contextId, distance-from-hook)` — DOM
-   presence + segment identity only, no pixel positions.
+5. **E2E — ruler:** at Sol vantage vs. post-`viewGalaxy` vantage, assert the highlighted
+   DOM segment matches `scaleRulerSegment(__cosmos.contextId, d)` where
+   `d = hypot(__cosmos.cameraPosition.local) × CONTEXT_UNIT_METERS[__cosmos.contextId]`
+   (the sanctioned norm-of-a-queried-vector; production feeds the identical scalar). DOM
+   presence + segment identity only, no pixel positions. Log both vantages' `d` and segment.
 6. Reference-machine screenshot of letterbox+card is `!process.env.CI` only.
 
 ## Deliverables
 
 - `packages/ui/src/scale-ruler.ts` + component + tests
 - `packages/ui/src/JumpHud.tsx` + model + tests; `strings.ts` additions
-- `apps/web` glue: d₀ snapshot in `goto.ts` call path, Jump HUD + ruler mounts,
-  letterbox source wiring, `localStorage` counters; breadcrumb tooltip copy
+- `apps/web` glue: EXTEND 066's `flyTo`/`jumpDistancePcHolder` to also snapshot the target
+  position (for live `distanceRemainingLy`); Jump HUD + ruler mounts; letterbox third-source
+  wiring; `localStorage` counters; breadcrumb tooltip copy (new `STRINGS` keys)
 - e2e spec `e2e/tests/perception-scale.spec.ts`
 
 ## Context Files
