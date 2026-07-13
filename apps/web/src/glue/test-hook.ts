@@ -3,7 +3,7 @@ import type { ErrorCounts } from '@cosmos/diagnostics';
 import { getErrorCounts } from '@cosmos/diagnostics';
 import type { FlightController } from '@cosmos/nav';
 import type { StreamingPolicy } from '@cosmos/streaming';
-import { useOverlayStore, useTourStore } from '@cosmos/app-state';
+import { useOverlayStore, useSettingsStore, useTourStore } from '@cosmos/app-state';
 
 /**
  * E2E/dev test hook (TASK-015 → M2 → M3 → M4a). Event-driven mirrors of app
@@ -55,6 +55,9 @@ export interface CosmosTestHook {
     constellations: boolean;
     labels: boolean;
   };
+  /** Star-field exposure (TASK-068 View drawer gate), mirrored ≤ 4 Hz from
+   *  `useSettingsStore` alongside the overlay mirror. */
+  exposure: number;
   /** Guided tour state (TASK-052), mirrored from `useTourStore`. */
   tour: {
     active: boolean;
@@ -131,6 +134,7 @@ export const testHook: CosmosTestHook = {
   procgenOpacity: 1,
   atmosphereMounted: false,
   overlays: { constellations: false, labels: false },
+  exposure: 0,
   tour: { active: false, stepIndex: -1 },
   cinematicActive: false,
   // Live getters (TASK-058): read the TRUE value at access time, not a ≤ 4 Hz mirror,
@@ -208,11 +212,12 @@ export function mirrorStreamingStats(): void {
   testHook.atmosphereMounted = atmosphereHolder.current;
 }
 
-/** Mirror overlay-store + tour-store state into the test hook (≤ 4 Hz). */
+/** Mirror overlay/settings/tour-store state into the test hook (≤ 4 Hz). */
 export function mirrorOverlayState(): void {
   const o = useOverlayStore.getState();
   testHook.overlays.constellations = o.constellations;
   testHook.overlays.labels = o.labels;
+  testHook.exposure = useSettingsStore.getState().exposure;
   const t = useTourStore.getState();
   testHook.tour.active = t.active !== null;
   testHook.tour.stepIndex = t.stepIndex;

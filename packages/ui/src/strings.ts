@@ -57,6 +57,52 @@ export const STRINGS = {
   rulerStarfield: 'Star field',
   rulerGalacticSurvey: 'Galactic survey',
   rulerUniverse: 'Universe',
+
+  // ── TASK-068 insight cards ──────────────────────────────────────────────
+  // C1 spectral plain language, one line per spectralClassFromBV letter.
+  spectralPlainB: 'Blue-white star — far hotter than the Sun',
+  spectralPlainA: 'White star — hotter than the Sun',
+  spectralPlainF: 'Yellow-white star — slightly hotter than the Sun',
+  spectralPlainG: 'Yellow dwarf — similar to the Sun',
+  spectralPlainK: 'Orange dwarf — cooler than the Sun',
+  spectralPlainM: 'Red dwarf — far cooler and dimmer than the Sun',
+
+  // C2 naked-eye visibility vs. the ~6.5 apparent-magnitude limit.
+  visibilityNakedEye: 'Visible to the naked eye',
+  visibilityTelescope: 'Needs binoculars or a telescope',
+
+  // C3 system badge (card-only v1) — honest Go-to expectations (research §2.3).
+  badgeNoSystem: 'No known planetary system',
+  badgePlanetSingular: 'known planet',
+  badgePlanetPlural: 'known planets',
+
+  // C4 Earth-relative size ("9.1× Earth"); prefix for the bar's a11y label.
+  sizeVsEarthSuffix: '× Earth',
+  sizeBarAriaPrefix: 'Size:',
+
+  // C5 orbit in human terms ("88-day year" / "29.4-year orbit") + the
+  // "like <Sol planet>" comparison tail for exoplanet-relatable periods.
+  orbitDayYearSuffix: '-day year',
+  orbitYearOrbitSuffix: '-year orbit',
+  orbitLikeMercury: ' — like Mercury',
+  orbitLikeVenus: ' — like Venus',
+  orbitLikeEarth: ' — like Earth',
+  orbitLikeMars: ' — like Mars',
+  orbitLikeJupiter: ' — like Jupiter',
+  orbitLikeSaturn: ' — like Saturn',
+  orbitLikeNeptune: ' — like Neptune',
+  hzHint: 'In the habitable zone — liquid water could exist',
+
+  // C6 museum layout — collapsed expert-details row.
+  detailsLabel: 'Details',
+
+  // V3 unified View drawer (replaces the split overlay/exposure mounts).
+  viewDrawerLabel: 'View settings',
+  viewDrawerTitle: 'View',
+  viewConstellations: 'Constellations',
+  viewLabels: 'Labels',
+  viewCinematic: 'Cinematic',
+  viewAutoHide: 'Auto-hide controls',
 } as const satisfies Readonly<Record<string, string>>;
 
 export type StringKey = keyof typeof STRINGS;

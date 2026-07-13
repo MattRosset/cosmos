@@ -38,6 +38,9 @@ import { HYG_MANIFEST_URL, SOL_PACK_URL, EXO_PACK_URL, OCTREE_MANIFEST_URL, GAIA
 import { DEBUG_BREADCRUMB_PROFILE, DEBUG_BUILD_STATS } from './flags';
 import './dev-surface';
 
+/** V2 auto-hide preference key ('0' = off; anything else / absent = on). */
+const AUTO_HIDE_KEY = 'cosmos.autohide.v1';
+
 /**
  * M2 composition (TASK-029): load the HYG pack + Sol/exo systems packs in
  * parallel, merge into a combined source, and wire the full explorer — star
@@ -60,6 +63,24 @@ export function StarApp() {
   /** Chrome auto-hides after a few seconds of no input, for an unobstructed view. */
   const [idle, setIdle] = useState(false);
   const idleRef = useRef(false);
+  /** V2 (TASK-068): auto-hide preference, persisted with the FIRST_RUN_KEY-style
+   *  guarded localStorage pattern (private mode / disabled storage never breaks
+   *  the HUD — worst case the preference resets to the default ON). */
+  const [autoHide, setAutoHide] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem(AUTO_HIDE_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const handleAutoHideChange = useCallback((next: boolean) => {
+    setAutoHide(next);
+    try {
+      window.localStorage.setItem(AUTO_HIDE_KEY, next ? '1' : '0');
+    } catch {
+      /* storage unavailable — preference simply resets next load */
+    }
+  }, []);
   const chromeHidden = cleanView || idle;
 
   // Install the time glue and start the clock once.
@@ -70,7 +91,13 @@ export function StarApp() {
   // Auto-hide on inactivity. A ref gates the state write so routine pointer moves
   // (which only reschedule the timer) never re-render — only idle transitions do.
   // Held back while a panel is open so it can't vanish mid-interaction.
+  // The V2 preference (View drawer toggle) disables the whole mechanism.
   useEffect(() => {
+    if (!autoHide) {
+      idleRef.current = false;
+      setIdle(false);
+      return;
+    }
     const IDLE_MS = 4000;
     let timer: ReturnType<typeof setTimeout>;
     const setIdleTo = (next: boolean): void => {
@@ -102,7 +129,7 @@ export function StarApp() {
       clearTimeout(timer);
       for (const e of events) window.removeEventListener(e, onActivity);
     };
-  }, []);
+  }, [autoHide]);
 
   // Clean view (H): collapse all chrome to bare crosshair. Ignored while typing
   // in an input so it never fights the search palette / bookmark fields.
@@ -514,6 +541,14 @@ export function StarApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, [goto]);
 
+  // System lookup for the HUD's C3 planet-count badge (TASK-068) — same
+  // sol-then-exo resolution order as `mountedSystem` below.
+  const getSystem = useCallback(
+    (id: BodyId) =>
+      sources === null ? undefined : sources.sol.getSystem(id) ?? sources.exo.getSystem(id),
+    [sources],
+  );
+
   const mountedSystem = useMemo(() => {
     if (sources === null || mountedSystemId === null) return null;
     const system = sources.sol.getSystem(mountedSystemId) ?? sources.exo.getSystem(mountedSystemId);
@@ -647,6 +682,7 @@ export function StarApp() {
           {pack.status === 'ready' && goto ? (
             <Hud
               source={pack.sources.combined}
+              getSystem={getSystem}
               currentSystemId={mountedSystemId}
               onExitSystem={() => goto.exitSystem()}
               onGoTo={handleGoTo}
@@ -655,6 +691,8 @@ export function StarApp() {
               onGoToBookmark={goto.goToBookmark}
               onTourStepChange={flyToStep}
               onTourExit={handleTourExit}
+              autoHide={autoHide}
+              onAutoHideChange={handleAutoHideChange}
             />
           ) : null}
         </div>

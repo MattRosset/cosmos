@@ -122,14 +122,24 @@ export function formatEpochJD(epochJD: number): string {
 }
 
 /**
+ * Orbital period in DAYS from Keplerian elements (Kepler's third law).
+ * aAu: semi-major axis in AU; muKm3S2: GM of parent body in km³/s².
+ * The single home of this math (TASK-068): `formatOrbitalPeriod` and the
+ * astro-derive orbit copy both delegate here — never re-derive it.
+ */
+export function orbitalPeriodDays(aAu: number, muKm3S2: number): number {
+  const aKm = aAu * 1.495978707e8;
+  const Ts = 2 * Math.PI * Math.sqrt(aKm ** 3 / muKm3S2);
+  return Ts / 86400;
+}
+
+/**
  * Orbital period from Keplerian elements.
  * aAu: semi-major axis in AU; muKm3S2: GM of parent body in km³/s².
  * Result: "N d" when < 1000 days, else "N yr" (3 sig figs each).
  */
 export function formatOrbitalPeriod(aAu: number, muKm3S2: number): string {
-  const aKm = aAu * 1.495978707e8;
-  const Ts = 2 * Math.PI * Math.sqrt(aKm ** 3 / muKm3S2);
-  const Td = Ts / 86400;
+  const Td = orbitalPeriodDays(aAu, muKm3S2);
   if (Td < 1000) {
     return `${parseFloat(Td.toPrecision(3))} d`;
   }

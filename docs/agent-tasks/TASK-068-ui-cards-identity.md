@@ -5,6 +5,9 @@
 **Size:** L
 **Phase:** Perception track (post-4a; not a roadmap phase)
 **Depends on:** TASK-066 (strings/format modules), TASK-067 (HUD composition settled).
+**Provenance:** spec-reviewed 2026-07-12 against main@61c1373 — C2/C5 input sourcing made
+explicit, C3 adapter exception sanctioned (moons-count trap), V2/V3 storage+store facts
+corrected, e2e gate 4 exposure observability fixed.
 Consider a lightweight design sketch before starting (research open question 5) —
 if none exists, implement the §6.2 table as specified and keep layout swappable.
 
@@ -27,17 +30,40 @@ magnitude, B−V, spectral class, HIP; planet: radius km, semi-major axis AU, ec
 period, parent) are the ONLY data inputs — if a proposal needs a field that isn't already
 passed, cut the line item rather than widening adapters (that is the sibling data lane).
 
+**Single sanctioned exception (C3):** `BodyLookupAdapter` gains ONE optional method,
+`planetCountFor?(systemId: BodyId): number | null` (absent ⇒ badge omitted). Implement it
+in the app glue (`apps/web/src/hud/Hud.tsx`, next to the existing `hostSystemIdFor`) via
+`source.getSystem(systemId)`. **Trap:** `StarSystemRecord.bodies` is planets AND moons flat
+(`packages/core-types/src/systems.ts:18`; the Sol pack contains `sol:moon`, Titan, …) —
+count only bodies whose `parentId === system.star.id`, or Sol reads "10 known planets".
+No other adapter/prop widening; anything else still gets cut.
+
+Note on derived inputs (not new fields): apparent magnitude (C2) does not exist on
+`StarRecord` (`packages/core-types/src/bodies.ts` — only `absMag`); derive it in
+`astro-derive.ts` as `apparentMagnitude(absMag, distancePc)` = `absMag + 5·log10(d/10)`
+(InfoPanel already computes `dist` from `positionPc`). Planet period-in-days (C5) comes
+from an extracted `orbitalPeriodDays(aAu, muKm3S2)` exported from `format.ts` (the Kepler
+math already lives inside `formatOrbitalPeriod`, format.ts:129 — export it, don't
+re-derive it). The B−V for `habitableZoneHint` is the PARENT STAR's `colorIndexBV`,
+reachable in the existing planet path via `adapter.getBody(body.parentId)`.
+
 New additive `@cosmos/ui` surface:
 
 ```ts
 // packages/ui/src/astro-derive.ts — pure display-time derivations, unit-tested
 export function spectralPlainLanguage(bv: number | null, spectral?: string | null): string | null; // C1
+export function apparentMagnitude(absMag: number, distancePc: number): number | null;              // C2 input (see Frozen Interface note)
 export function nakedEyeVisibility(apparentMag: number | null): string | null;                     // C2, mag ≤ ~6.5
 export function radiusVsEarth(radiusKm: number): { ratio: number; label: string };                 // C4
-export function orbitInHumanTerms(periodDays: number, semiMajorAxisAu: number): string;            // C5
-export function habitableZoneHint(semiMajorAxisAu: number, bv: number | null): string | null;      // C5 (null when insufficient data)
+export function orbitInHumanTerms(periodDays: number, semiMajorAxisAu: number): string;            // C5; periodDays from format.ts orbitalPeriodDays
+export function habitableZoneHint(semiMajorAxisAu: number, bv: number | null): string | null;      // C5 (null when insufficient data; bv = PARENT star)
 export function spectralTint(bv: number | null): string | null; // C7 → CSS color string
 ```
+
+Fixed copy (badge variants, visibility lines, "similar to the Sun" comparisons) lives in
+`packages/ui/src/strings.ts` per the TASK-066 convention (research open question 1:
+perception copy is centralized, never scattered literals); `astro-derive.ts` composes
+from `STRINGS`, it does not embed its own English sentences.
 
 ## Inputs / Outputs
 
@@ -56,9 +82,16 @@ export function spectralTint(bv: number | null): string | null; // C7 → CSS co
   - **C7 + typography:** panel accent/border glow from `spectralTint`; token extensions in
     `ui.css` (display face for body names, mono/tabular numerals for quantities — bundled
     fonts must be license-compatible and added to `ATTRIBUTIONS.md`, or use system stacks).
-  - **V3 View drawer:** one surface consolidating exposure, overlays, labels, cinematic,
-    auto-hide; existing stores only (`app-state` untouched). Old scattered controls removed.
-  - **V2:** auto-hide preference persisted (existing safe-storage util in app glue).
+  - **V3 View drawer:** one surface consolidating exposure (`useSettingsStore`),
+    constellations/labels/cinematic (`useOverlayStore`), and auto-hide. Auto-hide has NO
+    store today — it is local `useState(idle)` in `apps/web/src/app/StarApp.tsx` — so the
+    drawer takes it as controlled props (`autoHide` + `onAutoHideChange`) wired from
+    `apps/web`; the other toggles read/write the existing stores directly. `app-state`
+    untouched. Old scattered control mounts (`OverlayControls`, `ExposureControl`) removed.
+  - **V2:** auto-hide preference persisted from `apps/web` glue using the guarded
+    try/catch `localStorage` pattern of `FIRST_RUN_KEY` in `apps/web/src/hud/Hud.tsx`
+    (`useFirstRun`). Do NOT import `createSafeStorage` — it lives in frozen
+    `packages/app-state/src/persist-util.ts` and is not exported from the package index.
 
 ## Constraints & Forbidden Actions
 
@@ -94,9 +127,13 @@ DONE only when these pass in CI (`pnpm verify` + `pnpm test:e2e`):
    default. Log star id + rendered strings.
 3. **E2E — planet card:** enter Sol, select a planet; assert size-bar element present with
    an accessible label containing an Earth-ratio, and a human-terms orbit line.
-4. **E2E — View drawer:** open drawer via role locator; toggle overlays + exposure from
-   it; assert `__cosmos.overlays` reflects the change; assert the old scattered controls
-   are gone.
+4. **E2E — View drawer:** open drawer via role locator; toggle an overlay and assert
+   `__cosmos.overlays` reflects it. For exposure, extend the test hook first:
+   `__cosmos.overlays` mirrors only constellations/labels today
+   (`apps/web/src/glue/test-hook.ts` `mirrorOverlayState`), so add an `exposure` mirror
+   from `useSettingsStore` to the same ≤ 4 Hz mirror (glue file — allowed), move the
+   slider, and assert the mirrored value changed. Log toggled control + observed values.
+   Assert the old scattered controls are gone.
 5. **Perf/bundle:** existing bundle-size gate stays green with any added font assets;
    no new per-frame React renders (existing §5.12 discipline).
 6. Visual identity screenshots: reference-machine only (`!process.env.CI`).
@@ -104,10 +141,15 @@ DONE only when these pass in CI (`pnpm verify` + `pnpm test:e2e`):
 ## Deliverables
 
 - `packages/ui/src/astro-derive.ts` + tests; InfoPanel card redesign + updated tests
+- `packages/ui/src/format.ts`: extract + export `orbitalPeriodDays(aAu, muKm3S2)`
+  (existing `formatOrbitalPeriod` delegates to it); `strings.ts` additions for new copy
 - `packages/ui/src/ViewDrawer.tsx` + tests; removal of superseded control mounts
 - `packages/ui/src/ui.css` token extensions; font assets (if any) + `ATTRIBUTIONS.md` entry
-- `apps/web` wiring: drawer mount, auto-hide preference, spectral-tint variable plumbing
-- e2e spec `e2e/tests/perception-cards.spec.ts`
+- `apps/web` wiring: drawer mount, auto-hide preference, spectral-tint variable plumbing,
+  `planetCountFor` adapter impl (Hud.tsx), test-hook `exposure` mirror
+- e2e spec `e2e/tests/perception-cards.spec.ts` (note: the card redesign must keep the
+  `.cosmos-ui-info-name/-distance/-eta` hooks asserted by
+  `e2e/tests/perception-literacy.spec.ts`, or update that spec in the same PR)
 
 ## Context Files
 

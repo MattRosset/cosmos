@@ -25,7 +25,20 @@ export {
   formatLightTravel,
   formatEtaAtC,
   formatCrossingTime,
+  orbitalPeriodDays,
 } from './format';
+export {
+  spectralPlainLanguage,
+  apparentMagnitude,
+  nakedEyeVisibility,
+  radiusVsEarth,
+  orbitInHumanTerms,
+  habitableZoneHint,
+  spectralTint,
+  NAKED_EYE_LIMIT_MAG,
+  EARTH_RADIUS_KM,
+  HABITABLE_ZONE_AU,
+} from './astro-derive';
 export { STRINGS, SCALE_JUMP_THRESHOLD_PC, type StringKey } from './strings';
 export { ModeBadge, type ModeBadgeProps } from './ModeBadge';
 export {
@@ -53,5 +66,6 @@ export {
 export { JumpHud, type JumpHudProps } from './JumpHud';
 export { FirstRunOverlay } from './FirstRunOverlay';
 export { OverlayControls } from './OverlayControls';
+export { ViewDrawer, type ViewDrawerProps } from './ViewDrawer';
 export { LabelLayer } from './LabelLayer';
 export { TourChrome } from './TourChrome';

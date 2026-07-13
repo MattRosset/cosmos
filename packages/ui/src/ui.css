@@ -23,6 +23,14 @@
   --hud-warm: #ffd27a;
   --hud-danger: #ff7a7a;
 
+  /* TASK-068 visual identity — two typographic voices, system stacks only
+   * (no bundled font assets; license/bundle-gate neutral). Display face for
+   * body names, mono/tabular for quantities. */
+  --hud-font-display: 'Segoe UI Variable Display', 'Avenir Next', 'Trebuchet MS',
+    'Segoe UI', system-ui, sans-serif;
+  --hud-font-numeric: ui-monospace, 'Cascadia Mono', 'SF Mono', 'JetBrains Mono',
+    Consolas, 'Liberation Mono', monospace;
+
   --hud-radius: 10px;
   --hud-radius-sm: 7px;
   --hud-blur: 14px;
@@ -112,6 +120,9 @@
 
 /* --- Info panel --- */
 
+/* C7 spectral tint: the selected body's color (--cosmos-info-tint, set inline
+ * by InfoPanel) accents the card's top edge + glow; falls back to the neutral
+ * chrome when the body has no color index. */
 .cosmos-ui-info {
   pointer-events: auto;
   position: fixed;
@@ -120,6 +131,10 @@
   width: min(280px, 90vw);
   padding: 16px;
   z-index: 90;
+  border-top: 2px solid var(--cosmos-info-tint, var(--hud-border-strong));
+  box-shadow:
+    0 0 26px -10px var(--cosmos-info-tint, transparent),
+    var(--hud-shadow);
 }
 
 .cosmos-ui-info-close {
@@ -140,10 +155,115 @@
 }
 
 .cosmos-ui-info-name {
-  margin: 0 0 12px;
-  font-size: 1.1rem;
+  margin: 0 0 10px;
+  font-family: var(--hud-font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   color: var(--hud-text);
   padding-right: 24px;
+}
+
+/* C3 system badge — small caps chip under the name. */
+.cosmos-ui-info-badge {
+  margin: -6px 0 10px;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hud-text-dim);
+}
+
+/* C6 hero metric — the one number that matters, numeric voice. */
+.cosmos-ui-info-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 10px;
+}
+
+.cosmos-ui-info-hero-value {
+  font-family: var(--hud-font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: 1.55rem;
+  line-height: 1.1;
+  color: var(--hud-text);
+}
+
+.cosmos-ui-info-hero-sub {
+  font-size: 0.78rem;
+  color: var(--hud-text-dim);
+}
+
+/* C1/C2/C5 insight lines — one short human sentence each. */
+.cosmos-ui-info-class,
+.cosmos-ui-info-visibility,
+.cosmos-ui-info-orbit {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  color: var(--hud-text);
+}
+
+.cosmos-ui-info-hz {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  color: var(--hud-warm);
+}
+
+/* C4 Earth-relative size bar — Earth reference tick at the 50% mapping point. */
+.cosmos-ui-info-size {
+  margin: 0 0 10px;
+}
+
+.cosmos-ui-info-sizebar {
+  position: relative;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--hud-surface-input);
+  border: 1px solid var(--hud-border);
+  overflow: hidden;
+}
+
+.cosmos-ui-info-sizebar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--cosmos-info-tint, var(--hud-accent));
+  opacity: 0.85;
+}
+
+.cosmos-ui-info-sizebar::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hud-text-dim);
+}
+
+.cosmos-ui-info-size-label {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-text-dim);
+}
+
+/* C6 collapsed expert-details row. */
+.cosmos-ui-info-details {
+  margin: 0 0 12px;
+  font-size: 0.78rem;
+}
+
+.cosmos-ui-info-details summary {
+  cursor: pointer;
+  color: var(--hud-text-faint);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cosmos-ui-info-details[open] summary {
+  margin-bottom: 6px;
 }
 
 .cosmos-ui-info-data {
@@ -225,6 +345,8 @@
 .cosmos-ui-time-readout {
   margin-left: 8px;
   color: var(--hud-text);
+  font-family: var(--hud-font-numeric);
+  font-size: 0.8rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -258,6 +380,8 @@
 
 .cosmos-ui-exposure-readout {
   color: var(--hud-text);
+  font-family: var(--hud-font-numeric);
+  font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   min-width: 2.5em;
@@ -484,8 +608,7 @@
 
 /* Inner control groups shed their own positioning/chrome inside the dock —
  * the dock provides the surface; they are just inline segments. */
-.cosmos-ui-dock .cosmos-ui-time,
-.cosmos-ui-dock .cosmos-ui-exposure {
+.cosmos-ui-dock .cosmos-ui-time {
   position: static;
   transform: none;
   left: auto;
@@ -496,10 +619,6 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   padding: 0;
-}
-
-.cosmos-ui-dock .cosmos-ui-exposure input[type='range'] {
-  width: 88px;
 }
 
 .cosmos-ui-dock-sep {
@@ -674,6 +793,101 @@
   background: var(--hud-accent-fill);
   border-color: var(--hud-border-strong);
   color: var(--hud-text);
+}
+
+/* --- View drawer (TASK-068 V3) --- */
+
+.cosmos-ui-view {
+  pointer-events: auto;
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  /* Above the cinematic letterbox (.hud-letterbox z-index 90) so the drawer —
+   * incl. its Cinematic toggle — stays clickable while the bars are in;
+   * otherwise cinematic can't be exited (BUG-3, inherited from the retired
+   * OverlayControls mount). */
+  z-index: 101;
+}
+
+.cosmos-ui-view-toggle {
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 6px 12px;
+}
+
+.cosmos-ui-view-toggle:hover,
+.cosmos-ui-view-toggle[aria-expanded='true'] {
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
+}
+
+.cosmos-ui-view-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text-dim);
+  font-size: 0.82rem;
+}
+
+/* The exposure group sheds its fixed positioning/chrome inside the drawer,
+ * exactly like it did inside the dock. */
+.cosmos-ui-view-drawer .cosmos-ui-exposure {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  background: none;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 0;
+}
+
+.cosmos-ui-view-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cosmos-ui-view-toggles button {
+  background: none;
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+.cosmos-ui-view-toggles button[aria-pressed='true'] {
+  background: var(--hud-accent-fill);
+  border-color: var(--hud-border-strong);
+  color: var(--hud-text);
+}
+
+.cosmos-ui-view :focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 1px;
+  border-radius: var(--hud-radius-sm);
 }
 
 /* --- Label layer (screen-space, app-projected) --- */

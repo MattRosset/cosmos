@@ -7,6 +7,7 @@ import {
   formatLightTravel,
   formatEtaAtC,
   formatCrossingTime,
+  orbitalPeriodDays,
 } from '../src/format';
 
 /** Parse "…9.9×10¹³ km/s" back to a numeric km/s for order-of-magnitude asserts. */
@@ -156,5 +157,24 @@ describe('formatOrbitalPeriod', () => {
     // Earth: should format to "365 d" (3 sig figs)
     const result = formatOrbitalPeriod(1, 1.32712440018e11);
     expect(result).toBe('365 d');
+  });
+});
+
+describe('orbitalPeriodDays (TASK-068 extraction)', () => {
+  it('Earth: a=1 AU, μ_sun → ≈ 365.25 days', () => {
+    expect(orbitalPeriodDays(1, 1.32712440018e11)).toBeCloseTo(365.25, 0);
+  });
+
+  it('Mercury: a=0.387 AU → ≈ 88 days', () => {
+    const d = orbitalPeriodDays(0.387, 1.32712440018e11);
+    expect(d).toBeGreaterThan(85);
+    expect(d).toBeLessThan(91);
+  });
+
+  it('formatOrbitalPeriod delegates to it (same rounding as before)', () => {
+    const days = orbitalPeriodDays(9.5826, 1.32712440018e11);
+    expect(formatOrbitalPeriod(9.5826, 1.32712440018e11)).toBe(
+      `${parseFloat((days / 365.25).toPrecision(3))} yr`,
+    );
   });
 });
