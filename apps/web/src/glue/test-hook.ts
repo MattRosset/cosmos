@@ -1,4 +1,4 @@
-import type { BodyId, ContextId, QualityTier } from '@cosmos/core-types';
+import type { BodyId, ContextId, QualityTier, UniversePosition } from '@cosmos/core-types';
 import type { ErrorCounts } from '@cosmos/diagnostics';
 import { getErrorCounts } from '@cosmos/diagnostics';
 import type { FlightController } from '@cosmos/nav';
@@ -162,12 +162,19 @@ export const streamingHolder: { current: StreamingPolicy | null } = {
 };
 
 /**
- * Last goTo's snapshotted straight-line distance in parsecs, written by the goTo
- * coordinator at flight start (via `tree.distanceMeters`, never re-derived from
- * mid-flight camera state). The mode badge (TASK-066) reads it alongside
- * `goToActive` to tell a threshold-gated scale jump from a short hop.
+ * Last goTo's snapshot, written by the goTo coordinator at flight start (via
+ * `tree.distanceMeters`, never re-derived from mid-flight camera state):
+ *  - `current`: straight-line distance in PARSECS (unit contract: the mode
+ *    badge, TASK-066, reads it alongside `goToActive` to tell a threshold-gated
+ *    scale jump from a short hop — do not change its units).
+ *  - `target`: the goTo target position (TASK-067), so the Jump HUD can compute
+ *    the LIVE distance remaining as `tree.distanceMeters(state.position, target)`
+ *    — the controller exposes no progress/remaining scalar.
  */
-export const jumpDistancePcHolder: { current: number } = { current: 0 };
+export const jumpDistancePcHolder: {
+  current: number;
+  target: UniversePosition | null;
+} = { current: 0, target: null };
 
 /**
  * Module-scoped procgen-opacity holder. GalaxyScene writes the coverage-driven

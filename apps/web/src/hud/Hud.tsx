@@ -14,6 +14,7 @@ import {
 import type { BodyLookupAdapter } from '@cosmos/ui';
 import { liveLabels, subscribeLabelSet, type LiveLabel } from '../glue/overlays';
 import { controllerHolder } from '../glue/test-hook';
+import { jumpLetterboxHolder } from './JumpHudHost';
 
 interface HudProps {
   readonly source: CombinedSource;
@@ -207,21 +208,24 @@ function LabelLayerHost(): React.JSX.Element {
 }
 
 /**
- * Cinematic letterbox bars. Shown while `useOverlayStore.cinematic` is on OR the
- * controller is playing a `letterbox` spline (`flight.letterboxActive`). The
- * controller flag flips only at cinematic start/stop, so a low-rate poll suffices;
- * no per-frame React work.
+ * Cinematic letterbox bars. Shown while `useOverlayStore.cinematic` is on, the
+ * controller is playing a `letterbox` spline (`flight.letterboxActive`), OR a
+ * large scale jump wants framing (TASK-067 D4, `jumpLetterboxHolder`). All three
+ * flags flip only at start/stop events, so a low-rate poll suffices; no
+ * per-frame React work.
  */
 function Letterbox(): React.JSX.Element {
   const cinematic = useOverlayStore((s) => s.cinematic);
   const [letterboxActive, setLetterboxActive] = useState(false);
+  const [jumpLetterbox, setJumpLetterbox] = useState(false);
   useEffect(() => {
     const id = setInterval(() => {
       setLetterboxActive(controllerHolder.current?.letterboxActive ?? false);
+      setJumpLetterbox(jumpLetterboxHolder.current);
     }, 150);
     return () => clearInterval(id);
   }, []);
-  const active = cinematic || letterboxActive;
+  const active = cinematic || letterboxActive || jumpLetterbox;
   return (
     <div className={`hud-letterbox${active ? ' hud-letterbox--active' : ''}`} aria-hidden="true">
       <span className="hud-letterbox-bar hud-letterbox-bar--top" />

@@ -783,3 +783,92 @@
   outline-offset: 1px;
   border-radius: var(--hud-radius-sm);
 }
+
+/* --- Scale ruler (TASK-067 D3) --- */
+
+.cosmos-ui-ruler {
+  position: fixed;
+  right: 16px;
+  bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius-sm);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cosmos-ui-ruler-seg {
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: var(--hud-text-faint);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.cosmos-ui-ruler-seg--active {
+  color: var(--hud-accent);
+  background: var(--hud-accent-fill);
+}
+
+/* --- Unified Jump HUD (TASK-067 W2) --- */
+
+/* Above the letterbox bars (z-index 90 in the app) so the jump story stays
+ * readable inside the framing; passive except for the arrival card's dismiss. */
+.cosmos-ui-jump {
+  position: fixed;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: 90vw;
+  padding: 8px 16px;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  pointer-events: none;
+  z-index: 95;
+}
+
+.cosmos-ui-jump--full {
+  pointer-events: auto;
+}
+
+.cosmos-ui-jump-eta,
+.cosmos-ui-jump-fov {
+  color: var(--hud-text-dim);
+  font-size: 12px;
+}
+
+.cosmos-ui-jump-dismiss {
+  margin-top: 4px;
+  padding: 3px 10px;
+  background: var(--hud-accent-fill);
+  border: 1px solid var(--hud-border-strong);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.cosmos-ui-jump-dismiss:hover {
+  background: var(--hud-accent-fill-hover);
+}
