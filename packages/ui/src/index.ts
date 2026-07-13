@@ -66,5 +66,6 @@ export {
 export { JumpHud, type JumpHudProps } from './JumpHud';
 export { FirstRunOverlay } from './FirstRunOverlay';
 export { OverlayControls } from './OverlayControls';
+export { ViewDrawer, type ViewDrawerProps } from './ViewDrawer';
 export { LabelLayer } from './LabelLayer';
 export { TourChrome } from './TourChrome';

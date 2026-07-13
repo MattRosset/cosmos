@@ -8,8 +8,8 @@ import {
   BookmarksPanel,
   Dock,
   FirstRunOverlay,
-  OverlayControls,
   TourChrome,
+  ViewDrawer,
 } from '@cosmos/ui';
 import type { BodyLookupAdapter } from '@cosmos/ui';
 import { liveLabels, subscribeLabelSet, type LiveLabel } from '../glue/overlays';
@@ -33,6 +33,9 @@ interface HudProps {
   onTourStepChange(stepIndex: number): void;
   /** Tour exited — the app cancels cinematic playback. */
   onTourExit(): void;
+  /** V2 auto-hide chrome preference (app-local state, persisted by StarApp). */
+  readonly autoHide: boolean;
+  onAutoHideChange(autoHide: boolean): void;
 }
 
 /**
@@ -53,6 +56,8 @@ export function Hud({
   onGoToBookmark,
   onTourStepChange,
   onTourExit,
+  autoHide,
+  onAutoHideChange,
 }: HudProps) {
   const searchOpen = useHudStore((s) => s.searchOpen);
   const setSearchOpen = useHudStore((s) => s.setSearchOpen);
@@ -115,7 +120,7 @@ export function Hud({
         open={bookmarksOpen}
         onOpenChange={setBookmarksOpen}
       />
-      <OverlayControls />
+      <ViewDrawer autoHide={autoHide} onAutoHideChange={onAutoHideChange} />
       <LabelLayerHost />
       <TourChrome onStepChange={onTourStepChange} onExit={onTourExit} />
       <Letterbox />

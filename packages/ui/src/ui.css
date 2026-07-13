@@ -608,8 +608,7 @@
 
 /* Inner control groups shed their own positioning/chrome inside the dock —
  * the dock provides the surface; they are just inline segments. */
-.cosmos-ui-dock .cosmos-ui-time,
-.cosmos-ui-dock .cosmos-ui-exposure {
+.cosmos-ui-dock .cosmos-ui-time {
   position: static;
   transform: none;
   left: auto;
@@ -620,10 +619,6 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   padding: 0;
-}
-
-.cosmos-ui-dock .cosmos-ui-exposure input[type='range'] {
-  width: 88px;
 }
 
 .cosmos-ui-dock-sep {
@@ -798,6 +793,101 @@
   background: var(--hud-accent-fill);
   border-color: var(--hud-border-strong);
   color: var(--hud-text);
+}
+
+/* --- View drawer (TASK-068 V3) --- */
+
+.cosmos-ui-view {
+  pointer-events: auto;
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  /* Above the cinematic letterbox (.hud-letterbox z-index 90) so the drawer —
+   * incl. its Cinematic toggle — stays clickable while the bars are in;
+   * otherwise cinematic can't be exited (BUG-3, inherited from the retired
+   * OverlayControls mount). */
+  z-index: 101;
+}
+
+.cosmos-ui-view-toggle {
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 6px 12px;
+}
+
+.cosmos-ui-view-toggle:hover,
+.cosmos-ui-view-toggle[aria-expanded='true'] {
+  background: var(--hud-accent-fill);
+  color: var(--hud-text);
+}
+
+.cosmos-ui-view-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--hud-surface);
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius);
+  box-shadow: var(--hud-shadow);
+  -webkit-backdrop-filter: blur(var(--hud-blur));
+  backdrop-filter: blur(var(--hud-blur));
+  color: var(--hud-text-dim);
+  font-size: 0.82rem;
+}
+
+/* The exposure group sheds its fixed positioning/chrome inside the drawer,
+ * exactly like it did inside the dock. */
+.cosmos-ui-view-drawer .cosmos-ui-exposure {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  background: none;
+  border: none;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding: 0;
+}
+
+.cosmos-ui-view-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cosmos-ui-view-toggles button {
+  background: none;
+  border: 1px solid var(--hud-border);
+  border-radius: var(--hud-radius-sm);
+  color: var(--hud-text-dim);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 4px 8px;
+}
+
+.cosmos-ui-view-toggles button[aria-pressed='true'] {
+  background: var(--hud-accent-fill);
+  border-color: var(--hud-border-strong);
+  color: var(--hud-text);
+}
+
+.cosmos-ui-view :focus-visible {
+  outline: 2px solid var(--hud-accent);
+  outline-offset: 1px;
+  border-radius: var(--hud-radius-sm);
 }
 
 /* --- Label layer (screen-space, app-projected) --- */

@@ -175,6 +175,10 @@ test('M4a overlays: constellation + label toggles drive the store and the HUD', 
   await page.waitForSelector('canvas');
   await waitReady(page);
 
+  // TASK-068 V3: the overlay toggles moved into the unified View drawer —
+  // open it once; it stays open for the whole toggle sequence below.
+  await page.getByRole('button', { name: 'View settings' }).click();
+
   // Constellations: toggle on via the HUD control → store reflects it.
   await page.getByRole('button', { name: 'Constellations' }).click();
   await page.waitForFunction(
