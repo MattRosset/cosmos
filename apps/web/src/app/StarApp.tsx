@@ -514,6 +514,14 @@ export function StarApp() {
     return () => window.removeEventListener('keydown', onKey);
   }, [goto]);
 
+  // System lookup for the HUD's C3 planet-count badge (TASK-068) — same
+  // sol-then-exo resolution order as `mountedSystem` below.
+  const getSystem = useCallback(
+    (id: BodyId) =>
+      sources === null ? undefined : sources.sol.getSystem(id) ?? sources.exo.getSystem(id),
+    [sources],
+  );
+
   const mountedSystem = useMemo(() => {
     if (sources === null || mountedSystemId === null) return null;
     const system = sources.sol.getSystem(mountedSystemId) ?? sources.exo.getSystem(mountedSystemId);
@@ -647,6 +655,7 @@ export function StarApp() {
           {pack.status === 'ready' && goto ? (
             <Hud
               source={pack.sources.combined}
+              getSystem={getSystem}
               currentSystemId={mountedSystemId}
               onExitSystem={() => goto.exitSystem()}
               onGoTo={handleGoTo}

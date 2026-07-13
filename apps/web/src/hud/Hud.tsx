@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { BodyId, BookmarkRecord } from '@cosmos/core-types';
+import type { BodyId, BookmarkRecord, StarSystemRecord } from '@cosmos/core-types';
 import type { CombinedSource } from '@cosmos/data';
 import { useHudStore, useOverlayStore } from '@cosmos/app-state';
 import {
@@ -18,6 +18,8 @@ import { jumpLetterboxHolder } from './JumpHudHost';
 
 interface HudProps {
   readonly source: CombinedSource;
+  /** Resolve a system record (Sol/exo packs) — feeds the C3 planet-count badge. */
+  getSystem(systemId: BodyId): StarSystemRecord | undefined;
   /** System the camera is inside (null in galaxy) — drives the InfoPanel action label. */
   readonly currentSystemId: BodyId | null;
   /** Fly out of the current system back to the galaxy (InfoPanel "Exit system"). */
@@ -42,6 +44,7 @@ interface HudProps {
  */
 export function Hud({
   source,
+  getSystem,
   currentSystemId,
   onExitSystem,
   onGoTo,
@@ -70,8 +73,17 @@ export function Hud({
         const hit = source.nearestHostSystem(x, y, z);
         return hit !== null && hit.distancePc < 1e-6 ? hit.systemId : null;
       },
+      // TASK-068 C3: `bodies` is planets AND moons flat, so count only direct
+      // children of the host star — otherwise Sol reads "10 known planets".
+      planetCountFor: (systemId) => {
+        const system = getSystem(systemId);
+        if (system === undefined) return null;
+        let count = 0;
+        for (const b of system.bodies) if (b.parentId === system.star.id) count++;
+        return count;
+      },
     }),
-    [source],
+    [source, getSystem],
   );
 
   return (

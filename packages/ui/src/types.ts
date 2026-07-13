@@ -9,6 +9,13 @@ export interface BodyLookupAdapter {
    * can offer "Enter system"); null otherwise. Optional — absent ⇒ never offered.
    */
   hostSystemIdFor?(id: BodyId): BodyId | null;
+  /**
+   * TASK-068 C3 (the single sanctioned adapter extension): number of PLANETS in
+   * a system — direct children of the host star only, since system `bodies` is
+   * planets AND moons flat. Optional — absent ⇒ the system badge is omitted;
+   * null ⇒ unresolvable system, badge omitted too.
+   */
+  planetCountFor?(systemId: BodyId): number | null;
 }
 
 export interface SearchPaletteProps {
