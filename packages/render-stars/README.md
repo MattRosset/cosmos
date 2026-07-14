@@ -25,7 +25,7 @@ Options:
 | option | default | description |
 |---|---|---|
 | `batch` | required | `StarBatch` from `@cosmos/core-types` |
-| `minPointPx` | `1` | Minimum rendered point size in px |
+| `minPointPx` | `3` | Minimum rendered point size in px |
 | `maxPointPx` | `64` | Maximum rendered point size in px |
 | `basePointPx` | `8` | Size at apparent magnitude 0 |
 
