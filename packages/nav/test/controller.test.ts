@@ -125,6 +125,18 @@ describe('createFlightController', () => {
     }
   });
 
+  // This asserts a DETERMINISTIC invariant (quaternion renormalized to within
+  // 1e-9 + pitch clamped) over a seeded input sequence — identical local and CI.
+  // ~87% of its wall time is jsdom PointerEvent dispatch (10k iters × 3 events =
+  // 30k dispatches), an allocation-heavy path whose cost balloons on the shared
+  // 2-vCPU CI runner under v8-coverage + parallel-file contention: ~0.14 s on a
+  // dev box, but it grazed vitest's 5000 ms default on CI (measured 5357 ms).
+  // The controller math is not the cost (update() is ~0.2 µs/iter, flat). The
+  // 10k count is drift COVERAGE, not part of the invariant, so we keep it and
+  // give the test a generous explicit timeout instead — a deterministic invariant
+  // must never be gate-able by runner speed (CLAUDE.md rule 4). Same convention
+  // as procgen/test/galaxy.test.ts. See
+  // docs/research/nav-controller-10k-look-ci-timeout-rootcause.md.
   it('quaternion stays normalized after 10k random look inputs; pitch is clamped', () => {
     const rng = createPrng(20260611);
     const { controller, el } = makeController();
@@ -148,7 +160,7 @@ describe('createFlightController', () => {
     const forwardY = -fy;
     const pitch = Math.asin(Math.max(-1, Math.min(1, forwardY)));
     expect(Math.abs(pitch)).toBeLessThanOrEqual(Math.PI / 2 + 1e-6);
-  });
+  }, 30_000);
 
   it('rebase transparency: position meters continuous; velocity direction preserved', () => {
     const { controller, origin, el } = makeController();
