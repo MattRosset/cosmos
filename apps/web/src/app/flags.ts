@@ -8,6 +8,16 @@ export const DEBUG_MARKERS =
 export const DEBUG_JITTER =
   new URLSearchParams(window.location.search).get('debug') === 'jitter';
 
+/**
+ * TASK-077 compiled-shader jitter gate (`?debug=shaderjitter`): mounts the REAL
+ * render-stars vertex shader on one synthetic star and orbits it at 1 AU, reading
+ * back the on-screen centroid. Unlike `?debug=jitter` (CPU `Vector3.project`) this
+ * exercises the driver-compiled GPU sum, so it can catch a fast-math backend
+ * reassociating the hi/lo split (docs/research/jitter-apple-mobile.md). No pack, no HUD.
+ */
+export const DEBUG_SHADER_JITTER =
+  new URLSearchParams(window.location.search).get('debug') === 'shaderjitter';
+
 /** TASK-030 context-switch gate (`?debug=ctxswitch`): full packs, scripted descent. */
 export const DEBUG_CTXSWITCH =
   new URLSearchParams(window.location.search).get('debug') === 'ctxswitch';

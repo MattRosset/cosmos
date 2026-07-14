@@ -13,9 +13,24 @@
 // no longer re-quantizes. The camera's render-space position is identically zero
 // (floating origin, ADR-001), so view space is reached by applying only the
 // rotational part of viewMatrix.
+//
+// Fast-math guard (docs/research/jitter-apple-mobile.md): the whole fix depends on
+// the GPU evaluating `(position + offHi) + offLo` in THAT order. Fast-math backends
+// (Metal on M1/iPhone, mobile GPUs) may reassociate it to `position + (offHi + offLo)`
+// — which re-collapses the split and brings the jitter back on those devices while
+// this ANGLE→D3D11 machine stays clean. `* uGuardOne` (a uniform the driver can't
+// prove is 1.0) forces the rounded intermediate `(position + offHi)` to materialize,
+// so the sum can't be folded; `invariant gl_Position` disables reorder opts on the
+// position chain (ANGLE→Metal). `* uGuardOne` is LOAD-BEARING — "simplifying" it away
+// reintroduces the jitter on Metal/mobile and no local test will catch it (WebGL2 CI
+// runs ANGLE→D3D11, which doesn't reassociate). See the guard's string-assert in
+// packages/render-stars/test/star-points.test.ts.
 export const VERT = /* glsl */ `
+invariant gl_Position;
+
 uniform vec3 uRenderOffsetHi;
 uniform vec3 uRenderOffsetLo;
+uniform float uGuardOne;
 uniform float uBasePointPx;
 uniform float uMinPointPx;
 uniform float uMaxPointPx;
@@ -29,7 +44,8 @@ varying float vBV;
 varying float vSizeDim;
 
 void main() {
-  vec3 viewPos = mat3(viewMatrix) * ((position + uRenderOffsetHi) + uRenderOffsetLo);
+  vec3 rel = (position + uRenderOffsetHi) * uGuardOne + uRenderOffsetLo;
+  vec3 viewPos = mat3(viewMatrix) * rel;
   float dPc = max(length(viewPos), 0.001);
   float m = aAbsMag + 5.0 * (log2(dPc) / log2(10.0) - 1.0);
   // Natural (unclamped) vs rendered (floor/ceil-clamped) point size. When the
