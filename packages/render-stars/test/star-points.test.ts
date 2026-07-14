@@ -78,7 +78,19 @@ describe('shader strings', () => {
   });
 
   it('vertex shader applies the camera rotation (viewMatrix) to camera-relative positions', () => {
-    expect(VERT).toContain('mat3(viewMatrix) * ((position + uRenderOffsetHi) + uRenderOffsetLo)');
+    expect(VERT).toContain('vec3 viewPos = mat3(viewMatrix) * rel;');
+  });
+
+  it('vertex shader guards the hi/lo sum against fast-math reassociation (* uGuardOne)', () => {
+    // TASK-077: `* uGuardOne` forces the rounded (position + Hi) sum to materialize so
+    // a fast-math backend (Metal/mobile) can't reassociate the split away — deleting it
+    // reintroduces the approach jitter on those devices with no local test to catch it
+    // (docs/research/jitter-apple-mobile.md). The expression is frozen textually.
+    expect(VERT).toContain('vec3 rel = (position + uRenderOffsetHi) * uGuardOne + uRenderOffsetLo;');
+    // `invariant gl_Position` is the belt: it disables reorder opts on the position
+    // chain under ANGLE→Metal.
+    expect(VERT).toContain('invariant gl_Position;');
+    expect(VERT).toContain('uniform float uGuardOne;');
   });
 
   it('vertex shader contains the -0.2 size exponent', () => {
@@ -95,8 +107,9 @@ describe('shader strings', () => {
     // TASK-076: floor-clamped stars are dimmed by the area ratio to conserve flux.
     expect(VERT).toContain('vSizeDim');
     expect(VERT).toContain('min(1.0, (sNat / sRen) * (sNat / sRen))');
-    // Regression guard: the hi/lo jitter fix (commit 6bd7d24) must survive untouched.
-    expect(VERT).toContain('(position + uRenderOffsetHi) + uRenderOffsetLo');
+    // Regression guard: the hi/lo jitter fix (commit 6bd7d24, guarded by TASK-077) must
+    // survive untouched — the split must reach the GPU whole.
+    expect(VERT).toContain('(position + uRenderOffsetHi) * uGuardOne + uRenderOffsetLo');
   });
 
   it('fragment shader contains the -0.4 brightness exponent', () => {
@@ -112,6 +125,25 @@ describe('shader strings', () => {
   it('fragment shader multiplies the output alpha by uOpacity (cross-fade, §5.8)', () => {
     expect(FRAG).toContain('uOpacity');
     expect(FRAG).toContain('alpha * uOpacity');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fast-math guard uniform (TASK-077)
+// ---------------------------------------------------------------------------
+
+describe('uGuardOne', () => {
+  it('initializes to exactly 1.0 (opaque-to-compiler multiplier; no rounding, no setter)', () => {
+    const batch = makeBatch(5);
+    const points = createStarPoints({ batch });
+    const mat = points.object.material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uGuardOne']!.value).toBe(1);
+  });
+
+  it('has no public setter on the StarPoints API', () => {
+    const batch = makeBatch(5);
+    const points = createStarPoints({ batch });
+    expect('setGuardOne' in points).toBe(false);
   });
 });
 

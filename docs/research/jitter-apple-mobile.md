@@ -172,3 +172,28 @@ son exactamente los backends fast-math (Metal/móvil). KC1 disparada.
 4. **Solo si** el A/B on-device NO elimina el jitter → KC3: es otro bug con el
    mismo síntoma, y ahí sí toca root-cause en el dispositivo (sonda de firma:
    ¿amplitud ~ULP del tile? ¿solo estrellas sin host? ¿crece al acercarse?).
+
+## Addendum — TASK-077 implementation (2026-07-14)
+
+Guard implemented and the compiled-shader gate is green on the CI backend
+(ANGLE→Vulkan/SwiftShader, chromium). Two findings during execution:
+
+1. **The spec-frozen `aAbsMag = 31.6` rendered the star invisible.** The shader
+   (TASK-076) computes apparent magnitude from the *floored* distance
+   `dPc = max(length(viewPos), 0.001)` pc (≈ 206 AU). At 1 AU the star sits far
+   inside that floor, so its magnitude is evaluated at 0.001 pc, not at 1 AU. With
+   31.6 that gives apparent magnitude ≈ 11.6 → brightness ~1e-5 → zero pixels above
+   threshold (measured: full-frame scan `bestLum = 10` = background, `count = 0`).
+   The spec derived 31.6 from the *true* 1 AU distance and overlooked the floor.
+   Correction: `aAbsMag = 20.0` (apparent magnitude ≈ 0 at the floored distance →
+   ~8 px point, `bestLum = 252`, 16 px above threshold, screen-centered). The floor
+   affects only size/brightness, **not** `gl_Position`, so the jitter measurement
+   (centroid position) is unchanged.
+
+2. **Post-guard on SwiftShader/ANGLE: `maxDeviationPx = 0.000`, `lostFrames = 0`,
+   300/300 frames.** Expected — this backend does not reassociate (it is the same
+   D3D11-class path that already looked clean). The gate confirms the shader
+   **compiles** with `invariant gl_Position;` + `uGuardOne` and that the point is
+   stable here; the fast-math failure mode still awaits the on-device A/B (Mac M1 /
+   phone), where reassociation can appear. The four pre/post × M1/phone numbers go
+   here once the bench is run.

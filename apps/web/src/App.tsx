@@ -1,9 +1,10 @@
 import {
-  DEBUG_MARKERS, DEBUG_JITTER, DEBUG_CTXSWITCH, DEBUG_M3, DEBUG_FLYTHROUGH3,
-  DEBUG_FLYTHROUGH4, FLYTHROUGH4_BASELINE, DEBUG_SOAK3, DEBUG_SOAK4,
+  DEBUG_MARKERS, DEBUG_JITTER, DEBUG_SHADER_JITTER, DEBUG_CTXSWITCH, DEBUG_M3,
+  DEBUG_FLYTHROUGH3, DEBUG_FLYTHROUGH4, FLYTHROUGH4_BASELINE, DEBUG_SOAK3, DEBUG_SOAK4,
   DEBUG_M4A, DEBUG_ERRORGATE, ERRORGATE_INJECT,
 } from './app/flags';
 import { JitterApp } from './app/JitterApp';
+import { ShaderJitterApp } from './app/ShaderJitterApp';
 import { CtxSwitchApp } from './app/CtxSwitchApp';
 import { ErrorGateApp } from './app/ErrorGateApp';
 import { M4aApp } from './app/M4aApp';
@@ -17,6 +18,7 @@ import './glue/frame-profiler';
 
 export function App() {
   if (DEBUG_JITTER) return <JitterApp />;
+  if (DEBUG_SHADER_JITTER) return <ShaderJitterApp />;
   if (DEBUG_CTXSWITCH) return <CtxSwitchApp />;
   if (DEBUG_ERRORGATE) return <ErrorGateApp inject={ERRORGATE_INJECT} />;
   if (DEBUG_M4A) return <M4aApp />;

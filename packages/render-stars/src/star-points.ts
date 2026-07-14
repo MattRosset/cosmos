@@ -49,6 +49,11 @@ export function createStarPoints(opts: StarPointsOptions): StarPoints {
     // of the f64 offset, Lo = the residual. Kills sub-AU jitter on close approach.
     uRenderOffsetHi: { value: new THREE.Vector3(0, 0, 0) },
     uRenderOffsetLo: { value: new THREE.Vector3(0, 0, 0) },
+    // Fast-math guard, always exactly 1.0 (no setter). The shader multiplies the
+    // rounded (position + Hi) sum by this so a fast-math compiler can't reassociate
+    // the hi/lo split away — it can't prove the uniform is 1.0. See stars.vert.glsl.ts
+    // + docs/research/jitter-apple-mobile.md. Multiplying by 1.0 introduces no rounding.
+    uGuardOne: { value: 1.0 },
     uBasePointPx: { value: basePointPx },
     uMinPointPx: { value: minPointPx },
     uMaxPointPx: { value: maxPointPx },
