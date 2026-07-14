@@ -106,14 +106,26 @@ EVIDENCE: apps/web/src/scene/GalaxyScene.tsx:210 (minPointPx: 2 for the cloud) v
 VERIFIED: 2026-07-14
 RECHECK:  grep minPointPx apps/web/src packages/render-*/src
 
+CLAIM:    C6 — Live confirmation on the running app: with the camera still, tracked
+          star peaks are perfectly stable (median flux CV 0%, max/min swing 1.0 over
+          14 frames); under a slow drag-look pan (0.6 px/frame), the same tracking
+          shows median per-star CV 65.6%, p90 CV 115%, median max/min swing 9.1×,
+          and 90% of stars swinging more than 1.5×. The p90 matches the 110.7% CV
+          the C2 simulation predicts for stars at the 1 px floor — the mechanism is
+          confirmed end-to-end, not just in theory.
+EVIDENCE: in-page probe run 2026-07-14 against the dev build (galaxy context near
+          Sol, catalog stars, dpr 1, 80 brightest isolated peaks tracked via
+          readPixels inside rAF + 7×7 argmax follow):
+            still : medianCV 0%,  medianSwing 1.00, fracSwing>1.5 = 0.00
+            moving: medianCV 65.6%, p90CV 115%, medianSwing 9.1×, fracSwing>1.5 = 0.90
+VERIFIED: 2026-07-14
+RECHECK:  paste tools/research/twinkle-live-probe.js into the app's browser console
+          (app visible, past onboarding) — expect still ≈ stable, moving ≫ unstable.
+          Note: the tab must be actually visible; hidden-tab rAF throttling stalls it.
+```
+
 ## Beliefs (no mechanical RECHECK — not Step-0 material)
 
-- B1 — The user's observed flicker is fully accounted for by C2's mechanism. A live
-  A/B confirmation (screenshot diff across a sub-pixel camera pan) was attempted and
-  blocked: the preview tab's rAF was suspended (hidden-tab throttling; the pane later
-  hung on capture), so the app would not advance frames under measurement. The C2
-  simulation is exact for our shader + GL rasterization rules, but the end-to-end
-  visual confirmation on a live pan remains unrun.
 - B2 — Why a real space timelapse looks steady: telescope optics spread every star
   over a multi-pixel PSF and the sensor integrates over the exposure — physically the
   same regime as "point ≥3–5 px + temporal accumulation", i.e. the regime C2 shows is
@@ -145,7 +157,7 @@ half-true in the least useful way: the twinkle is a real, quantified rendering a
 sense that the current numbers guarantee it: most catalog stars render at a 1 px floor
 where flux legitimately swings 0→100% with sub-pixel camera motion.
 
-For a spec writer, Step-0 facts are C1, C2, C3, C5. The measurement points at a cheap,
+For a spec writer, Step-0 facts are C1, C2, C3, C5, C6. The measurement points at a cheap,
 targeted fix direction (C2's table is the design tool): **raise the star footprint floor
 to ~2–3 px and conserve flux by dimming clamped stars by (renderedSize/naturalSize)²**
 — that alone moves the worst offenders from CV 111% to CV 3–6% without any post chain —
