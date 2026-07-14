@@ -6,7 +6,7 @@ import { FRAG } from './shaders/stars.frag.glsl.js';
 
 export interface StarPointsOptions {
   readonly batch: StarBatch;
-  /** Screen-space point size clamp, px. Defaults: min 1, max 64 (§5.9). */
+  /** Screen-space point size clamp, px. Defaults: min 3, max 64 (§5.9). */
   readonly minPointPx?: number;
   readonly maxPointPx?: number;
   /** Base size factor at apparent magnitude 0, px. Default 8. */
@@ -31,7 +31,7 @@ export interface StarPoints {
 }
 
 export function createStarPoints(opts: StarPointsOptions): StarPoints {
-  const { batch, minPointPx = 1, maxPointPx = 64, basePointPx = 8 } = opts;
+  const { batch, minPointPx = 3, maxPointPx = 64, basePointPx = 8 } = opts;
 
   // Build geometry — position attribute shares the batch buffer directly (no copy).
   const geometry = new THREE.BufferGeometry();

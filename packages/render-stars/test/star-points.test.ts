@@ -91,13 +91,47 @@ describe('shader strings', () => {
     expect(VERT).toContain('uMaxPointPx');
   });
 
+  it('vertex shader emits the flux-conserving size-dim varying (natural/rendered ratio²)', () => {
+    // TASK-076: floor-clamped stars are dimmed by the area ratio to conserve flux.
+    expect(VERT).toContain('vSizeDim');
+    expect(VERT).toContain('min(1.0, (sNat / sRen) * (sNat / sRen))');
+    // Regression guard: the hi/lo jitter fix (commit 6bd7d24) must survive untouched.
+    expect(VERT).toContain('(position + uRenderOffsetHi) + uRenderOffsetLo');
+  });
+
   it('fragment shader contains the -0.4 brightness exponent', () => {
     expect(FRAG).toContain('-0.4');
+  });
+
+  it('fragment shader multiplies brightness by the size-dim varying, falloff untouched', () => {
+    // TASK-076: brightness *= vSizeDim; the C2-validated falloff must stay exact.
+    expect(FRAG).toContain('vSizeDim');
+    expect(FRAG).toContain('smoothstep(0.5, 0.1,');
   });
 
   it('fragment shader multiplies the output alpha by uOpacity (cross-fade, §5.8)', () => {
     expect(FRAG).toContain('uOpacity');
     expect(FRAG).toContain('alpha * uOpacity');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Point-size floor (TASK-076)
+// ---------------------------------------------------------------------------
+
+describe('minPointPx floor', () => {
+  it('defaults uMinPointPx to 3 (flux-conserving twinkle floor)', () => {
+    const batch = makeBatch(5);
+    const points = createStarPoints({ batch });
+    const mat = points.object.material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uMinPointPx']!.value).toBe(3);
+  });
+
+  it('explicit minPointPx override still lands in the uniform (plumbing unchanged)', () => {
+    const batch = makeBatch(5);
+    const points = createStarPoints({ batch, minPointPx: 1 });
+    const mat = points.object.material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uMinPointPx']!.value).toBe(1);
   });
 });
 
