@@ -1,177 +1,174 @@
-# Research — el jitter de aproximación persiste en M1/celulares (el fix hi/lo solo verificado en Windows)
+# Research — approach jitter persists on M1/phones (the hi/lo fix was only verified on Windows)
 
-> Reporte (2026-07-14): «en esta PC el jitter no existe casi, con el fix que
-> hicimos anda perfecto; el problema es que en celulares y en mi Mac M1 hay
-> jitter».
+> Report (2026-07-14): "on this PC the jitter is basically gone, with the fix we
+> made it runs perfectly; the problem is that on phones and on my Mac M1 there is
+> jitter."
 
-Doc previo: [star-approach-jitter.md](star-approach-jitter.md) — el diagnóstico
-original (cancelación catastrófica f32 en la GPU) y el fix elegido (offset
-emulated-double hi/lo: `(position + offHi) + offLo`).
+Prior doc: [star-approach-jitter.md](star-approach-jitter.md) — the original
+diagnosis (catastrophic f32 cancellation on the GPU) and the chosen fix
+(emulated-double hi/lo offset: `(position + offHi) + offLo`).
 
-## Estado: pre-investigación (preguntas + kill conditions, escritas antes de abrir el código)
+## Status: pre-investigation (questions + kill conditions, written before opening the code)
 
-## Preguntas falsificables
+## Falsifiable questions
 
-- **Q1** — ¿La suma hi/lo del vertex shader de estrellas está protegida contra
-  la reasociación del compilador (`precise`, `invariant`, o una construcción que
-  el optimizador no pueda reordenar)? Los paréntesis solos **no** son garantía
-  bajo fast-math. Se responde leyendo
-  `packages/render-stars/src/shaders/stars.vert.glsl.ts` y
-  `star-points.ts` en su estado actual.
-- **Q2** — ¿Todos los términos de esa suma son `highp` efectivo en el vertex
-  shader (atributo, uniforms, temporales)? En GPUs móviles `mediump` puede ser
-  f16 real; en desktop siempre es f32, lo que también explicaría el split
-  Windows-bien/móvil-mal. Se responde leyendo los qualifiers del shader.
-- **Q3** — ¿La verificación del fix se hizo alguna vez en un dispositivo
-  Apple/móvil, o solo en esta PC (ANGLE→D3D11)? Se responde buscando la probe o
-  el gate del fix y dónde corrió.
-- **Q4** *(requiere el dispositivo)* — ¿El jitter observado en la M1 tiene la
-  misma firma que el bug original — amplitud ~ULP de la magnitud del tile
-  (~0.4–0.8 UA), solo en estrellas sin host, crece al acercarse — o es otro modo
-  de fallo (pacing de frames, DPR, half-float render target)? Se responde con
-  una sonda de consola en la Mac, no acá.
+- **Q1** — Is the star vertex shader's hi/lo sum protected against compiler
+  reassociation (`precise`, `invariant`, or a construct the optimizer cannot
+  reorder)? Parentheses alone are **not** a guarantee under fast-math. Answered by
+  reading `packages/render-stars/src/shaders/stars.vert.glsl.ts` and
+  `star-points.ts` in their current state.
+- **Q2** — Are all terms of that sum effectively `highp` in the vertex shader
+  (attribute, uniforms, temporaries)? On mobile GPUs `mediump` can be real f16;
+  on desktop it is always f32, which would also explain the Windows-fine/mobile-
+  broken split. Answered by reading the shader's qualifiers.
+- **Q3** — Was the fix ever verified on an Apple/mobile device, or only on this PC
+  (ANGLE→D3D11)? Answered by finding the fix's probe or gate and where it ran.
+- **Q4** *(requires the device)* — Does the jitter seen on the M1 have the same
+  signature as the original bug — amplitude ~ULP of the tile magnitude
+  (~0.4–0.8 AU), only on host-less stars, growing on approach — or is it another
+  failure mode (frame pacing, DPR, half-float render target)? Answered with a
+  console probe on the Mac, not here.
 
-## Kill conditions (escritas antes de investigar)
+## Kill conditions (written before investigating)
 
-- **KC1** — Si Q1 da «no está protegida»: muere la premisa «el fix funciona»;
-  funciona *donde el compilador no reasocia*. El trabajo deja de ser «research
-  del jitter en la Mac» y pasa a ser «endurecer la suma hi/lo contra fast-math +
-  sonda on-device de 10 minutos para confirmar». La Mac queda como banco de
-  medición, no de investigación.
-- **KC2** — Si Q1/Q2 dan «protegida y todo highp»: muere la hipótesis
-  compilador/precisión desde el escritorio, y la investigación **sí** tiene que
-  hacerse en el dispositivo (Q4 pasa a ser el centro).
-- **KC3** — Si la sonda on-device (Q4) muestra amplitud que **no** escala con la
-  magnitud del tile ni con la cercanía: muere la premisa «es el mismo bug de
-  precisión» → reframe (es otro bug con el mismo síntoma).
+- **KC1** — If Q1 says "not protected": the premise "the fix works" dies; it works
+  *where the compiler does not reassociate*. The work stops being "research the
+  jitter on the Mac" and becomes "harden the hi/lo sum against fast-math + a
+  10-minute on-device probe to confirm." The Mac becomes a measurement bench, not
+  a research site.
+- **KC2** — If Q1/Q2 say "protected and all highp": the compiler/precision
+  hypothesis dies from the desktop, and the investigation **does** have to happen
+  on the device (Q4 becomes the center).
+- **KC3** — If the on-device probe (Q4) shows amplitude that does **not** scale
+  with the tile magnitude nor with proximity: the premise "it's the same precision
+  bug" dies → reframe (it's another bug with the same symptom).
 
 ## Claims
 
 ```
-CLAIM:    La suma hi/lo del vertex shader de estrellas depende únicamente del
-          orden de paréntesis del fuente; no hay ninguna construcción
-          anti-reasociación en el shader ni en ningún shader del repo.
+CLAIM:    The star vertex shader's hi/lo sum depends solely on the source
+          parenthesization; there is no anti-reassociation construct in the
+          shader or in any shader in the repo.
 EVIDENCE: packages/render-stars/src/shaders/stars.vert.glsl.ts:31 —
           `mat3(viewMatrix) * ((position + uRenderOffsetHi) + uRenderOffsetLo)`;
-          grep `precise|invariant|#pragma` en packages/**/*glsl* → 0 matches.
+          grep `precise|invariant|#pragma` in packages/**/*glsl* → 0 matches.
 VERIFIED: 2026-07-14
-RECHECK:  rg "precise|invariant|#pragma" packages -g "*glsl*" ; leer
-          stars.vert.glsl.ts línea 31.
+RECHECK:  rg "precise|invariant|#pragma" packages -g "*glsl*" ; read
+          stars.vert.glsl.ts line 31.
 ```
 
 ```
-CLAIM:    El qualifier `precise` NO existe en WebGL2 (GLSL ES 3.00): un vertex
-          shader `#version 300 es` con `precise vec3 r = (pos + uHi) + uLo;`
-          falla la compilación con «'precise' : undeclared identifier», mientras
-          el mismo shader sin `precise` compila. La mitigación no puede ser un
-          qualifier — tiene que ser estructural.
-EVIDENCE: compilación en vivo vía gl.compileShader en Chrome (win32),
-          2026-07-14; output: plain ok=true, withPrecise ok=false con ese error.
+CLAIM:    The `precise` qualifier does NOT exist in WebGL2 (GLSL ES 3.00): a
+          `#version 300 es` vertex shader with `precise vec3 r = (pos + uHi) + uLo;`
+          fails to compile with "'precise' : undeclared identifier", while the
+          same shader without `precise` compiles. The mitigation cannot be a
+          qualifier — it has to be structural.
+EVIDENCE: live compilation via gl.compileShader in Chrome (win32), 2026-07-14;
+          output: plain ok=true, withPrecise ok=false with that error.
 VERIFIED: 2026-07-14
-RECHECK:  en consola de cualquier página: crear canvas → getContext('webgl2') →
-          compilar ambos vertex shaders y comparar COMPILE_STATUS.
+RECHECK:  in any page's console: create canvas → getContext('webgl2') → compile
+          both vertex shaders and compare COMPILE_STATUS.
 ```
 
 ```
-CLAIM:    La PC donde «no hay jitter» compila los shaders vía ANGLE→Direct3D11
-          (AMD RX 9070 XT). Es decir, el único entorno donde el fix se validó
-          usa un backend distinto al de todos los entornos que fallan
-          (M1 y celulares = Metal / GPUs móviles).
-EVIDENCE: WEBGL_debug_renderer_info en esta máquina, 2026-07-14: «ANGLE (AMD,
-          AMD Radeon RX 9070 XT ... Direct3D11 vs_5_0 ps_5_0, D3D11)».
+CLAIM:    The PC where "there is no jitter" compiles the shaders via
+          ANGLE→Direct3D11 (AMD RX 9070 XT). That is, the only environment where
+          the fix was validated uses a different backend from every environment
+          that fails (M1 and phones = Metal / mobile GPUs).
+EVIDENCE: WEBGL_debug_renderer_info on this machine, 2026-07-14: "ANGLE (AMD,
+          AMD Radeon RX 9070 XT ... Direct3D11 vs_5_0 ps_5_0, D3D11)".
 VERIFIED: 2026-07-14
-RECHECK:  gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) en cada dispositivo; en
-          la M1 se espera un renderer «... Metal ...» (anotarlo al medir).
+RECHECK:  gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) on each device; on the M1
+          a "... Metal ..." renderer is expected (record it when measuring).
 ```
 
 ```
-CLAIM:    El split CPU del offset es correcto: hi = Math.fround(componente f64),
-          lo = residuo f64 exacto guardado en su propio slot. El error, si lo
-          hay, no está del lado CPU.
+CLAIM:    The CPU offset split is correct: hi = Math.fround(f64 component),
+          lo = exact f64 residual stored in its own slot. The error, if any, is
+          not on the CPU side.
 EVIDENCE: packages/render-stars/src/star-points.ts:77-92.
 VERIFIED: 2026-07-14
-RECHECK:  leer setRenderOffset en star-points.ts.
+RECHECK:  read setRenderOffset in star-points.ts.
 ```
 
 ```
-CLAIM:    Todos los términos de la suma son f32 highp: three@0.184.0 inyecta
-          `precision highp float;` en los programas de ShaderMaterial y el repo
-          no declara overrides de precisión. mediump/f16 no es el mecanismo.
+CLAIM:    All terms of the sum are f32 highp: three@0.184.0 injects
+          `precision highp float;` into ShaderMaterial programs and the repo
+          declares no precision overrides. mediump/f16 is not the mechanism.
 EVIDENCE: node_modules/.pnpm/three@0.184.0/.../build/three.module.js:3410
-          (`precision highp float;`); grep `precision|highp|mediump` en
+          (`precision highp float;`); grep `precision|highp|mediump` in
           packages/render-stars/src → 0 matches.
 VERIFIED: 2026-07-14
-RECHECK:  ambos greps.
+RECHECK:  both greps.
 ```
 
 ```
-CLAIM:    La única guarda de regresión del fix es un test de TEXTO — verifica
-          que el string del shader contenga la suma con ese paréntesis
-          (`expect(VERT).toContain(...)`). Ningún gate ejercita el shader
-          COMPILADO por un driver real; JitterProbe sigue midiendo el path
-          f64→fround de un resultado pequeño (el punto ciego documentado en
-          star-approach-jitter.md §5 sigue abierto).
+CLAIM:    The fix's only regression guard is a TEXT test — it checks that the
+          shader string contains the sum with that parenthesization
+          (`expect(VERT).toContain(...)`). No gate exercises the shader COMPILED
+          by a real driver; JitterProbe still measures the f64→fround path of a
+          small result (the blind spot documented in star-approach-jitter.md §5
+          is still open).
 EVIDENCE: packages/render-stars/test/star-points.test.ts:76-81;
           apps/web/src/scene/JitterProbe.tsx:122-124; fix = commit 6bd7d24
-          (2026-06-28), sin probe on-device asociada.
+          (2026-06-28), with no associated on-device probe.
 VERIFIED: 2026-07-14
-RECHECK:  leer star-points.test.ts:76-81 y JitterProbe.tsx:109-126.
+RECHECK:  read star-points.test.ts:76-81 and JitterProbe.tsx:109-126.
 ```
 
-## Beliefs (segunda clase — sin RECHECK mecánico local; NO citar como Step 0)
+## Beliefs (second class — no local mechanical RECHECK; do NOT cite as Step 0)
 
-- **La causa propuesta:** los compiladores Metal (Safari macOS/iOS, y Chrome
-  macOS vía ANGLE→Metal) compilan con fast-math por defecto, que permite
-  reasociar sumas flotantes: `(position + Hi) + Lo → position + (Hi + Lo)`
-  colapsa Lo dentro de Hi y reproduce exactamente el bug original de
-  star-approach-jitter.md. Es el modo de fallo clásico de los trucos
-  emulated-double en shaders (documentado en deck.gl/luma.gl fp64 y en issues
-  del backend Metal de ANGLE). Consistente con el split observado
-  (D3D11 bien / Metal+móvil mal), pero solo lo confirma el A/B on-device (Q4).
-- ANGLE→D3D11 preserva el orden IEEE de la expresión (por eso esta PC no
-  jitterea) — inferencia, no medición.
-- En GLSL ES 3.00 el vertex shader soporta highp f32 obligatoriamente; la vía
-  f16 queda descartada por spec, no por medición en dispositivo.
+- **The proposed cause:** Metal compilers (Safari macOS/iOS, and Chrome macOS via
+  ANGLE→Metal) compile with fast-math by default, which permits reassociating
+  float sums: `(position + Hi) + Lo → position + (Hi + Lo)` collapses Lo into Hi
+  and reproduces exactly the original bug of star-approach-jitter.md. It is the
+  classic failure mode of emulated-double tricks in shaders (documented in
+  deck.gl/luma.gl fp64 and in ANGLE Metal-backend issues). Consistent with the
+  observed split (D3D11 fine / Metal+mobile broken), but only the on-device A/B
+  (Q4) confirms it.
+- ANGLE→D3D11 preserves the IEEE order of the expression (which is why this PC
+  does not jitter) — inference, not measurement.
+- In GLSL ES 3.00 the vertex shader mandatorily supports highp f32; the f16 path
+  is ruled out by spec, not by on-device measurement.
 
-## Lo que busqué y no encontré
+## What I looked for and did not find
 
-- **Ninguna protección anti-fast-math en ningún shader**: grep
-  `precise|invariant|#pragma` sobre `packages/**/*glsl*` → 0 resultados.
-- **Ningún override de precisión** en render-stars: grep
-  `precision|highp|mediump` en `packages/render-stars/src` → 0 resultados.
-- **Ningún gate que ejercite el shader compilado** (ni local ni CI): la búsqueda
-  de «jitter» en apps/web da solo JitterProbe (path f64 por objeto, punto ciego
-  conocido) y probes no relacionadas. El fix nunca tuvo verificación en un
-  backend que no sea D3D11.
-- **`precise` como salida fácil**: no existe en WebGL2 (medido, ver claim 2).
+- **No anti-fast-math protection in any shader**: grep `precise|invariant|#pragma`
+  over `packages/**/*glsl*` → 0 results.
+- **No precision override** in render-stars: grep `precision|highp|mediump` in
+  `packages/render-stars/src` → 0 results.
+- **No gate exercising the compiled shader** (neither local nor CI): searching for
+  "jitter" in apps/web returns only JitterProbe (per-object f64 path, known blind
+  spot) and unrelated probes. The fix never had verification on a backend other
+  than D3D11.
+- **`precise` as an easy out**: it does not exist in WebGL2 (measured, see claim 2).
 
-## Veredicto — REFRAME
+## Verdict — REFRAME
 
-La pregunta de entrada era «¿hago el research en la Mac?». **No**: la premisa
-implícita — «el fix funciona y en móvil hay un bug nuevo que investigar allá» —
-murió en el escritorio. Lo que muestran los claims 1, 3 y 6 es que el fix
-**nunca estuvo garantizado**: su corrección depende del orden textual de una
-suma que ningún estándar obliga a respetar, se validó en un solo backend
-(ANGLE→D3D11), y su única guarda es un test de string. Los entornos que fallan
-son exactamente los backends fast-math (Metal/móvil). KC1 disparada.
+The entry question was "should I do the research on the Mac?". **No**: the implicit
+premise — "the fix works and on mobile there is a new bug to investigate over there"
+— died at the desk. What claims 1, 3 and 6 show is that the fix **was never
+guaranteed**: its correctness depends on the textual order of a sum that no standard
+requires to be respected, it was validated on a single backend (ANGLE→D3D11), and
+its only guard is a string test. The environments that fail are exactly the
+fast-math backends (Metal/mobile). KC1 triggered.
 
-**Qué sigue** (para spec-task, no para más research):
+**What's next** (for a spec-task, not more research):
 
-1. Endurecer la suma hi/lo contra reasociación en
-   `stars.vert.glsl.ts` — `precise` no existe en WebGL2 (claim 2), así que la
-   opción es estructural (p. ej. el truco de deck.gl fp64: interponer un
-   uniform ≡ 1.0 que el compilador no puede plegar, u otra forma opaca de
-   forzar el orden). Elegir la variante es trabajo del spec.
-2. La Mac M1 entra como **banco de medición de 10 minutos**, no de
-   investigación: A/B del build con y sin el guard, volando a una estrella
-   sin host. Anotar el UNMASKED_RENDERER (claim 3 RECHECK) y si el jitter
-   desaparece. Ese A/B es el RECHECK definitivo de la Belief causal.
-3. Cerrar el punto ciego §5 de star-approach-jitter.md: una probe que ejercite
-   el shader real compilado (no un string match) — es la única forma de que un
-   futuro cambio de driver/compilador no reintroduzca esto en silencio.
-4. **Solo si** el A/B on-device NO elimina el jitter → KC3: es otro bug con el
-   mismo síntoma, y ahí sí toca root-cause en el dispositivo (sonda de firma:
-   ¿amplitud ~ULP del tile? ¿solo estrellas sin host? ¿crece al acercarse?).
+1. Harden the hi/lo sum against reassociation in `stars.vert.glsl.ts` — `precise`
+   does not exist in WebGL2 (claim 2), so the option is structural (e.g. the
+   deck.gl fp64 trick: interpose a uniform ≡ 1.0 the compiler cannot fold, or
+   another opaque way to force the order). Choosing the variant is the spec's job.
+2. The Mac M1 enters as a **10-minute measurement bench**, not a research site:
+   A/B the build with and without the guard, flying to a host-less star. Record
+   the UNMASKED_RENDERER (claim 3 RECHECK) and whether the jitter disappears. That
+   A/B is the definitive RECHECK of the causal Belief.
+3. Close the §5 blind spot of star-approach-jitter.md: a probe that exercises the
+   real compiled shader (not a string match) — the only way a future driver/
+   compiler change can't reintroduce this silently.
+4. **Only if** the on-device A/B does NOT remove the jitter → KC3: it's another bug
+   with the same symptom, and only then does on-device root-cause apply (signature
+   probe: amplitude ~ULP of the tile? only host-less stars? grows on approach?).
 
 ## Addendum — TASK-077 implementation (2026-07-14)
 
