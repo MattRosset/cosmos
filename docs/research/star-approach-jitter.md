@@ -1,183 +1,179 @@
-# Research — jitter al acercarse a una estrella dentro de la galaxia
+# Research — jitter when approaching a star inside the galaxy
 
-> Síntoma reportado: «cuando nos acercamos dentro de una galaxia a una estrella
-> muy cerca tiene jitter, empieza a saltar para todos lados».
+> Reported symptom: "when we get very close to a star inside a galaxy it jitters, it
+> starts jumping all over the place."
 
 ## TL;DR
 
-El jitter **no** es un fallo del origen flotante f64 (ese path es correcto y está
-probado). Es una **cancelación catastrófica en f32 hecha en la GPU**: el vertex
-shader de estrellas suma `position + uRenderOffset` en precisión simple, donde
-ambos sumandos pueden valer **decenas de parsecs** (hasta ±32 pc, el tamaño de la
-hoja más profunda del octree). El ULP de f32 a esa magnitud es **~0.4–0.8 UA**, y
-como `uRenderOffset` se recalcula cada frame al mover la cámara, el resultado
-redondeado salta entre cubos de f32 frame a frame → la estrella «salta para todos
-lados» cuando estás a pocas UA de ella.
+The jitter is **not** a failure of the f64 floating origin (that path is correct and
+tested). It is a **catastrophic f32 cancellation done on the GPU**: the star vertex
+shader sums `position + uRenderOffset` in single precision, where both summands can
+be **tens of parsecs** (up to ±32 pc, the size of the deepest octree leaf). The f32
+ULP at that magnitude is **~0.4–0.8 AU**, and since `uRenderOffset` is recomputed
+every frame as the camera moves, the rounded result hops between f32 buckets frame
+to frame → the star "jumps all over the place" when you are a few AU from it.
 
-Solo ocurre con estrellas del **catálogo Gaia/HYG sin sistema asociado**: esas
-nunca disparan el cambio de contexto a `system` (unidades UA), así que se siguen
-renderizando como sprites del octree en unidades de parsec.
+It only happens with **Gaia/HYG catalog stars that have no associated system**:
+those never trigger the context switch to `system` (AU units), so they keep being
+rendered as octree sprites in parsec units.
 
-**Fix recomendado (quirúrgico):** pasar `uRenderOffset` como par hi/lo f32
-(emulated-double / render-to-eye) y que el shader haga `(position + offHi) + offLo`.
-Por el lema de Sterbenz la resta cercana es exacta en f32 y la parte baja refina
-el offset → jitter eliminado, sin re-empaquetar las posiciones.
+**Recommended fix (surgical):** pass `uRenderOffset` as an f32 hi/lo pair
+(emulated-double / render-to-eye) and have the shader do
+`(position + offHi) + offLo`. By the Sterbenz lemma the near subtraction is exact in
+f32 and the low part refines the offset → jitter eliminated, without repacking the
+positions.
 
 ---
 
-## 1. La arquitectura de precisión (lo que SÍ funciona)
+## 1. The precision architecture (what DOES work)
 
-El proyecto usa origen flotante con rebasing en f64 (`@cosmos/coords`,
-ADR-001):
+The project uses a floating origin with rebasing in f64 (`@cosmos/coords`, ADR-001):
 
-- `packages/coords/src/frame-tree.ts` — conversiones f64 entre contextos.
-- `packages/coords/src/origin.ts` — `toRenderSpace(pos, out)` calcula
-  `render = bodyLocal − cameraLocal` **en f64**, y solo el llamador hace el
-  downcast a f32.
+- `packages/coords/src/frame-tree.ts` — f64 conversions between contexts.
+- `packages/coords/src/origin.ts` — `toRenderSpace(pos, out)` computes
+  `render = bodyLocal − cameraLocal` **in f64**, and only the caller does the
+  downcast to f32.
 
-Unidades por contexto (`packages/core-types/src/coords.ts`):
+Units per context (`packages/core-types/src/coords.ts`):
 
-| contexto | 1 unidad | rebase threshold |
-|----------|----------|------------------|
+| context  | 1 unit | rebase threshold |
+|----------|--------|------------------|
 | universe | 1 Mpc (3.0857e22 m) | 10 000 u |
 | galaxy   | **1 pc** (3.0857e16 m) | 10 000 u |
-| system   | 1 UA (1.496e11 m) | 10 000 u |
+| system   | 1 AU (1.496e11 m) | 10 000 u |
 | planet   | 1 km | 10 000 u |
 
-Para objetos **individuales** (planetas, nebulosas, marcadores), cada frame se
-hace `origin.toRenderSpace(pos)` por objeto → la posición cámara-relativa es
-pequeña y el `fround` final es preciso. Esto es lo que valida `JitterProbe.tsx`
-(`?debug=jitter`): cámara orbitando un marcador a 1 UA a 8 kpc del centro,
-desviación máx < 0.5 px. **Ese gate pasa y seguirá pasando — no cubre este bug**
-(ver §5).
+For **individual** objects (planets, nebulae, markers), each frame does
+`origin.toRenderSpace(pos)` per object → the camera-relative position is small and
+the final `fround` is precise. This is what `JitterProbe.tsx` (`?debug=jitter`)
+validates: camera orbiting a marker at 1 AU, 8 kpc from the center, max deviation
+< 0.5 px. **That gate passes and will keep passing — it does not cover this bug**
+(see §5).
 
-## 2. El path de estrellas es distinto (la GPU hace la resta en f32)
+## 2. The star path is different (the GPU does the subtraction in f32)
 
-Las estrellas del campo se dibujan en **un solo draw call por tile** del octree
-(`packages/render-stars/src/star-points.ts`). No hay un `toRenderSpace` por
-estrella; hay:
+Field stars are drawn in **a single draw call per tile** of the octree
+(`packages/render-stars/src/star-points.ts`). There is no per-star `toRenderSpace`;
+there is:
 
-- Un atributo `position` (f32) = posición **tile-local en parsecs**, relativa al
-  centro del tile. Se codifica como `s.x − center[x]` en
-  `tools/pack-octree/src/encode.ts:46` y se guarda en un `Float32Array`.
-- Un uniform `uRenderOffset` (f32, `THREE.Vector3`) = el centro del tile en
-  coordenadas cámara-relativas, alimentado cada frame por
-  `origin.toRenderSpace(originPc)` (`apps/web/src/scene/GalaxyScene.tsx:487-501`).
+- A `position` attribute (f32) = **tile-local position in parsecs**, relative to the
+  tile center. It is encoded as `s.x − center[x]` in
+  `tools/pack-octree/src/encode.ts:46` and stored in a `Float32Array`.
+- A `uRenderOffset` uniform (f32, `THREE.Vector3`) = the tile center in
+  camera-relative coordinates, fed each frame by `origin.toRenderSpace(originPc)`
+  (`apps/web/src/scene/GalaxyScene.tsx:487-501`).
 
-El vertex shader (`packages/render-stars/src/shaders/stars.vert.glsl.ts:22`):
+The vertex shader (`packages/render-stars/src/shaders/stars.vert.glsl.ts:22`):
 
 ```glsl
 vec3 viewPos = mat3(viewMatrix) * (position + uRenderOffset);
 ```
 
-`position + uRenderOffset` se evalúa **en f32 en la GPU**. La posición
-cámara-relativa real de la estrella es la diferencia (casi cancelación) de dos
-números f32 que, cerca de la estrella, valen ambos ~lo mismo en magnitud de tile.
+`position + uRenderOffset` is evaluated **in f32 on the GPU**. The star's real
+camera-relative position is the difference (near cancellation) of two f32 numbers
+that, close to the star, are both ~the same in tile magnitude.
 
-## 3. La magnitud — por qué salta ~0.4–0.8 UA
+## 3. The magnitude — why it jumps ~0.4–0.8 AU
 
-El octree Gaia (`apps/web/public/packs/octree-gaia/octree.json`):
+The Gaia octree (`apps/web/public/packs/octree-gaia/octree.json`):
 
 - `rootHalfExtentUnits: 65536` pc.
-- Profundidad real medida: hasta **nivel 11**, hoja más profunda
-  `halfExtentUnits = 32` pc (1267 tiles, 1093 hojas).
+- Measured real depth: up to **level 11**, deepest leaf `halfExtentUnits = 32` pc
+  (1267 tiles, 1093 leaves).
 
-⇒ `position` (tile-local) puede valer hasta **±32 pc** en f32. El ULP de f32 a
-esa magnitud:
+⇒ `position` (tile-local) can be up to **±32 pc** in f32. The f32 ULP at that
+magnitude:
 
-| magnitud de `position` | ULP en f32 | en metros | en UA |
-|------------------------|------------|-----------|-------|
-| 32 pc (borde de hoja)  | 3.8e-6 pc  | 1.18e11 m | **0.79 UA** |
-| 16 pc                  | 1.9e-6 pc  | 5.9e10 m  | **0.39 UA** |
-| 1 pc                   | 1.2e-7 pc  | 3.7e6 m   | 0.025 UA |
+| `position` magnitude | ULP in f32 | in meters | in AU |
+|----------------------|------------|-----------|-------|
+| 32 pc (leaf edge)    | 3.8e-6 pc  | 1.18e11 m | **0.79 AU** |
+| 16 pc                | 1.9e-6 pc  | 5.9e10 m  | **0.39 AU** |
+| 1 pc                 | 1.2e-7 pc  | 3.7e6 m   | 0.025 AU |
 
-Cuando estás *dentro* del tile, junto a la estrella, `uRenderOffset ≈ −position`
-(misma magnitud, signo opuesto). La suma f32 redondea a pasos de ~ULP de esa
-magnitud. Como `uRenderOffset` cambia continuamente (la cámara se mueve fracciones
-de UA por frame), el resultado redondeado **salta entre cubos de f32 cada frame**
-→ jitter de amplitud ~0.4–0.8 UA. A pocas UA de la estrella eso es una fracción
-enorme de la pantalla = «salta para todos lados». Coincide exactamente con el
-reporte.
+When you are *inside* the tile, next to the star, `uRenderOffset ≈ −position` (same
+magnitude, opposite sign). The f32 sum rounds to steps of ~ULP of that magnitude.
+Since `uRenderOffset` changes continuously (the camera moves fractions of an AU per
+frame), the rounded result **hops between f32 buckets every frame** → jitter of
+amplitude ~0.4–0.8 AU. A few AU from the star that is a huge fraction of the screen
+= "jumps all over the place." It matches the report exactly.
 
-Nota: el atributo `position` en f32 ya tiene un error *estático* de ~sub-UA (queda
-fijo por estrella, no salta — solo desplaza levemente). El **jitter** lo produce el
-término *dinámico* (`uRenderOffset`) re-cuantizándose cada frame.
+Note: the f32 `position` attribute already has a *static* error of ~sub-AU (fixed
+per star, it does not jump — it just shifts slightly). The **jitter** is produced by
+the *dynamic* term (`uRenderOffset`) re-quantizing every frame.
 
-## 4. Por qué solo pasa con estrellas «cualquiera» del catálogo
+## 4. Why it only happens with "any" catalog star
 
-Existe un cambio de contexto galaxy→system a 5000 UA del astro
-(`packages/nav/src/context-switch.ts`, `enterSystemAtM: 7.5e14`). En `system` las
-unidades son UA y cada cuerpo usa `toRenderSpace` por objeto (path f64 correcto) →
-sin jitter.
+There is a galaxy→system context switch at 5000 AU from the body
+(`packages/nav/src/context-switch.ts`, `enterSystemAtM: 7.5e14`). In `system` the
+units are AU and each body uses per-object `toRenderSpace` (correct f64 path) → no
+jitter.
 
-**Pero** ese switch solo se arma para *host systems* registrados: el escaneo
-`combined.nearestHostSystem()` (`packages/data/src/combined.ts:249`) recorre
-`hostBySystemId`, que es el set curado (Sol + hosts de exoplanetas), **no** el
-campo completo Gaia/HYG (`apps/web/src/scene/NavDriver.tsx:132-144`).
+**But** that switch is only armed for registered *host systems*: the scan
+`combined.nearestHostSystem()` (`packages/data/src/combined.ts:249`) walks
+`hostBySystemId`, which is the curated set (Sol + exoplanet hosts), **not** the full
+Gaia/HYG field (`apps/web/src/scene/NavDriver.tsx:132-144`).
 
-⇒ Si vuelas hacia Sol o un host de exoplaneta → desciende a `system`, sin jitter.
-⇒ Si vuelas hacia una estrella cualquiera del catálogo (sin planetas) → nunca se
-ancla, nunca cambia de contexto, se sigue dibujando como sprite del octree en pc
-vía la suma f32 → **jitter**.
+⇒ If you fly toward Sol or an exoplanet host → it descends to `system`, no jitter.
+⇒ If you fly toward any catalog star (no planets) → it never anchors, never switches
+context, keeps being drawn as an octree sprite in pc via the f32 sum → **jitter**.
 
-## 5. Punto ciego del gate de aceptación
+## 5. Blind spot of the acceptance gate
 
-`JitterProbe.tsx` mide el path correcto pero **no** reproduce este bug:
+`JitterProbe.tsx` measures the correct path but does **not** reproduce this bug:
 
 ```js
 // JitterProbe.tsx:114-126
-origin.toRenderSpace(MARKER, renderScratch); // f64 → valor pequeño (~1 UA)
-const fx = Math.fround(tx);                   // fround del resultado pequeño
+origin.toRenderSpace(MARKER, renderScratch); // f64 → small value (~1 AU)
+const fx = Math.fround(tx);                   // fround of the small result
 markerRef.current.position.set(fx, fy, fz);
 ```
 
-Hace `fround` del resultado **ya pequeño** (~1 UA, ULP ínfimo). Nunca suma dos
-sumandos f32 de ~30 pc como hace el shader real. Por eso el gate está verde
-mientras el bug existe. Cualquier fix debería venir con una variante de la probe
-que ejercite `position(f32, ~30 pc) + uRenderOffset(f32, ~−30 pc)`.
+It does `fround` of the **already small** result (~1 AU, tiny ULP). It never sums
+two f32 summands of ~30 pc like the real shader. That is why the gate is green while
+the bug exists. Any fix should come with a probe variant that exercises
+`position(f32, ~30 pc) + uRenderOffset(f32, ~−30 pc)`.
 
-## 6. Opciones de fix
+## 6. Fix options
 
-### A — Offset emulated-double (hi/lo) en el shader de estrellas  ✅ recomendado
-Pasar `uRenderOffset` como dos uniforms f32: `offHi = fround(off)` y
-`offLo = fround(off − offHi)`, calculados en CPU desde el f64 de `toRenderSpace`.
-El shader hace `(position + offHi) + offLo`.
+### A — Emulated-double (hi/lo) offset in the star shader  ✅ recommended
+Pass `uRenderOffset` as two f32 uniforms: `offHi = fround(off)` and
+`offLo = fround(off − offHi)`, computed on the CPU from the f64 of `toRenderSpace`.
+The shader does `(position + offHi) + offLo`.
 
-- Por **Sterbenz**, `position + offHi` (dos f32 de magnitud similar y signo
-  opuesto, dentro de un factor 2) es **exacto** en f32; `+ offLo` refina con la
-  parte baja del offset → el término dinámico deja de cuantizarse → **jitter
-  eliminado**.
-- Residual: el error estático del atributo `position` f32 (~sub-UA, invisible).
-- Coste: 1 uniform extra + 1 línea de shader + split del offset por frame. Cambio
-  mínimo, alineado con el diseño de origen flotante. Aplica a **todas** las
-  estrellas, ancladas o no.
-- Si en el futuro hace falta precisión sub-UA también en el atributo, empaquetar
-  `position` como par hi/lo (6 f32) — no necesario para matar el jitter actual.
+- By **Sterbenz**, `position + offHi` (two f32 of similar magnitude and opposite
+  sign, within a factor of 2) is **exact** in f32; `+ offLo` refines with the low
+  part of the offset → the dynamic term stops quantizing → **jitter eliminated**.
+- Residual: the static error of the f32 `position` attribute (~sub-AU, invisible).
+- Cost: 1 extra uniform + 1 shader line + offset split per frame. Minimal change,
+  aligned with the floating-origin design. Applies to **all** stars, anchored or
+  not.
+- If sub-AU precision is later needed in the attribute too, pack `position` as a
+  hi/lo pair (6 f32) — not necessary to kill the current jitter.
 
-### B — Hojas más pequeñas (octree más profundo)
-Reduce `|position|` y por tanto el ULP. Es paliativo: no escala cuando te acercas
-arbitrariamente, y agranda el pack. No resuelve la causa.
+### B — Smaller leaves (deeper octree)
+Reduces `|position|` and therefore the ULP. It is palliative: it does not scale when
+you approach arbitrarily, and it enlarges the pack. Does not fix the cause.
 
-### C — Rebase del tile cercano en CPU por frame
-Recalcular en f64 las posiciones del único tile que ocupa la cámara, relativas a
-la cámara, y re-subir el buffer. Correcto pero implica un upload por frame; más
-caro y más invasivo que A.
+### C — CPU rebase of the near tile per frame
+Recompute in f64 the positions of the single tile the camera occupies, relative to
+the camera, and re-upload the buffer. Correct but implies an upload per frame; more
+expensive and more invasive than A.
 
-### D — Extender el descenso a contexto `system` a cualquier estrella
-Crear un frame `system` «desnudo» (sin planetas) para cualquier astro al que te
-acerques. Solución de producto a más largo plazo (define qué se ve al llegar);
-ortogonal al jitter. No es el fix del bug.
+### D — Extend the descent to `system` context to any star
+Create a "bare" `system` frame (no planets) for any body you approach. A
+longer-term product solution (defines what is seen on arrival); orthogonal to the
+jitter. It is not the bug fix.
 
-**Recomendación:** A como fix puntual del jitter + probe que cubra el path real
-(§5). C/D quedan como evolución, no como requisito para cerrar esto.
+**Recommendation:** A as the targeted jitter fix + a probe that covers the real path
+(§5). C/D remain as evolution, not as a requirement to close this.
 
-## 7. Archivos relevantes
+## 7. Relevant files
 
-- `packages/render-stars/src/shaders/stars.vert.glsl.ts` — la suma f32 (causa).
-- `packages/render-stars/src/star-points.ts` — uniform `uRenderOffset`.
-- `apps/web/src/scene/GalaxyScene.tsx:487-501` — feed del offset por frame.
-- `tools/pack-octree/src/encode.ts:46` — posiciones tile-local f32.
-- `apps/web/public/packs/octree-gaia/octree.json` — hoja mín. `halfExtent=32` pc.
+- `packages/render-stars/src/shaders/stars.vert.glsl.ts` — the f32 sum (cause).
+- `packages/render-stars/src/star-points.ts` — `uRenderOffset` uniform.
+- `apps/web/src/scene/GalaxyScene.tsx:487-501` — the per-frame offset feed.
+- `tools/pack-octree/src/encode.ts:46` — tile-local f32 positions.
+- `apps/web/public/packs/octree-gaia/octree.json` — min leaf `halfExtent=32` pc.
 - `packages/nav/src/context-switch.ts`, `apps/web/src/scene/NavDriver.tsx:132` —
-  por qué solo afecta a estrellas sin host.
-- `apps/web/src/scene/JitterProbe.tsx` — gate con punto ciego (§5).
+  why it only affects host-less stars.
+- `apps/web/src/scene/JitterProbe.tsx` — gate with the blind spot (§5).

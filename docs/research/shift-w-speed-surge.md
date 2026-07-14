@@ -1,130 +1,126 @@
-# Research: surge de velocidad con Shift+W dentro de la galaxia
+# Research: speed surge with Shift+W inside the galaxy
 
-**Fecha:** 2026-07-13
-**Síntoma reportado:** al avanzar con Shift+W dentro de la galaxia, la velocidad
-acelera y luego **baja sola**, generando un efecto raro de aceleración/freno
-oscilante. Hipótesis del usuario: velocidad o streaming.
+**Date:** 2026-07-13
+**Reported symptom:** when moving forward with Shift+W inside the galaxy, the speed
+accelerates and then **drops on its own**, producing a weird oscillating
+acceleration/braking effect. User hypothesis: speed or streaming.
 
-## Step 1 — Preguntas falsables
+## Step 1 — Falsifiable questions
 
-- **Q1:** ¿La velocidad de avance está escalada adaptativamente por alguna
-  cantidad que cambia al moverse (distancia al objeto más cercano, escala,
-  densidad local)? Es decir, ¿el "freno" es una reducción *intencional* del
-  speed scale y no un bug?
-- **Q2:** ¿El boost de Shift es una rampa de aceleración con decaimiento/clamp
-  (accel + damping) en vez de un multiplicador constante, de modo que la
-  velocidad puede sobrepasar y volver a caer por diseño de la integración?
-- **Q3:** ¿El streaming (carga de octree / procgen) produce picos de frame-time
-  que, combinados con integración dependiente de `dt`, alteran la velocidad
-  efectiva percibida (surges al recuperar frames largos)?
+- **Q1:** Is the forward speed adaptively scaled by some quantity that changes as
+  you move (distance to the nearest object, scale, local density)? That is, is the
+  "braking" an *intentional* reduction of the speed scale and not a bug?
+- **Q2:** Is the Shift boost an acceleration ramp with decay/clamp (accel +
+  damping) rather than a constant multiplier, such that the speed can overshoot and
+  fall back by integration design?
+- **Q3:** Does streaming (octree / procgen loading) produce frame-time spikes that,
+  combined with `dt`-dependent integration, alter the perceived effective speed
+  (surges when recovering from long frames)?
 
-## Step 2 — Condiciones de kill / redirect (escritas ANTES de investigar)
+## Step 2 — Kill / redirect conditions (written BEFORE investigating)
 
-- **K1 (mata "es un bug de velocidad"):** si Q1 = sí — la velocidad se escala
-  por distancia/escala y el usuario cruza regiones que cambian esa cantidad —
-  entonces el efecto es *comportamiento diseñado mal calibrado*, no un bug de
-  integración. El trabajo se reformula como tuning/suavizado del speed scale,
-  no como fix de streaming.
-- **K2 (mata "es streaming"):** si el cálculo de velocidad no usa `dt` crudo en
-  ninguna rama sensible a hitches, o si puedo reproducir el surge con streaming
-  ya completo (todo cargado, sin requests), streaming queda descartado como
-  causa.
-- **K3 (mata "es la rampa de Shift"):** si Shift es un multiplicador constante
-  aplicado a una velocidad ya estable, la rampa no puede explicar oscilación
-  sostenida.
+- **K1 (kills "it's a speed bug"):** if Q1 = yes — speed is scaled by
+  distance/scale and the user crosses regions that change that quantity — then the
+  effect is *badly calibrated designed behavior*, not an integration bug. The work
+  is reframed as tuning/smoothing the speed scale, not a streaming fix.
+- **K2 (kills "it's streaming"):** if the speed computation does not use raw `dt`
+  in any hitch-sensitive branch, or if I can reproduce the surge with streaming
+  already complete (everything loaded, no requests), streaming is ruled out as the
+  cause.
+- **K3 (kills "it's the Shift ramp"):** if Shift is a constant multiplier applied
+  to an already stable speed, the ramp cannot explain sustained oscillation.
 
 ## Step 3–4 — Claims
 
 ```
-CLAIM:    En contexto galaxy, la velocidad objetivo de vuelo libre se recalcula
-          CADA frame como clamp(1.0 × distancia-a-la-estrella-HYG-más-cercana,
-          1e-7, 10 pc/s), y Shift la multiplica ×10 (constante, sin rampa).
-          Ningún otro input entra en la ley.
+CLAIM:    In galaxy context, the free-flight target speed is recomputed EVERY
+          frame as clamp(1.0 × distance-to-nearest-HYG-star, 1e-7, 10 pc/s), and
+          Shift multiplies it ×10 (constant, no ramp). No other input enters the
+          law.
 EVIDENCE: packages/nav/src/controller.ts:1085-1088 (targetSpeed = clamp(speedScale
           × distanceToNearestSurface, ...); speedBoost → ×10);
-          apps/web/src/scene/NavDriver.tsx:51 (cap 10), :98, :200-210 (el feed
-          galaxy es nearestStarIndex de HYG).
+          apps/web/src/scene/NavDriver.tsx:51 (cap 10), :98, :200-210 (the galaxy
+          feed is HYG's nearestStarIndex).
 VERIFIED: 2026-07-13
-RECHECK:  leer controller.ts:1085-1088 y NavDriver.tsx:186-212
+RECHECK:  read controller.ts:1085-1088 and NavDriver.tsx:186-212
 ```
 
 ```
-CLAIM:    La velocidad real persigue ese objetivo con un suavizado exponencial
-          de semivida 90 ms — lo bastante rápido para que cada salto del
-          objetivo se sienta como un acelerón o un frenazo en <0.3 s.
+CLAIM:    The real speed chases that target with an exponential smoothing of
+          90 ms half-life — fast enough that each jump of the target feels like an
+          acceleration or a braking within <0.3 s.
 EVIDENCE: packages/nav/src/controller.ts:162 (DEFAULT_DAMPING_HALF_LIFE_MS=90),
-          :1135-1139 (decay exponencial hacia targetVel).
+          :1135-1139 (exponential decay toward targetVel).
 VERIFIED: 2026-07-13
-RECHECK:  leer controller.ts:162 y :1135-1139
+RECHECK:  read controller.ts:162 and :1135-1139
 ```
 
 ```
-CLAIM:    Medido en runtime: con Shift+adelante sostenido DENTRO del campo
-          estelar, la velocidad osciló 9.3 ↔ 90.8 pc/s durante ~10 s (p.ej.
-          12.8→18.6→10.2→27.0→9.3→46.4→33.0→90.8→33.0 pc/s); al salir del
-          campo HYG (z ≳ 300 pc de Sol) quedó CLAVADA en 100 pc/s (cap 10 ×
-          boost 10) sin una sola oscilación más. La oscilación existe solo
-          donde hay estrellas cercanas cambiando la distancia-al-más-cercano.
-EVIDENCE: muestreo 2026-07-13 vía eval en la app dev (keydown sintético
-          ShiftLeft+KeyS sobre el canvas, lectura de .hud-speed-value cada
-          250 ms + __cosmos.cameraPosition), 79 muestras.
+CLAIM:    Measured at runtime: with Shift+forward held INSIDE the star field, the
+          speed oscillated 9.3 ↔ 90.8 pc/s over ~10 s (e.g.
+          12.8→18.6→10.2→27.0→9.3→46.4→33.0→90.8→33.0 pc/s); on leaving the HYG
+          field (z ≳ 300 pc from Sol) it PINNED at 100 pc/s (cap 10 × boost 10)
+          without a single further oscillation. The oscillation exists only where
+          nearby stars keep changing the distance-to-nearest.
+EVIDENCE: sampling 2026-07-13 via eval in the dev app (synthetic keydown
+          ShiftLeft+KeyS on the canvas, reading .hud-speed-value every 250 ms +
+          __cosmos.cameraPosition), 79 samples.
 VERIFIED: 2026-07-13
-RECHECK:  pnpm --filter @cosmos/web dev; en consola: mantener Shift+W/S dentro
-          del campo (|pos| < 300 pc) y muestrear
-          document.querySelector('.hud-speed-value').textContent cada 250 ms;
-          repetir con |pos| > 400 pc — dentro oscila, fuera queda fija en 100.
+RECHECK:  pnpm --filter @cosmos/web dev; in console: hold Shift+W/S inside the
+          field (|pos| < 300 pc) and sample
+          document.querySelector('.hud-speed-value').textContent every 250 ms;
+          repeat with |pos| > 400 pc — inside it oscillates, outside it stays fixed
+          at 100.
 ```
 
 ```
-CLAIM:    El streaming NO alimenta la ley de velocidad en contexto galaxy: el
-          escalar de streaming (nearestBodyDistanceM) solo se consume en la
-          rama 'universe', con comentario explícito de que no debe conducir la
-          ley galaxy.
-EVIDENCE: apps/web/src/scene/NavDriver.tsx:173-184 ("it must NOT drive the
-          galaxy speed law — §5.8 nearest is for universe").
+CLAIM:    Streaming does NOT feed the speed law in galaxy context: the streaming
+          scalar (nearestBodyDistanceM) is consumed only in the 'universe' branch,
+          with an explicit comment that it must not drive the galaxy law.
+EVIDENCE: apps/web/src/scene/NavDriver.tsx:173-184 ("it must NOT drive the galaxy
+          speed law — §5.8 nearest is for universe").
 VERIFIED: 2026-07-13
-RECHECK:  leer NavDriver.tsx:173-184
+RECHECK:  read NavDriver.tsx:173-184
 ```
 
 ```
-CLAIM:    No hay hitches de frame distorsionando la integración: a velocidad
-          de cap el desplazamiento medido fue constante (~24.85 pc por muestra
-          de 250 ms ≈ 99.4 pc/s) durante 9 s seguidos.
-EVIDENCE: mismas 79 muestras (columna z), tramo t=11.0s→19.9s.
+CLAIM:    There are no frame hitches distorting the integration: at cap speed the
+          measured displacement was constant (~24.85 pc per 250 ms sample ≈
+          99.4 pc/s) for 9 s straight.
+EVIDENCE: same 79 samples (z column), stretch t=11.0s→19.9s.
 VERIFIED: 2026-07-13
-RECHECK:  mismo muestreo del claim anterior, mirando deltas de posición
+RECHECK:  same sampling as the previous claim, watching position deltas
 ```
 
-## Step 5 — Qué busqué y NO encontré
+## Step 5 — What I looked for and did NOT find
 
-- **Ninguna rampa de aceleración en Shift:** grep `speedBoost` en
-  `packages/nav/src` — es un booleano que multiplica ×10 el objetivo del frame
-  (controller.ts:1086-1088); no hay estado acumulativo. → K3 aplicada: la rampa
-  no existe, no puede ser la causa.
-- **Ningún input de streaming/procgen en la rama galaxy del feed de superficie:**
-  leído NavDriver.tsx completo — la rama galaxy usa solo HYG
-  (`nearestStarIndex`) o distancia-al-campo; `streaming` aparece únicamente en
-  la rama universe. → K2 aplicada: streaming descartado.
-- **Ningún suavizado sobre `distanceToNearestSurface`:** grep
-  `setDistanceToNearestSurface` — se escribe crudo cada frame desde el feed;
-  el único filtro del sistema es la semivida de 90 ms sobre la velocidad.
+- **No acceleration ramp in Shift:** grep `speedBoost` in `packages/nav/src` — it
+  is a boolean that multiplies the frame target ×10 (controller.ts:1086-1088);
+  there is no accumulative state. → K3 applied: the ramp does not exist, it cannot
+  be the cause.
+- **No streaming/procgen input in the galaxy branch of the surface feed:** read all
+  of NavDriver.tsx — the galaxy branch uses only HYG (`nearestStarIndex`) or
+  distance-to-field; `streaming` appears only in the universe branch. → K2 applied:
+  streaming ruled out.
+- **No smoothing over `distanceToNearestSurface`:** grep
+  `setDistanceToNearestSurface` — it is written raw every frame from the feed; the
+  system's only filter is the 90 ms half-life over the speed.
 
-## Step 6 — Veredicto: REFRAME
+## Step 6 — Verdict: REFRAME
 
-**No es un bug de velocidad ni de streaming — es la ley de velocidad diseñada,
-sin filtrar, sobre una señal ruidosa.** La premisa "algo anda mal en la
-velocidad o el streaming" muere con los claims 1, 3 y 4: la velocidad es
-*proporcional a la distancia a la estrella más cercana* por diseño (volás
-rápido lejos de todo, frenás cerca de algo). Al cruzar el campo estelar con
-Shift (hasta 100 pc/s) pasás cerca de una estrella cada fracción de segundo,
-la distancia-al-más-cercano sube y baja constantemente, y la velocidad la
-persigue con semivida de 90 ms → el efecto acelerón/frenazo que se percibe.
-Fuera del campo la señal es lisa y el efecto desaparece por completo (medido).
+**It is neither a speed bug nor a streaming bug — it is the designed speed law,
+unfiltered, over a noisy signal.** The premise "something is wrong with the speed or
+the streaming" dies with claims 1, 3 and 4: the speed is *proportional to the
+distance to the nearest star* by design (you fly fast far from everything, you slow
+down near something). Crossing the star field with Shift (up to 100 pc/s) you pass
+near a star every fraction of a second, the distance-to-nearest rises and falls
+constantly, and the speed chases it with a 90 ms half-life → the perceived
+acceleration/braking effect. Outside the field the signal is smooth and the effect
+disappears entirely (measured).
 
-**La pregunta real** no es "arreglar la velocidad" sino "¿la ley debe muestrear
-la estrella más cercana cruda, o una versión suavizada?". Direcciones de tuning
-(para un spec futuro, no decididas acá): suavizar/limitar la tasa de cambio de
-`distanceToNearestSurface` en la rama galaxy; asimetría (frenado rápido al
-acercarse, liberación lenta al alejarse — la mitad "frenazo" del efecto es la
-que molesta); o una distancia efectiva menos puntual que el vecino más cercano
-exacto (p. ej. soft-min sobre k vecinos).
+**The real question** is not "fix the speed" but "should the law sample the raw
+nearest star, or a smoothed version?". Tuning directions (for a future spec, not
+decided here): smooth/rate-limit the change of `distanceToNearestSurface` in the
+galaxy branch; asymmetry (fast braking on approach, slow release on departure — the
+"braking" half of the effect is the annoying one); or a less pointwise effective
+distance than the exact nearest neighbor (e.g. soft-min over k neighbors).
