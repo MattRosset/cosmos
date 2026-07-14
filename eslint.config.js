@@ -48,6 +48,20 @@ export default tseslint.config(
     },
   },
   {
+    // Browser-console research probes — pasted directly into devtools, not built or
+    // run under Node. No bundler, so DOM/browser globals must be declared explicitly.
+    files: ['tools/research/twinkle-live-probe.js'],
+    languageOptions: {
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        console: 'readonly',
+        requestAnimationFrame: 'readonly',
+        PointerEvent: 'readonly',
+      },
+    },
+  },
+  {
     files: [
       'packages/core-types/**',
       'packages/procgen/**',
