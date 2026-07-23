@@ -7,6 +7,13 @@ Workers, in a pnpm/Turborepo monorepo of 17 library packages plus the app and 7 
 
 **Live demo → [cosmos-coq.pages.dev](https://cosmos-coq.pages.dev/)**
 
+The interface is its own package: [`packages/ui`](packages/ui/src) holds 15 React components —
+search palette, scale ruler, time controls, info and bookmarks panels, guided-tour chrome,
+first-run overlay — with their presentation logic extracted into pure modules
+(`scale-ruler.ts`, `jump-hud-model.ts`, `astro-derive.ts`) so the components stay thin, and 18
+test files covering both layers. It may not import Three.js; that boundary is enforced by
+lint, not by convention (§3).
+
 **The graphics are the hard problem; the engineering method is the point of the repo.** If
 you are here from a CV, the four sections below are what to read — they are the parts that
 transfer to any codebase.
@@ -28,9 +35,8 @@ Three that read standalone, without any context on this project:
 - [**"Passes locally, fails in CI"**](docs/research/e2e-ci-flakiness-rootcause-and-query-hook.md)
   — I taxonomized the last ~16 e2e-touching commits instead of retrying the flaky specs. Most
   failures were test↔environment coupling, not product bugs. That diagnosis produced the fix
-  in §3 below. Honest scope: from the E2E harness (2026-06-11) to that structural fix
-  (2026-07-01) was about three weeks, and it did not end flakiness for good — a CI-only nav
-  timeout was still being fixed on 2026-07-14.
+  in §3 below — which reduced CI-only flakes structurally rather than eliminating them; a few
+  still surface.
 
 ## 2. Gate on deterministic proxies — screenshots and wall-clock never block
 
@@ -85,8 +91,11 @@ instead of computing an answer of its own.
 import bans, and each one explains itself rather than just failing:
 `'Math.random() breaks determinism. Use createPrng from @cosmos/core-types.'` ·
 `'nav must not import Three.js (§5.3).'` · `'Deep imports banned: use the package public API
-(index.ts).'` The reviewer for these rules is usually an agent, and an error message is the
-only documentation it is guaranteed to read.
+(index.ts).'` The immediate reviewer is often an agent, and an error message is the only
+documentation it is guaranteed to read — but the problem is the ordinary design-system one:
+consumers reach past your public API, and a boundary that lives in a doc instead of in the
+toolchain is a boundary that erodes. Here the public surface of each package is `index.ts`,
+deep imports fail the build, and the error tells you what to use instead.
 
 ## 4. The repo is a work environment for agents
 
@@ -101,12 +110,17 @@ This repo is where it was derived and is the standing test of it.
 
 ---
 
-## Status
+## Status — and how package APIs are versioned
 
 **Phase 4a complete (gate TASK-053) — Phase 4b (chunked planet terrain, ADR-007) is the next
 planning pass.** The full technical design lives in
 [`docs/architecture.md`](docs/architecture.md). Execution is tracked task-by-task in
 [`docs/agent-tasks/README.md`](docs/agent-tasks/README.md) — **agents: start there.**
+
+Each package carries a versioned public API, and between milestones those surfaces are
+**frozen**: a change to one is a deliberate, announced thaw rather than an incidental edit
+made while working on something else. The block below is the current freeze — the same
+mechanism a design system uses to keep consumers from paying for churn they did not ask for.
 
 > **GATE (Phase 4a / M4a frozen):** as of TASK-053, the public APIs of `render-fx`, `render-planets`
 > (v2 atmosphere), `data` (v4 constellations), `app-state`/`ui` (v3), `nav` (v5), `streaming` (v1.1),
