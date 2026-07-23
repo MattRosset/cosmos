@@ -17,6 +17,7 @@
     "typecheck": "turbo run typecheck",
     "verify": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "check:bundle": "node tools/check-bundle-size/src/check.mjs",
+    "check:tasks": "node tools/check-task-index/src/check.mjs",
     "lighthouse": "lhci autorun",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
   },
