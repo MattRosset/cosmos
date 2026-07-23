@@ -1,5 +1,7 @@
 # cosmos — Universe Explorer
 
+[![The Milky Way at galactic-survey scale: procedural spiral arms over the streamed star catalog, with the scale ruler running from planet to universe](docs/media/galaxy-view.png)](https://cosmos-coq.pages.dev/)
+
 A browser-based, real-time 3D universe explorer: seamless zoom from intergalactic scale down
 to planetary surfaces, rendering real star catalogs (HYG, Gaia subsets, NASA Exoplanet
 Archive) blended with procedural content. React 19 + TypeScript + Three.js (R3F) + Web
