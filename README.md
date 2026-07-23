@@ -3,7 +3,9 @@
 A browser-based, real-time 3D universe explorer: seamless zoom from intergalactic scale down
 to planetary surfaces, rendering real star catalogs (HYG, Gaia subsets, NASA Exoplanet
 Archive) blended with procedural content. React 19 + TypeScript + Three.js (R3F) + Web
-Workers, in a pnpm/Turborepo monorepo of 17 packages.
+Workers, in a pnpm/Turborepo monorepo of 17 library packages plus the app and 7 build tools.
+
+**Live demo → [cosmos-coq.pages.dev](https://cosmos-coq.pages.dev/)**
 
 **The graphics are the hard problem; the engineering method is the point of the repo.** If
 you are here from a CV, the four sections below are what to read — they are the parts that
@@ -39,7 +41,10 @@ this repo splits them:
 - **Blocking in CI:** correctness invariants and *work-budget caps* — how many points were
   drawn, how many draw calls, how many chunks were resident. Machine-independent counts.
 - **Reference-machine only:** visual baselines and wall-clock perf, guarded by
-  `!process.env.CI` and `@perf` tags. They still run; they never block.
+  `!process.env.CI` and `@perf` tags. They still run; they never block. One deliberate
+  exception blocks: a catastrophic-hang check (no single boot frame over 1s,
+  [`boot-perf.spec.ts`](e2e/tests/boot-perf.spec.ts)) — loose enough that no plausible
+  machine trips it, so it catches a freeze without gating on speed.
 
 Consequence, written down rather than glossed: CI cannot prove the app is *fast*. It proves
 the app does not do more *work* than budgeted, and I check speed by hand on real hardware.
@@ -50,9 +55,9 @@ Rules in [`docs/testing-conventions.md`](docs/testing-conventions.md), enforceme
 octree LOD, plus a 1M-point procedural Milky Way under a per-tier draw budget. Multi-GB star
 packs belong in object storage, not in git, so the pack is selected at build time via
 `VITE_GAIA_OCTREE_MANIFEST_URL` ([`packs.ts`](apps/web/src/app/packs.ts)) — an R2/CDN URL for a
-dense pack, or the committed 135-star sample, which is the default. CI therefore gates on the versioned
-109k-star HYG pack: the budgets it enforces are sized to what the pipeline can reproduce, and
-the dense pack is a delivery concern, not a test input.
+dense pack, or the committed 135-star sample, which is the default. CI and the live demo
+therefore both run on the versioned 109k-star HYG pack: the budgets CI enforces are sized to
+what the pipeline can reproduce, and the dense pack is a delivery concern, not a test input.
 
 ## 3. Tests that can fail — anti-tests and real-state queries
 
@@ -85,8 +90,10 @@ only documentation it is guaranteed to read.
 
 ## 4. The repo is a work environment for agents
 
-Most of this was built by AI coding agents working one package at a time against written task
-specs, with the boundaries above as guardrails. The generalized method — task specs as
+Much of the code was written by AI coding agents working one package at a time. What they
+worked against is mine: the task specs, the package boundaries, the gates and their controls,
+and the root-cause passes in §1 — agents implement inside guardrails, and §3 is why a bad
+implementation does not survive review. The generalized method — task specs as
 contracts, gates that a naive implementation fails, judgment-call logging — is published
 separately as [**executable-specs**](https://github.com/MattRosset/executable-specs) (see its
 [`doctrine/BUILD-FOR-AGENTS.md`](https://github.com/MattRosset/executable-specs/blob/main/doctrine/BUILD-FOR-AGENTS.md)).
@@ -134,7 +141,7 @@ pnpm test:e2e       # build web + deterministic e2e gate on chromium
 - **Compute:** Web Workers + Comlink
 - **Monorepo:** pnpm workspaces + Turborepo
 - **Testing:** Vitest + Playwright (E2E, visual regression, perf)
-- **Hosting:** static CDN — Cloudflare Pages ([`deploy.yml`](.github/workflows/deploy.yml)); no backend
+- **Hosting:** static bundle on Cloudflare Pages ([live](https://cosmos-coq.pages.dev/)); no backend
 
 ## Core Architectural Rules
 
