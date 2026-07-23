@@ -1,6 +1,6 @@
 # Task: `apps/web` — Sentry transport behind the error sink
 
-**ID:** TASK-069
+**ID:** TASK-078
 **Target package:** `apps/web`
 **Size:** S
 **Phase:** H — Hardening track

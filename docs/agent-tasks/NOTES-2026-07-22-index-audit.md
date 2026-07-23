@@ -52,4 +52,4 @@ pass over `cli.ts` (0% today; `convert.ts` is at 91%) to clear the 60% floor, th
 `.github/workflows/deploy.yml` was removed 2026-07-22: 100/100 of its runs were `skipped`
 (it gated on `vars.CLOUDFLARE_ACCOUNT_ID`, never set), while the live site publishes through
 Cloudflare Pages' own Git integration. Anything that assumed a GitHub Actions deploy — e.g.
-TASK-069's source-map upload step — belongs in the CF Pages build command instead.
+TASK-078's source-map upload step — belongs in the CF Pages build command instead.

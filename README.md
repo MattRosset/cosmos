@@ -5,7 +5,7 @@
 A browser-based, real-time 3D universe explorer: seamless zoom from intergalactic scale down
 to planetary surfaces, rendering real star catalogs (HYG, Gaia subsets, NASA Exoplanet
 Archive) blended with procedural content. React 19 + TypeScript + Three.js (R3F) + Web
-Workers, in a pnpm/Turborepo monorepo of 17 library packages plus the app and 7 build tools.
+Workers, in a pnpm/Turborepo monorepo of 17 library packages plus the app and 8 build tools.
 
 **Live demo → [cosmos-coq.pages.dev](https://cosmos-coq.pages.dev/)**
 
@@ -84,9 +84,10 @@ threshold.
 to reimplement the camera projection to decide where a star should be on screen — two models
 that drifted apart, which is where much of the CI-only flakiness came from. That model is
 gone. [`apps/web/src/glue/test-hook.ts`](apps/web/src/glue/test-hook.ts) exposes a thin read
-hook (`window.__cosmos`) with `pickAt(x, y)` and `projectToScreen(pos)` delegating to the
-*same closures* production uses for real clicks. A spec asks the app what a pixel selects
-instead of computing an answer of its own.
+hook (`window.__cosmos`). `pickAt(x, y)` is the *same closure* production runs on a real
+click — a spec asks the app what a pixel selects instead of computing an answer of its own.
+Its inverse, `projectToScreen(pos)`, is built for the hook, but from the live camera and
+controller rather than from a second model a test would have to keep in step.
 
 **Architecture frozen by lint, with messages that teach.**
 [`eslint.config.js`](eslint.config.js) encodes the dependency boundaries as per-package
