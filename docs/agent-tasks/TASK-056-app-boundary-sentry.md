@@ -136,9 +136,11 @@ The task is DONE only when these pass in CI:
 - `apps/web/src/main.tsx` (call `installAppDiagnostics()` first; wrap `<App>` in the boundary)
 - `apps/web/src/App.tsx` (wrap scene children in the 'scene' boundary; optional loader-report)
 - `apps/web/src/vite-env.d.ts` (`VITE_SENTRY_DSN`)
-- `apps/web/vite.config.ts` (sourcemap: true if not already) + a note/step in
-  `.github/workflows/deploy.yml` to upload source maps to Sentry when the DSN/auth secret is
-  present (skip cleanly when absent, per TASK-016)
+- `apps/web/vite.config.ts` (sourcemap: true if not already) + a source-map upload step to
+  Sentry when the DSN/auth secret is present, skipping cleanly when absent. NOTE: the
+  GitHub Actions deploy workflow was removed once Cloudflare Pages' own Git integration
+  became the single deploy path, so this step now belongs in the CF Pages build command
+  (or in a build script it calls), not in `.github/workflows/`.
 - An `?debug=errboundary` probe component for the e2e
 - Add `@sentry/react` to `apps/web/package.json`
 
