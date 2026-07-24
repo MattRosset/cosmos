@@ -28,6 +28,15 @@ always in context:
 - `pnpm test:e2e` = build web + deterministic e2e gate on chromium; run before pushing
   changes to app behavior or e2e specs.
 
+## Judgment calls
+
+**Log every judgment call** — anything the task didn't decide and you had to — to a NOTES
+file, visibly, as you go (not reconstructed after). After merge, triage each into exactly
+one: **spec/task bug** (a stated fact was missing or wrong) · **executor bug** (it was
+written; the agent ignored it) · **doctrine gap** (no rule asked for what was needed —
+edit the rule now, citing the case). An untriaged entry is a lesson thrown away. Full
+rationale: engineering-playbook `BUILD-FOR-AGENTS-DOCTRINE.md` §13.
+
 ## Docs map
 
 - `docs/decisions/` — ADRs (architecture decisions).
