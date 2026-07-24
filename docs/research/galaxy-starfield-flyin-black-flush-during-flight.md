@@ -183,6 +183,16 @@ deferral-independent scale-jump cost. The cap still matters for the *visibility*
 (queue must keep up with decode), not for the hitch. The hitch is out of scope for TASK-079;
 a root-cause candidate for later (procgen→catalog hand-off upload/allocation burst).
 
+> **Root-caused (2026-07-24) — the "upload/allocation burst" guess above was wrong.** See
+> [`m1-metal-boot-and-flyin-stall-rootcause.md`](m1-metal-boot-and-flyin-stall-rootcause.md).
+> Measured with the app's own `?debug=breadcrumb-profile` per-span profiler (4/4 runs), the
+> ~65 ms fly-in frame is **`streaming.update` (70–73 ms) — the streaming-policy pass doing
+> BigInt Morton-key encode/decode** (`spread3`/`compact3`, `packages/core-types/src/octree.ts`),
+> **not** a GPU upload or shader state change: `galaxy.render` ≈ 0.1 ms and
+> `galaxy.mountOctree` ≈ 0.4 ms in those frames. Fix: a bit-exact BigInt→`Number` swap
+> (~65.9×). (Separately, the boot-perf "3.1 s" frame is **not** this and not Metal at all —
+> it is `getContext('webgl2')` under the gate's SwiftShader backend, 3 ms on real Metal.)
+
 ## Beliefs (second-class — not Step-0 facts; no mechanical RECHECK)
 
 - On hardware weaker than this M1 (measured target), the flush stays gentle because mount
