@@ -154,5 +154,7 @@ Manual, on this Mac (Metal), against the dense pack — the thing the gate can't
    shows the same ~65 ms spike (~2 of 3 fly-ins), so it is NOT introduced by this change and
    is out of scope (logged in NOTES.md). The bar is therefore *no worse than baseline* and
    *no frame > 150 ms* (the breadcrumb-perf `MAX_FRAME_MS`), **not** "0 frames > 50 ms".
+   *(Root-caused 2026-07-24 — that ~65 ms frame is `streaming.update` BigInt Morton, fix =
+   BigInt→`Number` swap; see `docs/research/m1-metal-boot-and-flyin-stall-rootcause.md`.)*
 4. Confirm the *out* trip and a repeated in/out cycle are unaffected, and that the
    post-arrival view is identical to before (same resident tile count at rest, ~1268).
