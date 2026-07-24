@@ -131,6 +131,16 @@ const GAL_FADE_HI_PC = 45_000;
 
 /** Octree tile mounts deferred during flight — flushed gradually after arrival. */
 const OCTREE_FLUSH_PER_FRAME = 2;
+/**
+ * Deferred octree drain rate WHILE a goTo flight is active (TASK-079). Higher than the
+ * post-arrival rate so the queue keeps pace with decode (bounded by maxInFlight = 6) and
+ * the field never reads black mid-flight — the galaxy→star-field fly-in evicts the near
+ * tiles on the way out, and at 2/frame the re-stream couldn't remount them before arrival
+ * (black on Metal/integrated GPU). Still a hard per-frame ceiling so a decode burst can't
+ * spike GPU upload on weak hardware. 8 > maxInFlight, so it mounts what decoded, capped.
+ * See docs/research/galaxy-starfield-flyin-black-flush-during-flight.md.
+ */
+const OCTREE_FLUSH_PER_FRAME_FLYING = 8;
 
 function smoothstep(lo: number, hi: number, x: number): number {
   if (hi <= lo) return x >= hi ? 1 : 0;
@@ -434,18 +444,20 @@ export function GalaxyScene({
     const flying = ctrl?.goToActive ?? false;
     flightActiveRef.current = flying;
 
-    // Flush octree tiles deferred during flight, a couple per frame after arrival.
+    // Flush octree tiles deferred during flight — capped per frame, DURING flight (faster,
+    // OCTREE_FLUSH_PER_FRAME_FLYING) as well as after arrival (OCTREE_FLUSH_PER_FRAME). The
+    // in-flight drain (TASK-079) keeps the re-streamed near field from reading black through
+    // a galaxy→star-field fly-in; the cap keeps GPU upload bounded (see the constant).
     // (The in-flight procgen draw-cap that used to live here was removed: it was the
     // sole cause of P2 — a thinned star cloud under full-opacity nebula sprites,
     // "nebulas without stars" — and protected no measured budget. The resting far
     // vantage already full-draws the 1M-point cloud continuously, so full draw in the
     // mid-band during flight adds no new worst case; near Sol blend≈0 keeps it off
     // anyway. See docs/research/galaxy-transit-procgen-floor-design.md §5 E / §8.)
-    if (!flying) {
-      for (let n = 0; n < OCTREE_FLUSH_PER_FRAME && deferredOctree.current.length > 0; n++) {
-        const p = deferredOctree.current.shift()!;
-        addMountRef.current(p.chunkId, 'octree', p.batch);
-      }
+    const flushCap = flying ? OCTREE_FLUSH_PER_FRAME_FLYING : OCTREE_FLUSH_PER_FRAME;
+    for (let n = 0; n < flushCap && deferredOctree.current.length > 0; n++) {
+      const p = deferredOctree.current.shift()!;
+      addMountRef.current(p.chunkId, 'octree', p.batch);
     }
 
     // Streaming tier: active in universe + galaxy. ADR-006 §5 wanted the procgen cloud
