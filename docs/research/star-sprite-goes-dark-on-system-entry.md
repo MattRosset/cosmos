@@ -129,6 +129,60 @@ RECHECK:  sed -n '46,60p' packages/render-stars/src/shaders/stars.vert.glsl.ts
           lights up). Until then CLAIM 5 is the best-supported mechanism, not a measurement.
 ```
 
+## CLAIM 6 — CLAIM 5 is INCOMPLETE: the position attribute's unit is also wrong, and that is the larger error
+
+> **Added 2026-07-25 after a failed confirmation test.** The prediction derived from
+> CLAIM 5 alone was falsified (see below), which sent me back to the source. CLAIM 5's
+> magnitude error is real but it is the *smaller* of two unit mismatches.
+
+```
+CLAIM:    The star field's POSITION attribute is in PARSECS while its per-frame render
+          offset is in ACTIVE-CONTEXT units. The shader adds them (`position + offHi +
+          offLo`). In galaxy context both are parsecs and the sum is correct; in system
+          context the offset becomes AU while the attribute stays parsecs, so the two
+          terms differ by 206,265x. The field is therefore not merely dim in system
+          context — it is geometrically WRONG: every star is displaced, lands at an
+          absurd distance, and goes sub-pixel and unlit. This explains CLAIM 2's
+          "2 bright pixels out of 287,508 while 1,004,231 points render" better than the
+          magnitude error alone.
+EVIDENCE: packages/render-stars/src/star-points.ts:38 —
+            geometry.setAttribute('position', new THREE.BufferAttribute(batch.positionsPc, 3))
+          apps/web/src/scene/StarScene.tsx:172 —
+            hygPoints.setRenderOffset(origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch))
+          packages/render-stars/src/shaders/stars.vert.glsl.ts:47 —
+            vec3 rel = (position + uRenderOffsetHi) * uGuardOne + uRenderOffsetLo;
+          `toRenderSpace` returns CURRENT-CONTEXT units by contract
+          (packages/coords/src/origin.ts header).
+VERIFIED: 2026-07-25 (source, three files)
+RECHECK:  grep -n "positionsPc" packages/render-stars/src/star-points.ts
+          grep -n "setRenderOffset" apps/web/src/scene/StarScene.tsx
+```
+
+### The failed confirmation test (recorded because the negative result is the finding)
+
+```
+CLAIM:    The prediction "Sol's sprite reappears below ~2.9 AU, at full brightness"
+          — derived from CLAIM 5's magnitude error alone — is FALSE as measured.
+EVIDENCE: MEASURED. Free-flight (real keydown KeyW) from 75.15 AU to 1.293 AU in system
+          context, 505 frames, sampling a 160 px readPixels strip through Sol's projected
+          center. Distance derived per-frame from the projection (focal = 168 px, from
+          offsetPx(1 AU) x d at a known state) rather than the <=4 Hz mirror.
+            d=69.98 AU luma=172 | 29.99 luma=152 | 11.98 luma=105 | 5.065 luma=105
+            3.999 luma=167 | 2.901 luma=122 | 2.013 luma=105 | 1.337 luma=140
+          Peak luma NEVER exceeded 172 anywhere in the approach. At 2.013 AU the
+          magnitude-only hypothesis puts the sprite above the min-size floor with
+          vSizeDim = 1 (m ~ 1.34, sNat ~ 4.3 px), i.e. a saturated ~4 px core that would
+          have read 255. It is absent.
+          INSTRUMENT CAVEAT, stated plainly: the reported `blob` widths (63-135 px in a
+          160 px strip) are ORBIT RINGS crossing the sample line, not a stellar core, so
+          the width channel of this instrument is unusable at these distances. The peak-
+          luma channel is still informative (nothing outshone the rings).
+VERIFIED: 2026-07-25
+RECHECK:  Re-fly and sample a 7x7 box at the projected center against a background
+          annulus ~30 px out, instead of a single wide strip, so rings cannot mask a
+          compact core. That measurement has NOT been run.
+```
+
 ---
 
 ## What I looked for and did NOT find
@@ -140,8 +194,19 @@ RECHECK:  sed -n '46,60p' packages/render-stars/src/shaders/stars.vert.glsl.ts
   flip; the dev continuity guard did not fire.
 - **No per-context correction of the distance modulus anywhere in render-stars** — the
   shader has no context/unit uniform; `uPixelScale` (viewport) is the only scale input.
-- **No same-viewport A/B of field brightness across contexts** (CLAIM 2's confound). This
-  is the one measurement this document leaves open.
+- **No same-viewport A/B of field brightness across contexts** (CLAIM 2's confound).
+- **No compact-core measurement that is immune to the orbit rings** (CLAIM 6's failed
+  test). Both of these are the measurements this document leaves open.
+- **No bloom / glare / post-processing pass anywhere.** `packages/render-fx` exports only
+  `createLineSet` (orbit rings) and `createNebula` — there is no bloom stage to hand a
+  saturating star to. The halo seen in the star field is drawn by the point sprite's own
+  fragment shader, so a "growing glare" can be done there without a post-pass.
+  `RECHECK: grep -n "^export" packages/render-fx/src/*.ts`
+- **No glow, sprite, or emissive treatment for the host star inside the system.** It is an
+  ordinary unlit disc mesh: SystemScene.tsx:198-204 documents the host-star disc as a
+  `kind:"planet"` body "for rendering only — it IS the star". So the boundary swaps a
+  magnitude-driven sprite WITH a halo for a bare sub-pixel disc with none.
+  `RECHECK: sed -n '196,206p' apps/web/src/scene/SystemScene.tsx`
 
 ## Consequences
 
