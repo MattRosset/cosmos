@@ -83,10 +83,17 @@ margin after the fix is 0.001 vs 2.767 (not a knife-edge); both m3 screenshot ba
 
 `maxFlightDelta` is a single-sample yardstick: one anomalous frame silently raises the bar for
 the thing under test, which is how a 4.9-vs-1.3 discontinuity stayed green for this gate's
-whole life. The same shape survives the fix (galaxy leg: median 0.035, p90 0.206, max 3.029).
-Left alone deliberately — changing the comparator inside the PR whose job is to turn it green
-is the move that must not be made silently. Written up as an observation in the research doc,
-with the recommendation that it get its own reasoning and its own commit.
+whole life. The same shape survives the fix (galaxy leg: median 0.035, p90 0.206, max 3.029 —
+14.7× the p90). Left alone deliberately — changing the comparator inside the PR whose job is
+to turn it green is the move that must not be made silently. Full argument, including what is
+*not* claimed (run-to-run variance was never measured; the demonstrated defect is coupling,
+not flakiness) and the calibration a percentile swap would need, in the research doc's
+Consequences §4.
+
+**Correction, 2026-07-26 (post-commit):** that section first read "a 100× outlier over p90".
+Wrong arithmetic — 3.029/0.206 is 14.7×; 86× is the ratio to the *median*. Fixed in place
+rather than left standing, because the inflated number overstates the very argument the
+section makes.
 
 ## 8. Instrumentation: reverted, not shipped
 

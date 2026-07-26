@@ -207,14 +207,38 @@ became a red gate once TASK-081 removed the universe-leg unit flash that had bee
    `?? M3_SOL_SYSTEM_ID` fallback. They were deliberately left alone: `flythrough4.spec.ts`
    gates recorded draw-call/point baselines against `flythrough4-m3-baseline.json`, and
    changing what those apps mount would move those baselines. Noted in TASK-084.
-4. **Observation about the gate itself, deliberately NOT acted on here:** `maxFlightDelta`
-   is a single-sample yardstick, so any one anomalous frame silently raises the bar for the
-   thing under test — which is exactly how a real 4.9-vs-1.3 discontinuity stayed green for
-   the whole life of this gate. Post-fix the same fragility is visible in the galaxy leg
-   (median 0.035, p90 0.206, max 3.029: a 100× outlier over p90). A percentile comparator
-   would be more honest, but changing the comparator in the PR whose job is to turn it green
-   is exactly the move that must not be made silently — it needs its own reasoning and its
-   own commit.
+4. **Observation about the gate itself, deliberately NOT acted on here.** The comparator is
+   `enterSystemDelta ≤ maxFlightDelta` — a yardstick defined by **one frame out of ~700**,
+   the least representative sample there is of the "ordinary flight motion" the assertion
+   names. Three consequences, all three observed in this investigation:
+
+   - **A bug anywhere else loosens the gate.** On `main` the bar was 28.169 — a universe-leg
+     flash that was itself a unit bug. While it existed, any switch under 28 passed, which is
+     how a real 4.9-against-1.3 discontinuity (3.7×) stayed green for this gate's whole life.
+   - **Fixing the product tightens the gate.** That is what turned it red here: TASK-081 moved
+     the numerator +4.7 % and the denominator −84 %. A gate that gets stricter as a *side
+     effect* of an unrelated improvement is coupling two quantities that have no reason to be
+     related.
+   - **The bar can come from a different leg of the flight.** The max may be a universe-leg
+     frame while the assertion judges the galaxy→system crossing — different scale, different
+     speed, different content.
+
+   Post-fix the same long tail is still there in the galaxy leg: **median 0.035, p90 0.206,
+   max 3.029** — the max is 14.7× the p90 and 86× the median.
+
+   **What is NOT claimed:** run-to-run *variance* of `maxFlightDelta` was not measured. Across
+   6 local runs it was in fact fairly stable (post-fix 2.77–3.09, one 3.82; `main` 29.3 local
+   vs 28.2 on CI). The fragility demonstrated here is **coupling**, not instability — the bar
+   inherits any anomaly in the rest of the scene. Do not cite this section as evidence of
+   flakiness.
+
+   A percentile comparator (p99 of the flight deltas, or a multiple of p90) would be more
+   honest, but it needs **calibration**, not a swap: which percentile, which multiple, and a
+   demonstration that the gate still fails on a real regression — a comparator loosened past
+   the defect it exists to catch is worse than a fragile one. And changing it inside the PR
+   whose job is to turn it green is exactly the move that must not be made silently: it needs
+   its own reasoning, its own measurement, and its own commit, made when the gate is *already*
+   green so it is visible that the change is not what saved it.
 
 ## Two false greens this investigation hit (both cost real time)
 
