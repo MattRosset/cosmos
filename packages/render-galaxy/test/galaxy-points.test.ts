@@ -84,6 +84,19 @@ describe('shader strings', () => {
     expect(VERT).toContain('mat3(viewMatrix) * (position + uRenderOffset)');
   });
 
+  it('vertex shader converts pc→context units ONLY at the projection (TASK-081)', () => {
+    expect(VERT).toContain('uniform float uPcToUnits;');
+    expect(VERT).toContain('gl_Position = projectionMatrix * vec4(viewPos * uPcToUnits, 1.0);');
+    // Count in CODE only — comments mention the uniform by name and must not count.
+    const code = VERT.split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    expect(code.split('uPcToUnits').length - 1).toBe(2);
+    // vRadiusPc/vPhi read `position` directly and stay parsecs — the fragment shader's
+    // dust-lane and pop-tint thresholds depend on that.
+    expect(VERT).toContain('vRadiusPc = length(position.xy);');
+  });
+
   it('vertex shader contains clamp with uMinPointPx and uMaxPointPx (screen-space size)', () => {
     expect(VERT).toContain('clamp');
     expect(VERT).toContain('uMinPointPx');
@@ -173,6 +186,30 @@ describe('setRenderOffset', () => {
 
     expect(mat.uniforms['uRenderOffset']!.value).toBe(vec);
     expect(vec.x).toBe(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setContextScale — the pc → context-unit bridge (TASK-081)
+// ---------------------------------------------------------------------------
+
+describe('setContextScale', () => {
+  it('defaults to EXACTLY 1.0, so an un-wired renderer keeps galaxy behavior', () => {
+    // The default is what makes the fix safe to land: a mount constructed before the
+    // first frame write projects exactly as it did pre-TASK-081 (x1.0 is exact in
+    // IEEE-754). Do not relax to toBeCloseTo.
+    const pts = createGalaxyPoints({ batch: makeBatch(10) });
+    const mat = pts.object.material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uPcToUnits']!.value).toBe(1.0);
+  });
+
+  it('writes the scale through to the uniform', () => {
+    const pts = createGalaxyPoints({ batch: makeBatch(10) });
+    const mat = pts.object.material as THREE.ShaderMaterial;
+
+    pts.setContextScale(1e-6); // parsecs → Mpc (universe context)
+
+    expect(mat.uniforms['uPcToUnits']!.value).toBe(1e-6);
   });
 });
 

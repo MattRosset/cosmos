@@ -5,6 +5,7 @@
 // uOpacity is forwarded to the fragment shader for LOD cross-fades (§5.8).
 export const VERT = /* glsl */ `
 uniform vec3 uRenderOffset;
+uniform float uPcToUnits;
 uniform float uBasePointPx;
 uniform float uMinPointPx;
 uniform float uMaxPointPx;
@@ -29,7 +30,9 @@ void main() {
     uMinPointPx,
     uMaxPointPx
   ) * uPixelScale;
-  gl_Position = projectionMatrix * vec4(viewPos, 1.0);
+  // viewPos is PARSECS (the setRenderOffset contract); uPcToUnits converts to the active
+  // context's render units. Exactly 1.0 in galaxy context ⇒ bit-identical there. TASK-081.
+  gl_Position = projectionMatrix * vec4(viewPos * uPcToUnits, 1.0);
   vApparentMag = m;
   vBV = aColorBV;
 }

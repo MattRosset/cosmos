@@ -17,10 +17,23 @@ export interface StarPoints {
   /** Mount into the scene (one THREE.Points, ONE draw call for the whole batch). */
   readonly object: THREE.Points;
   /**
-   * Per frame: the batch origin's camera-relative position in galaxy units.
+   * Per frame: the batch origin's camera-relative position in galaxy units (PARSECS).
    * Copies into a uniform — ZERO allocations.
+   *
+   * The unit is load-bearing and is NOT the active context's unit: the position attribute
+   * is `batch.positionsPc`, so the shader adds two parsec quantities. Callers outside
+   * galaxy context must convert `toRenderSpace`'s output to parsecs first and pair it with
+   * `setContextScale` (TASK-081 — the bug this contract was silently violated by).
    */
-  setRenderOffset(offsetUnits: readonly [number, number, number]): void;
+  setRenderOffset(offsetPc: readonly [number, number, number]): void;
+  /**
+   * Parsecs → active-context render units, i.e.
+   * `CONTEXT_UNIT_METERS.galaxy / CONTEXT_UNIT_METERS[ctx]`. Exactly 1 in galaxy context.
+   * Write it EVERY frame alongside the offset: renderers are constructed dynamically
+   * (streaming mounts, lazy batches), so a "set it on context change" rule would leave
+   * late instances on the 1.0 default.
+   */
+  setContextScale(pcToUnits: number): void;
   /** Viewport height in physical px (point-size scaling). Call on resize. */
   setViewportHeight(px: number): void;
   /** Exposure multiplier (UI-controlled later). Default 1. */
@@ -54,6 +67,10 @@ export function createStarPoints(opts: StarPointsOptions): StarPoints {
     // the hi/lo split away — it can't prove the uniform is 1.0. See stars.vert.glsl.ts
     // + docs/research/jitter-apple-mobile.md. Multiplying by 1.0 introduces no rounding.
     uGuardOne: { value: 1.0 },
+    // Parsecs → active-context render units (TASK-081). Positions and the render offset
+    // are BOTH parsecs (the setRenderOffset contract); this converts once, at the
+    // projection. Default 1.0 = galaxy context, so an un-wired renderer is unchanged.
+    uPcToUnits: { value: 1.0 },
     uBasePointPx: { value: basePointPx },
     uMinPointPx: { value: minPointPx },
     uMaxPointPx: { value: maxPointPx },
@@ -94,6 +111,10 @@ export function createStarPoints(opts: StarPointsOptions): StarPoints {
       lo.x = x - hx;
       lo.y = y - hy;
       lo.z = z - hz;
+    },
+
+    setContextScale(pcToUnits: number): void {
+      uniforms.uPcToUnits.value = pcToUnits;
     },
 
     setViewportHeight(px: number): void {
