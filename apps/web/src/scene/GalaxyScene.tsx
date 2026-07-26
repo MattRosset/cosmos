@@ -28,6 +28,7 @@ import { milkyWayArmGeometry } from '../glue/milky-way-gen';
 import { profileSpan } from '../glue/frame-profiler';
 import { procgenOpacityHolder } from '../glue/test-hook';
 import { computeProcgenDrawFraction } from '../glue/procgen-draw-budget';
+import { pcScales } from '../glue/context-scale';
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -157,10 +158,17 @@ interface Mount {
   readonly objects: readonly THREE.Object3D[];
   /** Last frame this mount was on the visible cut (hide stale mounts each frame). */
   seen: number;
+  /**
+   * `offset` is in PARSECS (the renderers' contract), and `pcToUnits` is the parsec →
+   * active-context scale the shader applies at the projection. Both are supplied EVERY
+   * frame rather than on context change: mounts are created dynamically per streaming
+   * tile, so a late mount would otherwise keep the 1.0 default. TASK-081.
+   */
   applyFrame(
-    offset: readonly [number, number, number],
+    offsetPc: readonly [number, number, number],
     opacity: number,
     lod: number,
+    pcToUnits: number,
     drawFraction?: number,
   ): void;
   setViewportHeight(px: number): void;
@@ -187,9 +195,10 @@ function makeOctreeMount(
     batch,
     objects: [points.object],
     seen: 0,
-    applyFrame(offset, opacity): void {
+    applyFrame(offsetPc, opacity, _lod, pcToUnits): void {
       points.object.visible = true;
-      points.setRenderOffset(offset);
+      points.setContextScale(pcToUnits);
+      points.setRenderOffset(offsetPc);
       points.setOpacity(opacity);
     },
     setViewportHeight: (px) => points.setViewportHeight(px),
@@ -252,20 +261,26 @@ function makeProcgenMount(
     batch,
     objects: [impostor.object, lanes.object, cloud.object, hiiRegions.object],
     seen: 0,
-    applyFrame(offset, opacity, lod, drawFraction = 1): void {
+    applyFrame(offsetPc, opacity, lod, pcToUnits, drawFraction = 1): void {
       const cloudFactor = 1 - smoothstep(LOD_CLOUD_FULL, LOD_IMPOSTOR_FULL, lod);
       cloud.setDrawFraction(drawFraction);
       cloud.object.visible = true;
       lanes.object.visible = true;
       hiiRegions.object.visible = true;
       impostor.object.visible = true;
-      cloud.setRenderOffset(offset);
+      cloud.setContextScale(pcToUnits);
+      cloud.setRenderOffset(offsetPc);
       cloud.setOpacity(opacity * cloudFactor);
-      lanes.setRenderOffset(offset);
+      // TASK-081 leaves lanes/hii/impostor OUT OF SCOPE: they have no context scale, so
+      // outside galaxy context they now receive a parsec offset and still project it as
+      // if it were context units — a different wrongness, not a fix, and accepted as such.
+      // In galaxy context pcToUnits is exactly 1 and this is a no-op. TASK-082 fixes the
+      // impostor; the lanes/hii follow-up is filed alongside it.
+      lanes.setRenderOffset(offsetPc);
       lanes.setOpacity(opacity * cloudFactor * DUST_MAX_OPACITY);
-      hiiRegions.setRenderOffset(offset);
+      hiiRegions.setRenderOffset(offsetPc);
       hiiRegions.setOpacity(opacity * cloudFactor * HII_MAX_OPACITY);
-      impostor.setRenderOffset(offset);
+      impostor.setRenderOffset(offsetPc);
       impostor.setOpacity(opacity * (1 - cloudFactor));
     },
     setViewportHeight: (px) => cloud.setViewportHeight(px),
@@ -520,6 +535,8 @@ export function GalaxyScene({
     const procgenLayerOn = procgenBlend > 0.0001;
     const opacityBlend = flying ? Math.min(1, procgenBlend * 1.15) : procgenBlend;
 
+    // TASK-081 unit bridge — exactly 1/1 in galaxy context (bit-identical there).
+    const { unitsToPc, pcToUnits } = pcScales(ctx);
     const streamingActive = ctx === 'universe' || ctx === 'galaxy';
     const visible = streaming.visible;
     if (streamingActive) {
@@ -543,6 +560,12 @@ export function GalaxyScene({
         posScratch.local[1] = m.originPc[1];
         posScratch.local[2] = m.originPc[2];
         origin.toRenderSpace(posScratch, offScratch);
+        // TASK-081: the renderers' offset contract is PARSECS; toRenderSpace returns
+        // ACTIVE-CONTEXT units. Convert in place at this single site (zero alloc) — every
+        // mount downstream receives the parsec offset plus the scale it must apply.
+        offScratch[0] *= unitsToPc;
+        offScratch[1] *= unitsToPc;
+        offScratch[2] *= unitsToPc;
         if (m.kind === 'procgen') {
           // Near Sol (blend 0): hide the whole layer so the real catalog owns the view
           // with no procgen overdraw (R1, contract §6). Must hide() explicitly — m.seen
@@ -553,9 +576,9 @@ export function GalaxyScene({
             continue;
           }
           const drawFraction = computeProcgenDrawFraction(tierRef.current, m.batch.count);
-          m.applyFrame(offScratch, v.opacity * opacityBlend, v.lod, drawFraction);
+          m.applyFrame(offScratch, v.opacity * opacityBlend, v.lod, pcToUnits, drawFraction);
         } else {
-          m.applyFrame(offScratch, v.opacity, v.lod);
+          m.applyFrame(offScratch, v.opacity, v.lod, pcToUnits);
         }
       }
     }

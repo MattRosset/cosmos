@@ -31,6 +31,7 @@ invariant gl_Position;
 uniform vec3 uRenderOffsetHi;
 uniform vec3 uRenderOffsetLo;
 uniform float uGuardOne;
+uniform float uPcToUnits;
 uniform float uBasePointPx;
 uniform float uMinPointPx;
 uniform float uMaxPointPx;
@@ -58,7 +59,10 @@ void main() {
   // 1.0 when not floor-clamped; min() keeps max-clamped stars from brightening
   // (>1 factor) — the fragment brightness clamp already saturates those.
   vSizeDim = min(1.0, (sNat / sRen) * (sNat / sRen));
-  gl_Position = projectionMatrix * vec4(viewPos, 1.0);
+  // rel/viewPos are PARSECS (the setRenderOffset contract); uPcToUnits converts to the
+  // active context's render units for the projection. Exactly 1.0 in galaxy context, so
+  // gl_Position there is unchanged bit-for-bit (x1.0 is exact in IEEE-754). TASK-081.
+  gl_Position = projectionMatrix * vec4(viewPos * uPcToUnits, 1.0);
   vApparentMag = m;
   vBV = aColorBV;
 }

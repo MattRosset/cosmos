@@ -93,6 +93,22 @@ describe('shader strings', () => {
     expect(VERT).toContain('uniform float uGuardOne;');
   });
 
+  it('vertex shader converts pc→context units ONLY at the projection (TASK-081)', () => {
+    // The offset contract is PARSECS; the shader adds two parsec quantities and converts
+    // once, at gl_Position. uPcToUnits must NOT appear on the hi/lo chain — putting it
+    // there would re-round the split and undo the TASK-077 jitter fix.
+    expect(VERT).toContain('uniform float uPcToUnits;');
+    expect(VERT).toContain('gl_Position = projectionMatrix * vec4(viewPos * uPcToUnits, 1.0);');
+    // Count in CODE only — comments mention the uniform by name and must not count.
+    const code = VERT.split('\n')
+      .filter((l) => !l.trim().startsWith('//'))
+      .join('\n');
+    expect(code.split('uPcToUnits').length - 1).toBe(2); // declaration + projection, nothing else
+    // dPc keeps reading viewPos directly: with a parsec offset it is now a TRUE parsec
+    // distance, which is what makes the magnitude law correct in every context.
+    expect(VERT).toContain('float dPc = max(length(viewPos), 0.001);');
+  });
+
   it('vertex shader contains the -0.2 size exponent', () => {
     expect(VERT).toContain('-0.2');
   });
@@ -218,6 +234,30 @@ describe('setRenderOffset', () => {
 
     expect(mat.uniforms['uRenderOffsetHi']!.value).toBe(hi);
     expect(hi.x).toBe(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setContextScale — the pc → context-unit bridge (TASK-081)
+// ---------------------------------------------------------------------------
+
+describe('setContextScale', () => {
+  it('defaults to EXACTLY 1.0, so an un-wired renderer keeps galaxy behavior', () => {
+    // This default is what makes the fix safe to land: ShaderJitterProbe and any renderer
+    // constructed before the first frame write project exactly as they did pre-TASK-081
+    // (x1.0 is exact in IEEE-754). Do not relax to toBeCloseTo.
+    const points = createStarPoints({ batch: makeBatch(10) });
+    const mat = points.object.material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uPcToUnits']!.value).toBe(1.0);
+  });
+
+  it('writes the scale through to the uniform', () => {
+    const points = createStarPoints({ batch: makeBatch(10) });
+    const mat = points.object.material as THREE.ShaderMaterial;
+
+    points.setContextScale(206264.8); // parsecs → AU (system context)
+
+    expect(mat.uniforms['uPcToUnits']!.value).toBe(206264.8);
   });
 });
 

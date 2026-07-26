@@ -14,6 +14,7 @@ import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
 import { profileSpan } from '../glue/frame-profiler';
 import { systemPickGroup } from '../glue/system-feed';
 import { pickProbeHolder } from '../glue/test-hook';
+import { pcScales } from '../glue/context-scale';
 
 /** Angular pick threshold, radians (TASK-015 fixed wiring). */
 const PICK_MAX_ANGLE_RAD = 0.02;
@@ -169,8 +170,27 @@ export function StarScene({
           streaming.catalogCoverage() >= MONOLITH_COVERAGE_GATE;
         hygPoints.object.visible = !gated;
       }
-      hygPoints.setRenderOffset(origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch));
-      exoPoints?.setRenderOffset(origin.toRenderSpace(EXO_ORIGIN, renderOffsetScratch));
+      // TASK-081: the renderers' offset contract is PARSECS, but toRenderSpace returns
+      // ACTIVE-CONTEXT units. Convert in place (zero alloc) and pair with the scale the
+      // shader applies at the projection. Both are exactly 1 in galaxy context, so this
+      // block is bit-identical there.
+      const { unitsToPc, pcToUnits } = pcScales(
+        controllerRef.current?.contextId ?? origin.context,
+      );
+      const hygOff = origin.toRenderSpace(HYG_ORIGIN, renderOffsetScratch);
+      hygOff[0] *= unitsToPc;
+      hygOff[1] *= unitsToPc;
+      hygOff[2] *= unitsToPc;
+      hygPoints.setContextScale(pcToUnits);
+      hygPoints.setRenderOffset(hygOff);
+      if (exoPoints) {
+        const exoOff = origin.toRenderSpace(EXO_ORIGIN, renderOffsetScratch);
+        exoOff[0] *= unitsToPc;
+        exoOff[1] *= unitsToPc;
+        exoOff[2] *= unitsToPc;
+        exoPoints.setContextScale(pcToUnits);
+        exoPoints.setRenderOffset(exoOff);
+      }
     });
   }, PRIORITY_RENDER);
 

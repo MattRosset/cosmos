@@ -25,7 +25,13 @@ export interface GalaxyArmGeometry {
 
 export interface GalaxyPoints {
   readonly object: THREE.Points;
-  setRenderOffset(offsetUnits: readonly [number, number, number]): void;
+  /** Batch origin's camera-relative position in PARSECS (same contract as render-stars). */
+  setRenderOffset(offsetPc: readonly [number, number, number]): void;
+  /**
+   * Parsecs → active-context render units. Exactly 1 in galaxy context. Write it EVERY
+   * frame alongside the offset — mounts are constructed dynamically (TASK-081).
+   */
+  setContextScale(pcToUnits: number): void;
   setViewportHeight(px: number): void;
   setExposure(v: number): void;
   setOpacity(a: number): void;
@@ -58,6 +64,8 @@ export function createGalaxyPoints(opts: GalaxyPointsOptions): GalaxyPoints {
 
   const uniforms = {
     uRenderOffset: { value: new THREE.Vector3(0, 0, 0) },
+    // Parsecs → active-context render units (TASK-081). Default 1.0 = galaxy context.
+    uPcToUnits: { value: 1.0 },
     uBasePointPx: { value: basePointPx },
     uMinPointPx: { value: minPointPx },
     uMaxPointPx: { value: maxPointPx },
@@ -95,6 +103,10 @@ export function createGalaxyPoints(opts: GalaxyPointsOptions): GalaxyPoints {
       v.x = x;
       v.y = y;
       v.z = z;
+    },
+
+    setContextScale(pcToUnits: number): void {
+      uniforms.uPcToUnits.value = pcToUnits;
     },
 
     setViewportHeight(px: number): void {
