@@ -628,6 +628,7 @@ export function StarApp() {
             combined={pack.sources.combined}
             galaxyNavReady={galaxyNavReady}
             onExit={() => goto?.exitSystem()}
+            onViewUniverse={() => goto?.viewUniverse()}
             onViewGalaxy={() => goto?.viewGalaxy()}
             onEnterGalaxy={() => goto?.enterGalaxy()}
           />

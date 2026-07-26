@@ -3,7 +3,7 @@ import { VERT } from './shaders/lineset.vert.glsl.js';
 import { FRAG } from './shaders/lineset.frag.glsl.js';
 
 export interface LineSetOptions {
-  /** Segment endpoints, CONTEXT UNITS relative to `originUnits`: 6×N f32
+  /** Segment endpoints, PARSECS relative to the line-set origin: 6×N f32
    *  [ax,ay,az, bx,by,bz, …]. The caller rebases data's absolute f64 to this. */
   readonly segments: Float32Array;
   readonly colorLinear?: readonly [number, number, number]; // default [0.4,0.55,0.8]
@@ -14,8 +14,10 @@ export interface LineSetOptions {
 
 export interface LineSet {
   readonly object: THREE.Object3D;
-  /** Per frame: origin camera-relative position, CONTEXT UNITS. Zero alloc. */
-  setRenderOffset(offsetUnits: readonly [number, number, number]): void;
+  /** Per frame: origin camera-relative position, PARSECS. Zero alloc. */
+  setRenderOffset(offsetPc: readonly [number, number, number]): void;
+  /** Parsecs → active-context render units. Same contract as `Nebula.setContextScale`. */
+  setContextScale(pcToUnits: number): void;
   setOpacity(a: number): void;
   setVisible(visible: boolean): void;
   dispose(): void;
@@ -40,6 +42,7 @@ export function createLineSet(opts: LineSetOptions): LineSet {
 
   const uniforms = {
     uRenderOffset: { value: new THREE.Vector3(0, 0, 0) },
+    uPcToUnits: { value: 1.0 },
     uColor: { value: new THREE.Vector3(colorLinear[0], colorLinear[1], colorLinear[2]) },
     uOpacity: { value: opacity },
   };
@@ -67,6 +70,10 @@ export function createLineSet(opts: LineSetOptions): LineSet {
       v.x = x;
       v.y = y;
       v.z = z;
+    },
+
+    setContextScale(pcToUnits: number): void {
+      uniforms.uPcToUnits.value = pcToUnits;
     },
 
     setOpacity(a: number): void {

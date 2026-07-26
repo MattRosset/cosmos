@@ -15,6 +15,7 @@ export function Breadcrumb({
   combined,
   galaxyNavReady,
   onExit,
+  onViewUniverse,
   onViewGalaxy,
   onEnterGalaxy,
 }: {
@@ -23,6 +24,7 @@ export function Breadcrumb({
   /** False while the procgen Milky Way worker is still loading (§5.8). */
   galaxyNavReady: boolean;
   onExit(): void;
+  onViewUniverse(): void;
   onViewGalaxy(): void;
   onEnterGalaxy(): void;
 }): React.JSX.Element {
@@ -39,6 +41,12 @@ export function Breadcrumb({
     onClick?: () => void;
     title?: string;
   }> = [
+    {
+      key: 'universe',
+      label: 'Universe',
+      onClick: onViewUniverse,
+      title: STRINGS.breadcrumbUniverseTip,
+    },
     {
       key: 'milkyway',
       label: 'Milky Way',
@@ -69,7 +77,9 @@ export function Breadcrumb({
             (() => {
               const scaleNav =
                 !galaxyNavReady &&
-                (seg.key === 'milkyway' || (seg.key === 'galaxy' && !inSystem));
+                (seg.key === 'universe' ||
+                  seg.key === 'milkyway' ||
+                  (seg.key === 'galaxy' && !inSystem));
               return (
             <button
               type="button"

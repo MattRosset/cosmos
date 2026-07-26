@@ -385,6 +385,112 @@ describe('galaxy switch — TASK-027 behavior unchanged', () => {
   });
 });
 
+// ─── TASK-080: booted-in-galaxy ascent, gated on the anchor not the entry ────
+
+/**
+ * Mirror the PRODUCTION boot exactly: galaxy context at NavDriver's
+ * `INITIAL_CAMERA` (0.06 pc), tree anchor set FIRST then the nav anchor
+ * (TASK-037 order, `apps/web/src/glue/local-group.ts:58-62`).
+ *
+ * The point of this helper is what it does NOT do: it never switches
+ * universe→galaxy, so `ownGalaxyContext` stays `false`. Before TASK-080 that
+ * alone made the exit unreachable; now the armed anchor is what authorises it.
+ */
+function makeGalaxyBootedController(o: { armAnchor?: boolean } = {}) {
+  const tree = createScaleFrameTree();
+  tree.setAnchor('galaxy', [0, 0, 0]); // FIRST (TASK-037)
+  const origin = createOriginManager(tree, { context: 'galaxy', local: [0, 0, 0.06] });
+  const el = document.createElement('div');
+  if (!el.setPointerCapture) {
+    el.setPointerCapture = () => undefined;
+    el.releasePointerCapture = () => undefined;
+  }
+  const controller = createFlightController({
+    origin,
+    initial: {
+      position: { context: 'galaxy', local: [0, 0, 0.06] },
+      orientation: IDENTITY_QUAT,
+    },
+  });
+  const dispose = controller.attach(el);
+  if (o.armAnchor !== false) controller.setGalaxyAnchor(MILKYWAY); // THEN
+  const events: ContextSwitchEvent[] = [];
+  controller.onContextSwitch((e) => events.push(e));
+  return { controller, origin, events, dispose };
+}
+
+/** CI-only failures must be triagable from logs alone (CLAUDE.md testing rule 6). */
+function whereAmI(
+  controller: ReturnType<typeof makeGalaxyBootedController>['controller'],
+  events: readonly ContextSwitchEvent[],
+  placedM: number,
+): string {
+  const p = controller.state.position;
+  return (
+    `placed ${placedM.toExponential(3)} m ` +
+    `(exit gate ${DEFAULT_GALAXY_SWITCH_POLICY.exitGalaxyAtM.toExponential(3)} m, ` +
+    `enter ${DEFAULT_GALAXY_SWITCH_POLICY.enterGalaxyAtM.toExponential(3)} m) ⇒ ` +
+    `contextId=${controller.contextId}, position=${p.context}:[${p.local.join(', ')}], ` +
+    `events=${JSON.stringify(events)}`
+  );
+}
+
+describe('galaxy switch — TASK-080 booted-in-galaxy ascent', () => {
+  it('booted-in-galaxy WITH an anchor exits past the gate', () => {
+    const { controller, events } = makeGalaxyBootedController();
+    const placedM = 3.5e21; // > exitGalaxyAtM 3.086e21
+
+    placeAtMeters(controller, placedM);
+    controller.update(0);
+
+    expect(controller.contextId, whereAmI(controller, events, placedM)).toBe('universe');
+    const exits = events.filter((e) => e.from === 'galaxy' && e.to === 'universe');
+    expect(exits, whereAmI(controller, events, placedM)).toHaveLength(1);
+    expect(exits[0]!.anchorId).toBe('proc:milkyway');
+  });
+
+  it('the boot vantage does not exit', () => {
+    // Guards against a boot-time pop to universe: 0.06 pc is nowhere near the gate.
+    const { controller, events } = makeGalaxyBootedController();
+
+    for (let i = 0; i < 20; i++) controller.update(DT_MS);
+
+    expect(controller.contextId, whereAmI(controller, events, 0.06 * CONTEXT_UNIT_METERS.galaxy)).toBe(
+      'galaxy',
+    );
+    expect(
+      events.filter((e) => e.from === 'galaxy' && e.to === 'universe'),
+      whereAmI(controller, events, 0.06 * CONTEXT_UNIT_METERS.galaxy),
+    ).toHaveLength(0);
+  });
+
+  it('no exit inside the hysteresis gap', () => {
+    const { controller, events } = makeGalaxyBootedController();
+    const placedM = 2e21; // between enter 1.543e21 and exit 3.086e21
+
+    placeAtMeters(controller, placedM);
+    controller.update(0);
+
+    expect(controller.contextId, whereAmI(controller, events, placedM)).toBe('galaxy');
+  });
+
+  it('booted-in-galaxy WITHOUT an anchor still never exits (TASK-027 rule, restated)', () => {
+    // The disjunction must not weaken the rule the control test protects: no anchor,
+    // no ownGalaxyContext ⇒ no exit, however far out the camera is placed.
+    const { controller, events } = makeGalaxyBootedController({ armAnchor: false });
+    const placedM = 3.5e21;
+
+    placeAtMeters(controller, placedM);
+    controller.update(0);
+
+    expect(controller.contextId, whereAmI(controller, events, placedM)).toBe('galaxy');
+    expect(
+      events.filter((e) => e.from === 'galaxy' && e.to === 'universe'),
+      whereAmI(controller, events, placedM),
+    ).toHaveLength(0);
+  });
+});
+
 // ─── Allocation-free ──────────────────────────────────────────────────────────
 
 describe('galaxy switch — allocation-free update', () => {

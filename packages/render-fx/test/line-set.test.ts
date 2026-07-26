@@ -93,6 +93,17 @@ describe('line-set vertex shader', () => {
   it('uses camera rotation only (mat3(viewMatrix))', () => {
     expect(LINE_VERT).toContain('mat3(viewMatrix)');
   });
+
+  // TASK-085 — segments are PARSECS; one factor at the projection converts the whole set
+  // to active-context units. STRUCTURAL backup only: the proof is the pixel gate,
+  // e2e/tests/universe-overlay-scale.spec.ts.
+  it('declares the context-scale uniform', () => {
+    expect(LINE_VERT).toContain('uniform float uPcToUnits;');
+  });
+
+  it('applies the context scale once, at the projection', () => {
+    expect(LINE_VERT).toContain('* uPcToUnits, 1.0)');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -111,6 +122,21 @@ describe('line-set set* are zero-alloc', () => {
     const after = mat.uniforms['uRenderOffset']!.value as THREE.Vector3;
     expect(after).toBe(before);
     expect([after.x, after.y, after.z]).toEqual([4, 5, 6]);
+  });
+
+  it('uPcToUnits seeds to exactly 1 (galaxy context is bit-identical)', () => {
+    const ls = createLineSet({ segments: makeSegments(3) });
+    const mat = (ls.object as THREE.LineSegments).material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uPcToUnits']!.value).toBe(1);
+  });
+
+  it('setContextScale mutates uPcToUnits in place', () => {
+    const ls = createLineSet({ segments: makeSegments(3) });
+    const mat = (ls.object as THREE.LineSegments).material as THREE.ShaderMaterial;
+    const before = mat.uniforms['uPcToUnits'];
+    ls.setContextScale(0.5);
+    expect(mat.uniforms['uPcToUnits']).toBe(before);
+    expect(mat.uniforms['uPcToUnits']!.value).toBe(0.5);
   });
 
   it('setOpacity mutates uOpacity in place', () => {

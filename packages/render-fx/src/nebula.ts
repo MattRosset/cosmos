@@ -12,8 +12,15 @@ export interface NebulaOptions {
 
 export interface Nebula {
   readonly object: THREE.Object3D;
-  /** Per frame: field-origin camera-relative position, CONTEXT UNITS. Zero alloc. */
-  setRenderOffset(offsetUnits: readonly [number, number, number]): void;
+  /** Per frame: field-origin camera-relative position, PARSECS. Zero alloc. */
+  setRenderOffset(offsetPc: readonly [number, number, number]): void;
+  /**
+   * Parsecs → active-context render units, from `pcScales(ctx).pcToUnits`. Applied once at
+   * the projection, so it scales the render offset AND the per-layer radius together.
+   * Exactly `1` in galaxy context. Write it EVERY frame (same contract as
+   * `GalaxyPoints.setContextScale`, TASK-081).
+   */
+  setContextScale(pcToUnits: number): void;
   setExposure(v: number): void;
   /** Cross-fade alpha in [0,1] for LOD/quality transitions. */
   setOpacity(a: number): void;
@@ -62,6 +69,7 @@ export function createNebula(opts: NebulaOptions): Nebula {
 
   const uniforms = {
     uRenderOffset: { value: new THREE.Vector3(0, 0, 0) },
+    uPcToUnits: { value: 1.0 },
     uNoiseTexture: { value: noiseTexture },
     uOpacity: { value: 1.0 },
     uExposure: { value: 1.0 },
@@ -92,6 +100,10 @@ export function createNebula(opts: NebulaOptions): Nebula {
       v.x = x;
       v.y = y;
       v.z = z;
+    },
+
+    setContextScale(pcToUnits: number): void {
+      uniforms.uPcToUnits.value = pcToUnits;
     },
 
     setExposure(v: number): void {

@@ -30,14 +30,20 @@ const BOOKMARK_ARRIVAL_M = 1e3;
 /**
  * "View galaxy" vantage: a galaxy-context point ~55 kpc out along +Z, so the camera
  * pulls well clear of the disc (≈ 15 kpc radius) and the GalaxyScene spiral fades
- * fully in (it's beyond the §GalaxyScene fade band). Stays in the galaxy context —
- * the controller only exits to universe when it ENTERED from universe (controller.ts
- * ownGalaxyContext), so a galaxy vantage is the reliable "see the whole Milky Way"
- * from the booted galaxy app. A bounded duration keeps the long pull-back snappy.
+ * fully in (it's beyond the §GalaxyScene fade band). It stays in the galaxy context
+ * because it FRAMES THE DISC from ~49 kpc — inside the 100 kpc exit gate — not because
+ * the controller refuses to leave. (It used to refuse: the exit was gated on
+ * `ownGalaxyContext`, which production never set. TASK-080 lifted that; use
+ * `viewUniverse` for an actual universe vantage.) A bounded duration keeps the long
+ * pull-back snappy.
  */
 const GALAXY_VIEW_VANTAGE_PC = 55_000;
 const GALAXY_VIEW_ARRIVAL_M = 6_000 * CONTEXT_UNIT_METERS.galaxy; // ≈ ends ~49 kpc out
 const GALAXY_VIEW_DURATION_MS = 5_000;
+/** See `viewUniverse` for why 0.2 Mpc / 0.02 Mpc clears the hysteresis band (TASK-080). */
+const UNIVERSE_VIEW_VANTAGE_MPC = 0.2;
+const UNIVERSE_VIEW_ARRIVAL_M = 0.02 * CONTEXT_UNIT_METERS.universe; // ends ≈ 0.18 Mpc out
+const UNIVERSE_VIEW_DURATION_MS = 6_000;
 /** "Enter galaxy" vantage: the boot position in the galaxy star field, ~0.06 pc
  *  from Sol (matches NavDriver INITIAL_CAMERA). Used to descend back from the
  *  whole-galaxy view to the Sol neighbourhood. */
@@ -92,9 +98,13 @@ export interface GoToCoordinator {
   goTo(id: BodyId): void;
   /** Fly out of the current system back to a galaxy vantage. No-op in galaxy. */
   exitSystem(): void;
-  /** Fly all the way out to a universe vantage where the Milky Way reads as a
-   *  spiral galaxy (exits the system first if needed). */
+  /** Fly out to a GALAXY vantage (~49 kpc) where the Milky Way reads as a spiral
+   *  (exits the system first if needed). Stays in the galaxy context — for an actual
+   *  universe vantage use `viewUniverse`. */
   viewGalaxy(): void;
+  /** Fly out past the galaxy exit gate to a universe vantage where the Milky Way
+   *  reads as one object among (eventually) many. Crosses galaxy→universe mid-flight. */
+  viewUniverse(): void;
   /** Descend from the universe view back into the galaxy star field near Sol. */
   enterGalaxy(): void;
   /** Zoom-to-fit the current system: pull back to a framing vantage that keeps
@@ -286,6 +296,25 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     });
   }
 
+  /**
+   * "Universe" vantage: 0.2 Mpc out along +Z in the UNIVERSE context. arrivalDistanceM is a
+   * RADIUS around the target, so approaching from inside the camera LANDS at 0.18 Mpc =
+   * 1.8x the 0.1 Mpc exitGalaxyAtM gate and 3.6x the 0.05 Mpc enter gate — clear of the
+   * hysteresis band, so it cannot flap back. The controller crosses galaxy→universe
+   * mid-flight as the camera passes the gate (same pattern as exitSystem, TASK-080/F6).
+   * The Milky Way sits at the universe origin, so facing [0,0,0] keeps it framed.
+   */
+  function viewUniverse(): void {
+    const controller = deps.controllerRef.current;
+    if (controller === null) return;
+    flyTo(controller, {
+      target: { context: 'universe', local: [0, 0, UNIVERSE_VIEW_VANTAGE_MPC] },
+      arrivalDistanceM: UNIVERSE_VIEW_ARRIVAL_M,
+      durationMs: UNIVERSE_VIEW_DURATION_MS,
+      lookAtTarget: { context: 'universe', local: [0, 0, 0] },
+    });
+  }
+
   /** Descend from the Milky Way view back to the Sol star field. Faces the galactic
    *  centre during the flight (same as viewGalaxy) so the first frames are not empty. */
   function enterGalaxy(): void {
@@ -401,5 +430,15 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
     };
   }
 
-  return { goTo, exitSystem, viewGalaxy, enterGalaxy, frameSystem, goToBookmark, capture, start };
+  return {
+    goTo,
+    exitSystem,
+    viewGalaxy,
+    viewUniverse,
+    enterGalaxy,
+    frameSystem,
+    goToBookmark,
+    capture,
+    start,
+  };
 }
