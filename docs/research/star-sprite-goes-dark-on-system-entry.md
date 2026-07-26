@@ -232,3 +232,87 @@ RECHECK:  Re-fly and sample a 7x7 box at the projected center against a backgrou
   numbers without addressing that the magnitude law is fed the wrong unit.
 - Hiding the field in system context — that makes the disappearance intentional instead of
   accidental, and removes the star background from the system view.
+
+---
+
+# Fixed by TASK-081 (re-measured 2026-07-25)
+
+The cause identified above (CLAIM 6: the offset arrives in active-context units while the
+position attribute is parsecs) was fixed by TASK-081: callers convert `toRenderSpace`'s
+output to parsecs and hand the renderer a `uPcToUnits` scale applied once, at `gl_Position`.
+
+**The claims above are left exactly as written** — they are the historical record of what
+was true before the fix. What follows is the re-measurement.
+
+## Method note — the old confound is resolved
+
+CLAIM 2 declared a confound: its galaxy and system scans were taken at different pane sizes
+(24,765 px vs 287,508 px) and compared only as densities, so its 160x figure was explicitly
+flagged as not-citable. The re-measurement runs through Playwright at a **fixed 1280x720
+viewport** on the production descent path (command palette -> Saturn -> two-leg goTo), with
+`readPixels` in a `requestAnimationFrame` callback. The pair reported as "same pose" is the
+**last galaxy frame and the first system frame** — adjacent frames, so the camera has barely
+moved and the difference isolates the switch itself.
+
+## The flip frame — the collapse is gone
+
+One frame either side of the galaxy->system switch, star centre via `__cosmos.projectToScreen`:
+
+| | before fix | after fix |
+|---|---|---|
+| peak luma across the flip | **255 -> 3** | **255 -> 255** |
+| bright-blob width across the flip | **36 px -> 0 px** | **36 px -> 36 px** |
+| `nepPx` (geometric control) | 7.53 -> continuous | 7.51 -> continuous |
+| `renderedPoints` / `catalogCoverage` | unchanged | unchanged |
+
+This reproduces CLAIM 1's signature (luma 255->3, blob 8px->0 in the original run at a
+different viewport) and shows it no longer occurs.
+
+## CLAIM 2 re-measured at one viewport — the ratio is ~30x, not 160x
+
+Full-canvas census, 921,600 px, `n30` = pixels with luma >= 30:
+
+| context | before fix | after fix |
+|---|---|---|
+| galaxy | n30=1191, n100=692, n250=121 | n30=1194, n100=693, n250=123 |
+| system | n30=22..40, n100=22..40, n250=0, max=152 | n30=1065, n100=652, n250=130, max=255 |
+
+Same-viewport galaxy:system ratio before the fix is **~30x**, not the 160x the confounded
+density comparison suggested. The 160x figure should not be cited; the direction and the
+"zero saturated pixels in system" finding both hold.
+
+The galaxy-context census is **identical before and after** (1194/692/123 vs 1191/692/121,
+within the run-to-run noise of an unpinned streaming state), which is corroborating evidence
+for TASK-081's bit-identical-in-galaxy requirement.
+
+## The far-plane clip (TASK-081 F7) — measured, and it is what a pixel count hides
+
+TASK-081's spec named this the anti-false-green check: "Sol is lit again" is not evidence of
+success, because Sol survives the far-plane clip while the field behind it does not. The
+clip planes are set once, in projection space (`StarScene.tsx:29,138-139`,
+`CAMERA_FAR_PC = 1e6`, dep array `[camera]`), so in system context they clip at
+`1e6 AU = CAMERA_FAR_PC / pcToUnits` ~= **4.85 pc**.
+
+Measured on the same-pose frame pair, counting **distinct 4-connected bright blobs** (~= stars
+actually drawn) rather than bright pixels:
+
+| | galaxy frame | system frame (next frame) |
+|---|---|---|
+| before fix | 13 blobs, max luma 255 | **0 blobs**, max luma 3 |
+| after fix | 107 blobs, max luma 255 | **28 blobs**, max luma 255 |
+
+Two things this establishes:
+
+1. **The fix works**: total extinction (13 -> 0) becomes a partial, distance-ordered cut
+   (107 -> 28) with the brightest survivors at full luma.
+2. **The pixel count is itself a false green.** Across the same pair the pixel count barely
+   moves (1205 -> 1077, -11%) while **74% of the stars disappear** — because the survivors
+   are the near ones, which are large and saturated. Anyone re-running this must count
+   blobs, not pixels.
+
+**What is NOT pinned:** the exact clip radius. The 74% cut is consistent with a hard radius
+around the predicted 4.85 pc, but confirming the number requires reading a per-star distance
+for the blobs that vanish, and no read hook exposes that today (`__cosmos.projectToScreen`
+ignores the clip planes; `pickAt` is geometric and resolves clipped stars too). Pinning it
+needs a new read hook — that is follow-up work, not TASK-081's, which explicitly leaves the
+clip planes alone (they are shared with the planet meshes, which write depth).
