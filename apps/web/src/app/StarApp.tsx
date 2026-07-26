@@ -10,7 +10,7 @@ import { useSelectionStore, useHistoryStore, useHudStore, useTourStore, useOverl
 import { INITIAL_CAMERA, NavDriver } from '../scene/NavDriver';
 import { StarScene } from '../scene/StarScene';
 import { SystemScene } from '../scene/SystemScene';
-import { GalaxyScene } from '../scene/GalaxyScene';
+import { GalaxyScene, impostorRadiusOverride } from '../scene/GalaxyScene';
 import { Overlays } from '../scene/Overlays';
 import { BreadcrumbFrameProfiler } from '../scene/BreadcrumbFrameProfiler';
 import { combineOctreeSources } from '../glue/octree-combined';
@@ -496,6 +496,9 @@ export function StarApp() {
   useEffect(() => {
     window.__cosmosDev = {
       setTier: (tier) => qcRef.current?.setTier(tier),
+      setImpostorRadiusPc: (radiusPc) => {
+        impostorRadiusOverride.current = radiusPc;
+      },
       startTour: () => useTourStore.getState().start(GRAND_TOUR),
       stopTour: () => useTourStore.getState().stop(),
       focusFirstLabel: () => {

@@ -13,6 +13,13 @@ declare global {
        * depending on the boot orientation. No-op until packs are ready.
        */
       focusFirstLabel(): void;
+      /**
+       * Override the far-LOD galaxy impostor's radius in PARSECS (`null` restores the
+       * shipped `discRadiusPc`). TASK-082: lets the pixel gate ablate the impostor inside
+       * one run, so the assertion is a self-relative frame delta instead of an absolute
+       * lit-pixel count that would encode one machine's SwiftShader build.
+       */
+      setImpostorRadiusPc(radiusPc: number | null): void;
     };
   }
 }

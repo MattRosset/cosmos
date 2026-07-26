@@ -15,7 +15,7 @@ import type { StreamingPolicy } from '@cosmos/streaming';
 import { useTourStore } from '@cosmos/app-state';
 import { StarScene } from '../scene/StarScene';
 import { SystemScene } from '../scene/SystemScene';
-import { GalaxyScene } from '../scene/GalaxyScene';
+import { GalaxyScene, impostorRadiusOverride } from '../scene/GalaxyScene';
 import { Overlays } from '../scene/Overlays';
 import { M3DescentProbe, M3_START } from '../scene/M3DescentProbe';
 import { combineOctreeSources } from '../glue/octree-combined';
@@ -127,6 +127,11 @@ export function M4aApp() {
   useEffect(() => {
     window.__cosmosDev = {
       setTier: (tier) => qcRef.current?.setTier(tier),
+      // Same holder as StarApp (TASK-082) — this app mounts GalaxyScene too, so the
+      // override reaches the impostor here as well.
+      setImpostorRadiusPc: (radiusPc) => {
+        impostorRadiusOverride.current = radiusPc;
+      },
       startTour: () => useTourStore.getState().start(GRAND_TOUR),
       stopTour: () => useTourStore.getState().stop(),
       focusFirstLabel: () => {

@@ -24,7 +24,7 @@ import {
   buildDustLanes,
   buildHiiRegions,
 } from '../glue/galaxy-assets';
-import { milkyWayArmGeometry } from '../glue/milky-way-gen';
+import { milkyWayArmGeometry, milkyWayResolvedParams } from '../glue/milky-way-gen';
 import { profileSpan } from '../glue/frame-profiler';
 import { procgenOpacityHolder } from '../glue/test-hook';
 import { computeProcgenDrawFraction } from '../glue/procgen-draw-budget';
@@ -222,7 +222,6 @@ function makeProcgenMount(
   impostorTexture: THREE.Texture,
   dust: { centersUnits: Float32Array; radiiUnits: Float32Array },
   hii: { centersUnits: Float32Array; radiiUnits: Float32Array },
-  impostorRadiusUnits: number,
 ): Mount {
   const cloud: GalaxyPoints = createGalaxyPoints({
     batch,
@@ -247,9 +246,15 @@ function makeProcgenMount(
     glowColor: HII_GLOW_COLOR,
   });
   hiiRegions.object.frustumCulled = false;
+  // TASK-082 D2 — the sprite's size must agree with the LOD about how big the galaxy is, so
+  // it comes from the same resolved procgen params the star cloud and streaming's half-extent
+  // use (`discRadiusPc`), NOT from the `milkyWayRadiusPc` prop: that is a random local-group
+  // draw (rng.range(5, 50) kpc), unrelated to the disc being stood in for and disagreeing
+  // 1.87x with the half-extent that decides WHEN the impostor appears.
+  const impostorRadiusPc = milkyWayResolvedParams().discRadiusPc;
   const impostor: GalaxyImpostor = createGalaxyImpostor({
     spriteTexture: impostorTexture,
-    radiusUnits: impostorRadiusUnits,
+    radiusPc: impostorRadiusPc,
   });
   impostor.object.frustumCulled = false;
 
@@ -271,15 +276,20 @@ function makeProcgenMount(
       cloud.setContextScale(pcToUnits);
       cloud.setRenderOffset(offsetPc);
       cloud.setOpacity(opacity * cloudFactor);
-      // TASK-081 leaves lanes/hii/impostor OUT OF SCOPE: they have no context scale, so
-      // outside galaxy context they now receive a parsec offset and still project it as
-      // if it were context units — a different wrongness, not a fix, and accepted as such.
-      // In galaxy context pcToUnits is exactly 1 and this is a no-op. TASK-082 fixes the
-      // impostor; the lanes/hii follow-up is filed alongside it.
+      // TASK-081 leaves lanes/hii OUT OF SCOPE: they have no context scale, so outside
+      // galaxy context they receive a parsec offset and still project their (parsec)
+      // centres/radii as if they were context units — a different wrongness, not a fix,
+      // and accepted as such. In galaxy context pcToUnits is exactly 1 and this is a
+      // no-op. The lanes/hii follow-up is filed alongside TASK-082.
       lanes.setRenderOffset(offsetPc);
       lanes.setOpacity(opacity * cloudFactor * DUST_MAX_OPACITY);
       hiiRegions.setRenderOffset(offsetPc);
       hiiRegions.setOpacity(opacity * cloudFactor * HII_MAX_OPACITY);
+      // TASK-082 — radius AND scale every frame, never once at construction: mounts are
+      // created per streaming tile, so one created after the last context change would
+      // otherwise keep the constructor's value. Two float-uniform writes, zero alloc.
+      impostor.setContextScale(pcToUnits);
+      impostor.setRadiusPc(impostorRadiusOverride.current ?? impostorRadiusPc);
       impostor.setRenderOffset(offsetPc);
       impostor.setOpacity(opacity * (1 - cloudFactor));
     },
@@ -304,9 +314,27 @@ interface GalaxySceneProps {
   readonly streaming: StreamingPolicy;
   readonly origin: OriginManager;
   readonly controllerRef: RefObject<FlightController | null>;
-  /** Impostor sprite radius in galaxy units (pc) — the Milky Way's visual extent. */
+  /**
+   * VESTIGIAL as of TASK-082 (D2/D4): this is a random local-group draw and no longer
+   * feeds the impostor, which now sources `discRadiusPc` like the rest of the procgen
+   * galaxy. Kept on the props and on all 7 app entry points because removing it is a
+   * mechanical change unrelated to that defect — follow-up task.
+   */
   readonly milkyWayRadiusPc: number;
 }
+
+/**
+ * Dev/E2E override for the impostor radius, in PARSECS (`null` = the shipped
+ * `discRadiusPc`). Reached from `window.__cosmosDev.setImpostorRadiusPc`.
+ *
+ * This exists because the impostor's size can only be proven in PIXELS, and the only
+ * platform-independent way to do that is to ablate it inside one run and compare frames:
+ * an absolute lit-pixel threshold would encode this machine's SwiftShader build. The
+ * previous unit test asserted `mesh.scale` instead and passed for a sprite that had never
+ * drawn a pixel (docs/research/galaxy-impostor-scale-is-inert.md) — that is the failure
+ * this hook exists to prevent recurring. Gate: e2e/tests/universe-impostor-scale.spec.ts.
+ */
+export const impostorRadiusOverride: { current: number | null } = { current: null };
 
 // Module-scoped scratch — no allocations inside the frame callback (§9).
 const posScratch: { context: ContextId; local: [number, number, number] } = {
@@ -315,12 +343,7 @@ const posScratch: { context: ContextId; local: [number, number, number] } = {
 };
 const offScratch: [number, number, number] = [0, 0, 0];
 
-export function GalaxyScene({
-  streaming,
-  origin,
-  controllerRef,
-  milkyWayRadiusPc,
-}: GalaxySceneProps) {
+export function GalaxyScene({ streaming, origin, controllerRef }: GalaxySceneProps) {
   const size = useThree((s) => s.size);
   const dpr = useThree((s) => s.viewport.dpr);
 
@@ -389,7 +412,6 @@ export function GalaxyScene({
               assets.impostorTexture,
               assets.dustLanes,
               assets.hiiRegions,
-              milkyWayRadiusPc,
             );
       m.hide(); // start invisible; the frame loop fades it in via the cut opacity.
       mounts.current.set(chunkId, m);
@@ -424,7 +446,7 @@ export function GalaxyScene({
       mountList.current = [];
       mounts.current.clear();
     };
-  }, [streaming, assets, milkyWayRadiusPc]);
+  }, [streaming, assets]);
 
   // Viewport height → all mounts (and remember for future mounts).
   useEffect(() => {
