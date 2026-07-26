@@ -4,8 +4,16 @@
 **Target package:** `packages/nav` + `apps/web` (+ one string in `packages/ui`)
 **Size:** M
 **Phase:** Maintenance track — universe-scale tour lane (item 1 of the preflight's ordered list)
-**Depends on:** **TASK-082** (impostor context scale — see Decision 2; do not merge before it).
-TASK-037 (universe context) and TASK-067 (breadcrumb) shipped.
+**Depends on:** nothing blocking. TASK-037 (universe context) and TASK-067 (breadcrumb)
+shipped. **The former hard dependency on TASK-082 was removed on 2026-07-26** — its premise
+was measured false; see Decision 2.
+
+> **Spec-reviewed 2026-07-26** (second pass, against `main` @ `bf6a57a`, i.e. after TASK-081
+> merged). Six findings fixed in place: Decision 2's "stated as fact" finding was false and is
+> replaced with measurements; the TASK-082 dependency is downgraded; a Goal ↔ verification
+> contradiction on the return leg is resolved; three line citations that drifted (GalaxyScene
+> post-081, `ScaleRuler.tsx`, `perception-literacy.spec.ts`) are corrected. Facts F1–F8 all
+> re-verified TRUE and unchanged.
 
 ## Goal
 
@@ -32,29 +40,40 @@ in this task.
    of held Shift+W away (Step 0 fact F5). A controller change with no reachable path does
    not satisfy the Goal, so both halves ship together.
 
-2. **It ships visible — but this task is BLOCKED ON TASK-082.** The intent is to close the
+2. **It ships visible, and it is NOT blocked on TASK-082.** The intent is to close the
    honesty gap the HUD already opened (it advertises `UNIVERSE` and cannot deliver it), and
    arriving to "the Milky Way as a spiral from outside, and nothing else" is accepted: the
    galaxy-point field is a later task, not a precondition.
 
-   What is **not** acceptable is shipping a visible affordance onto a broken view — and the
-   view is broken today. This was written as a runtime precondition with a STOP case; review
-   showed that was wrong twice over: the outcome is **decidable from source right now**, and
-   the STOP case contradicted acceptance gates 2–3 (which require the e2e spec to exist and
-   pass unconditionally). Both are removed. The finding, stated as fact:
+   **Correction (2026-07-26) — the earlier version of this decision was false.** It asserted,
+   "stated as fact", that the impostor renders **1e6× oversized** in `universe` and that
+   TASK-080 therefore must not merge first. That was derived from source, never measured, and
+   measurement falsifies it: `radiusUnits` reaches **no pixel in any context**. The vertex
+   shader references neither `modelMatrix` nor `modelViewMatrix`, the only paths by which
+   `mesh.scale` (`impostor.ts:42`) can reach the GPU, so the quad is a fixed 1-unit plane —
+   sub-pixel, never drawn. Offscreen render, lit-pixel counts: `radiusUnits` 1 vs 15000 at the
+   same distance both give **49284**; at a realistic distance, 15000 and 1.5e10 both give **0**.
+   Full writeup: `docs/research/galaxy-impostor-scale-is-inert.md`.
 
-   > In `universe` context the procgen impostor renders **1e6 times oversized**. Its radius
-   > is baked once at construction — `mesh.scale.set(radiusUnits, radiusUnits, 1)`
-   > (`packages/render-galaxy/src/impostor.ts:42`) — from `milkyWayRadiusPc`
-   > (`StarApp.tsx:593`, ≈ 15,000 **pc**), while its offset arrives in ACTIVE-CONTEXT units
-   > (`GalaxyScene.tsx:541-545`). `CONTEXT_UNIT_METERS.universe / .galaxy` is exactly 1e6.
-   > It draws: `procgenBlend` is initialised to `1` and only recomputed `if (ctx ===
-   > 'galaxy')` (`GalaxyScene.tsx:497-509`), and at far LOD `cloudFactor → 0` so the
-   > impostor **is** the layer at full opacity (`:254`, `:268-269`).
+   So the view this task lands on is **not** "a galaxy filling the viewport". Measured at this
+   task's own arrival vantage (0.18 Mpc, Deliverable 3), using the production
+   `projectedPixelExtent` + the shipped `lod` formula and `discRadiusPc = 15,000 pc`:
 
-   This is a **pre-existing** bug, not one this task creates — `flythrough3`/`m3`/`soak3`
-   already render that frame (their path starts at universe `[0,0,0.6]` Mpc). It is fixed in
-   **TASK-082**, and TASK-080 does not merge before it.
+   | canvas height | impostor's share of the galaxy's brightness at 0.18 Mpc | delivered |
+   | --- | --- | --- |
+   | 720 px | 16% | 84% |
+   | 900 px | **0%** | **100%** |
+   | 1080 px | **0%** | **100%** |
+   | 1440 px | **0%** | **100%** |
+
+   At the vantage a user actually lands on, the procgen cloud carries the whole galaxy on any
+   ordinary window. The dependency is downgraded to a follow-up: **TASK-082 should merge soon
+   after**, because a user who then flies further out loses brightness progressively (50% at
+   0.3 Mpc, 84% at 0.6 Mpc). That is an accepted, reportable imperfection of this task, not a
+   blocker for it.
+
+   The pre-existing-bug point stands: `flythrough3`/`m3`/`soak3` already render universe frames
+   (their path starts at universe `[0,0,0.6]` Mpc), so nothing here creates the defect.
 
 ## Step 0 — facts to re-verify before editing (all verified 2026-07-24 on `main` @ `e8bd2f7`)
 
@@ -246,7 +265,7 @@ Model it on `e2e/tests/perception-literacy.spec.ts` (role locators + `__cosmos` 
 2. expect __cosmos.contextId === 'galaxy'                       // boot state
 2b. await expect(getByRole('button', { name: /Universe/i })).toBeEnabled({ timeout: 30_000 })
     // REQUIRED: Deliverable 4 gates the segment on galaxyNavReady, so it BOOTS DISABLED.
-    // Precedent: perception-literacy.spec.ts:81. Relying on Playwright's implicit
+    // Precedent: perception-literacy.spec.ts:82-83. Relying on Playwright's implicit
     // actionability timeout is the CI-SwiftShader flake this repo already paid for.
 3. click that button
 4. poll until __cosmos.contextId === 'universe'  — EXPLICIT timeout (see Failure modes)
@@ -259,7 +278,10 @@ Model it on `e2e/tests/perception-literacy.spec.ts` (role locators + `__cosmos` 
 ```
 
 `/Universe/i` does not collide in strict mode: the only other "Universe" in the HUD is the
-scale ruler's, rendered as a `<span>` inside `role="group"` (`packages/ui/src/ScaleRuler.tsx:57-63`).
+scale ruler's (`STRINGS.rulerUniverse`), rendered as a `<span>` inside a `role="group"` div
+(`packages/ui/src/ScaleRuler.tsx:25-34` — **re-verified 2026-07-26**; the file is 37 lines and
+an earlier citation of `:57-63` pointed past its end). A `getByRole('button', …)` cannot match
+a span, so the locator resolves to the breadcrumb button alone.
 
 Every polled step must `console.log` the observed `contextId` + `cameraPosition` when it
 gives up, so a CI-only failure is diagnosable without a local repro (testing rule 6).
@@ -267,10 +289,13 @@ gives up, so a CI-only failure is diagnosable without a local repro (testing rul
 ### 6. Docs
 
 - **Verify/refresh** the TASK-080 row in `docs/agent-tasks/README.md` — it already exists;
-  do not add a duplicate. Update its `Depends on` column to TASK-082. The `check:tasks` gate
-  parses this table — run `node tools/check-task-index/src/check.mjs` after; it is expected
-  to still report the **pre-existing** TASK-064/063 inconsistency and exit 1. Do **not** fix
-  that here.
+  do not add a duplicate. Set its `Depends on` column to **`—`** and mark the row `done` on
+  merge: the TASK-082 dependency was removed by the 2026-07-26 review (Decision 2), and the
+  row still reads `TASK-082`. The `check:tasks` gate parses this table — run
+  `node tools/check-task-index/src/check.mjs` after; **verified 2026-07-26: it reports exactly
+  one pre-existing inconsistency (TASK-064 done / TASK-063 pending) and exits 1.** That is the
+  expected baseline; do **not** fix it here, and do not let it mask a NEW inconsistency your
+  row introduces — the count must stay at 1.
 - Create `docs/agent-tasks/NOTES-<date>-task-080.md` and log every judgment call **as you
   make it** (CLAUDE.md "Judgment calls"). If the executor writes zero entries, say so
   explicitly in the PR body rather than leaving the file out.
@@ -291,6 +316,11 @@ gives up, so a CI-only failure is diagnosable without a local repro (testing rul
   BigInt swap, the Gaia pack URL, touch input.
 - Any change to `packages/ui` beyond the single string, and any change to
   `packages/coords`, `packages/streaming`, or `packages/core-types`.
+- **`packages/render-galaxy` and `apps/web/src/scene/GalaxyScene.tsx` — do not touch them
+  here.** Now that Decision 2 no longer blocks on TASK-082, the impostor and the nebula
+  sprites are a *sibling task in flight* (TASK-082), not this diff's problem. Editing them
+  here would collide with it. This is listed because it is exactly what an executor who reads
+  Decision 2 would naturally reach for.
 - Retuning `MAX_FREE_FLIGHT_SPEED` to "make flying out feasible" — the affordance is the
   answer, not a speed change.
 
@@ -343,7 +373,15 @@ Run the app and click `◂ Universe`. Report, in the PR body:
 - the `contextId` / `cameraPosition` sequence observed (from `__cosmos`),
 - whether the Milky Way stays framed for the whole pull-back or slides off,
 - what the scale ruler reads on arrival (it should finally show `UNIVERSE`),
-- whether the round trip `Universe → ◂ Milky Way → ◂ Galaxy` lands back in the star field.
+- whether the round trip `Universe → ◂ Galaxy` lands back in the star field. **Not** via
+  `◂ Milky Way` — an earlier draft of this line said so and contradicted the Goal's bolded
+  arithmetic and Deliverable 5 step 6. The Goal is right: `viewGalaxy` approached from
+  universe lands at 61,000 pc, outside `enterGalaxyAtM`, and never switches.
+- **Expected, and NOT yours to fix:** the dust-lane / HII nebula sprites are misplaced outside
+  galaxy context — they receive a parsec offset with no context scale, knowingly deferred at
+  `GalaxyScene.tsx:274-278` (TASK-081's out-of-scope note). If the nebulae sit wrong at the
+  universe vantage, that is the already-filed follow-up, not a TASK-080 regression. Report it
+  and move on.
 
 These are observations, not gates. Anything that looks wrong goes to `docs/research/`.
 
