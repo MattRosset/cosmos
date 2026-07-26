@@ -94,6 +94,76 @@ export interface CosmosTestHook {
   projectToScreen(
     localPos: readonly [number, number, number],
   ): { x: number; y: number } | null;
+  /**
+   * One-shot framebuffer statistic for scale-regression gates (TASK-085). Reads the live
+   * drawing buffer from a rAF registered OUTSIDE three's loop, so it runs after three's
+   * render in the same turn and is valid despite `preserveDrawingBuffer: false` (pattern:
+   * ShaderJitterProbe.tsx:154-156). Resolves `null` if no WebGL canvas is present.
+   */
+  readFrameStats(): Promise<FrameStats | null>;
+}
+
+/** Frame-luminance statistic returned by `readFrameStats` (TASK-085). */
+export interface FrameStats {
+  width: number;
+  height: number;
+  /** Mean Rec.709 luminance, 0–255. Clear colour alone is ≈ 3.3. */
+  meanLuma: number;
+  /** Fraction of pixels with luminance > 8. */
+  litFrac: number;
+  /** Fraction of pixels with luminance > 200. */
+  hotFrac: number;
+}
+
+/**
+ * Read the live drawing buffer after three has rendered. The read happens on the FOURTH
+ * rAF callback: one is sufficient for buffer validity (a callback registered outside
+ * three's loop runs after three's render in the same turn, F10), the extra two are slack
+ * so a uniform written this turn is definitely on screen. Never throws and never
+ * fabricates zeros — no canvas / no context resolves `null`.
+ */
+function readFrameStats(): Promise<FrameStats | null> {
+  return new Promise((resolve) => {
+    if (typeof document === 'undefined' || typeof requestAnimationFrame !== 'function') {
+      resolve(null);
+      return;
+    }
+    const canvas = document.querySelector('canvas');
+    if (!canvas) {
+      resolve(null);
+      return;
+    }
+    const gl: WebGLRenderingContext | WebGL2RenderingContext | null =
+      canvas.getContext('webgl2') ?? canvas.getContext('webgl');
+    if (!gl) {
+      resolve(null);
+      return;
+    }
+    let frames = 0;
+    const tick = (): void => {
+      if (++frames < 4) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      const width = gl.drawingBufferWidth;
+      const height = gl.drawingBufferHeight;
+      const buf = new Uint8Array(width * height * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+      let sum = 0;
+      let lit = 0;
+      let hot = 0;
+      const n = width * height;
+      for (let i = 0, p = 0; i < n; i++, p += 4) {
+        const lum = 0.2126 * buf[p]! + 0.7152 * buf[p + 1]! + 0.0722 * buf[p + 2]!;
+        sum += lum;
+        if (lum > 8) lit++;
+        if (lum > 200) hot++;
+      }
+      resolve({ width, height, meanLuma: sum / n, litFrac: lit / n, hotFrac: hot / n });
+    };
+    requestAnimationFrame(tick);
+  });
 }
 
 /**
@@ -154,6 +224,7 @@ export const testHook: CosmosTestHook = {
   ): { x: number; y: number } | null {
     return pickProbeHolder.current?.projectToScreen(localPos) ?? null;
   },
+  readFrameStats,
 };
 
 /**

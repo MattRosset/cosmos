@@ -15,6 +15,7 @@ import {
   type OverlayData,
 } from '../glue/overlays';
 import { NEBULA_FIELDS, createNebulaNoiseTexture } from '../glue/nebulae';
+import { pcScales } from '../glue/context-scale';
 import type { LabelRecord } from '@cosmos/core-types';
 
 interface OverlaysProps {
@@ -38,7 +39,6 @@ const EMPTY_LABELS: readonly LabelRecord[] = [];
  * `ui` only ever receives already-projected pixels (it never sees the camera).
  */
 export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
-  void controllerRef;
   const camera = useThree((s) => s.camera);
   const size = useThree((s) => s.size);
 
@@ -109,10 +109,25 @@ export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
   // re-renders the Canvas OR the HUD; we only mutate the shared live-label buffer in place.
   const projectScratch = useMemo(() => new THREE.Vector3(), []);
   useFrameContext(() => {
+    // TASK-085: both overlay renderers hold PARSEC geometry (glue/overlays.ts:43-44,
+    // glue/nebulae.ts:129), but toRenderSpace returns ACTIVE-CONTEXT units. Convert the
+    // offset in place (zero alloc) and hand the renderer the scale its shader applies at
+    // the projection, so offset and radius/segment move together. Both factors are
+    // exactly 1 in galaxy context (pcScales), so that frame is bit-identical.
+    // The conversion happens INSIDE each renderer branch on purpose: `offScratch` is
+    // shared with the label projection below, which is context-unit-correct as written
+    // and must keep reading an UNCONVERTED value.
+    const { unitsToPc, pcToUnits } = pcScales(
+      controllerRef.current?.contextId ?? origin.context,
+    );
     const lineVisible = showConstellations.current;
     lineSet.setVisible(lineVisible);
     if (lineVisible) {
       origin.toRenderSpace(galaxyOrigin, offScratch);
+      offScratch[0] *= unitsToPc;
+      offScratch[1] *= unitsToPc;
+      offScratch[2] *= unitsToPc;
+      lineSet.setContextScale(pcToUnits);
       lineSet.setRenderOffset(offScratch);
     }
     for (let i = 0; i < nebulae.fields.length; i++) {
@@ -126,6 +141,10 @@ export function Overlays({ origin, overlay, controllerRef }: OverlaysProps) {
       fieldLocalScratch[1] = fieldOriginPc[1];
       fieldLocalScratch[2] = fieldOriginPc[2];
       origin.toRenderSpace(fieldOriginScratch, offScratch);
+      offScratch[0] *= unitsToPc;
+      offScratch[1] *= unitsToPc;
+      offScratch[2] *= unitsToPc;
+      neb.setContextScale(pcToUnits);
       neb.setRenderOffset(offScratch);
       neb.setExposure(exposure.current);
       neb.setOpacity(1);
