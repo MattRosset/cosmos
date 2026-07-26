@@ -112,9 +112,9 @@ async function waitFlightDone(page: Page): Promise<void> {
 
 declare global {
   interface Window {
-    // Widened in TASK-029 for the M2 hook and TASK-040 for the M3 streaming/quality
-    // hook; M1 reads only the first three fields. The M3 fields are optional so the
-    // M1/M2 specs are unaffected.
+    // Widened in TASK-029 for the M2 hook, TASK-040 for the M3 streaming/quality hook,
+    // and TASK-080 for `errorCounts`; M1 reads only the first three fields. The later
+    // fields are optional so the M1/M2 specs are unaffected.
     __cosmos?: {
       ready: boolean;
       goToActive: boolean;
@@ -130,6 +130,8 @@ declare global {
         drawCalls: number;
       };
       qualityTier?: string;
+      /** TASK-058 silent-swallow counters, mirrored live. TASK-080 gates on total === 0. */
+      errorCounts?: { total: number; streaming: number };
       // Picking query surface (replaces the m1 parallel camera model). Both use the
       // app's live camera + flight controller; CSS-px in/out, so they're independent
       // of DPR and platform font geometry.

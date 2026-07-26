@@ -40,6 +40,7 @@ export const STRINGS = {
   firstRunHint: 'Ctrl+K to search · H for a clean view',
 
   // W1 breadcrumb tooltips (TASK-067) — name the mechanism: a scale link, not flight.
+  breadcrumbUniverseTip: 'Jump to universe view (scale link)',
   breadcrumbMilkyWayTip: 'Jump to Milky Way view (scale link)',
   breadcrumbStarfieldTip: 'Return to star field',
 

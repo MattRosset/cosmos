@@ -794,10 +794,13 @@ export function createFlightController(opts: FlightControllerOptions): FlightCon
           return; // at most one switch per update
         }
       }
-      // Galaxy exit: only when we entered from universe (ownGalaxyContext).
-      // Rule 1: if galaxyAnchor is null and we never entered from universe,
-      // this is a plain galaxy context (TASK-027) — no universe exit.
-      if (ownGalaxyContext) {
+      // Galaxy exit: allowed when we entered from universe (ownGalaxyContext) OR when
+      // the glue has armed a galaxy anchor (TASK-080). The rule being protected is
+      // "a plain galaxy context with NO galaxy anchor never exits" (TASK-027) — the
+      // anchor, not the entry direction, is what makes the exit meaningful. Keeping
+      // ownGalaxyContext in the disjunction preserves the cleared-anchor exit, where
+      // galAnch is null by construction.
+      if (ownGalaxyContext || galAnch !== null) {
         const cleared = galAnch === null;
         const dM = cleared ? Number.NaN : measureGalaxyAnchorDM(galAnch!);
         if (shouldExitGalaxy(cleared ? 0 : dM, cleared, galaxyPolicy)) {

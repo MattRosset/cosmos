@@ -362,7 +362,7 @@ Status of each open item, established from CODE not from the row text:
 
 | Item | Real state (evidence) | Triage |
 |---|---|---|
-| **N1 — universe unreachable** (unticketed) | Measured, Q1. `ownGalaxyContext` gates the exit; production boots in galaxy. | **BLOCKS THE TOUR PATH** |
+| **N1 — universe unreachable** (unticketed) | Measured, Q1. `ownGalaxyContext` gates the exit; production boots in galaxy. | **CLOSED by TASK-080** (2026-07-26) — the exit is now authorised by an armed galaxy anchor, and `◂ Universe` flies there. |
 | **N2 — no galaxy-point field** (unticketed) | Q1: 12 records generated, 0 rendered; one impostor. | **IS the tour work** (not a blocker — the deliverable) |
 | **TASK-072** integrated-GPU boot tier | UNIMPLEMENTED — `initialQualityTier="high"` hardcoded at StarApp.tsx:569; no `WEBGL_debug_renderer_info` boot detect. | **BLOCKS HN LAUNCH** (first-seconds stutter on the target floor) |
 | **N5 — M1/GPU-ms calibration** (unticketed; integrated-gpu-targeting.md §5, Steps 3–4) | Never run; no timer query in repo (Q2). | **BLOCKS a perf claim**, not the spec |
