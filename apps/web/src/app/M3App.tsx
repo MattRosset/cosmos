@@ -15,7 +15,6 @@ import { makeLocalGroup } from '../glue/local-group';
 import { getCosmosPool, createMilkyWayStreaming } from '../glue/streaming';
 import { wireQuality } from '../glue/quality';
 import {
-  M3_SOL_SYSTEM_ID,
   HYG_MANIFEST_URL,
   SOL_PACK_URL,
   EXO_PACK_URL,
@@ -110,13 +109,21 @@ export function M3App() {
     [streaming],
   );
 
+  // Mounted ONLY while the flight is in system context — the same rule the shipped
+  // app uses (`StarApp.tsx`: `mountedSystemId === null ⇒ no SystemScene`). The probe
+  // app used to fall back to Sol and keep the system mounted in every context, which
+  // made the M3 gate measure a frame the shipped app cannot produce: SystemScene's
+  // meshes are sized in system units (AU) while its render offsets come back in the
+  // ACTIVE context's units, so in galaxy context the Sun drew ~206,265× oversized (an
+  // ~11°-wide sphere plus orbit rings) and snapped to its true sub-pixel size at the
+  // boundary. See docs/research/m3-switch-delta-yardstick.md; the underlying
+  // SystemScene unit bug is TASK-084.
   const mountedSystem = useMemo(() => {
-    if (sources === null) return null;
-    const id = mountedSystemId ?? M3_SOL_SYSTEM_ID;
-    const system = sources.sol.getSystem(id) ?? sources.exo.getSystem(id);
+    if (sources === null || mountedSystemId === null) return null;
+    const system = sources.sol.getSystem(mountedSystemId) ?? sources.exo.getSystem(mountedSystemId);
     if (system === undefined) return null;
     const packUrl =
-      sources.sol.getSystem(id) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
+      sources.sol.getSystem(mountedSystemId) !== undefined ? SOL_PACK_URL : EXO_PACK_URL;
     return { system, packUrl };
   }, [sources, mountedSystemId]);
 
