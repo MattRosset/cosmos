@@ -102,6 +102,31 @@ export interface GalaxyImpostor {
 }
 ```
 
+## OPEN — re-check D1/D3 before executing (raised 2026-07-26 by TASK-085's investigation)
+
+TASK-085 measured something that undercuts half of this spec: **a perspective projection is
+invariant to a uniform scaling of (offset + geometry) about the eye.** That is why the dust/HII
+sprites — which receive their offset *and* their centres/radii in parsecs — turned out to be
+angularly **correct** outside galaxy context, despite the 1e6× unit mismatch everyone assumed
+was breaking them (`docs/research/universe-vantage-blowout-is-the-overlays.md`).
+
+The impostor is in exactly that position. Post-TASK-081 its offset is parsecs (F6), and D2 below
+sources its radius in parsecs too. Both terms then scale together, so **once the missing
+`position × radius` multiply exists, the impostor should already be the right angular size in
+every context, with no `uContextScale` at all.** If so, D1's context-scale uniform and the
+`× pcToUnits` in D3 are unnecessary for the visible result, and this task shrinks to "apply the
+radius".
+
+Not resolved here, because one thing genuinely differs: uniform scaling is **not** invariant in
+depth (`z_ndc` depends on it), so a parsec-scale `viewPos` sorts differently against
+context-unit layers. The impostor uses `depthWrite: false` + additive blending, which likely
+makes that moot — *likely* is not measured.
+
+**Executor: measure this before implementing D1.** Build the shader with the radius multiply and
+NO context scale, and compare the rendered size across `galaxy` and `universe`. If it is already
+invariant, drop D1 and the `× pcToUnits` from D3 and say so in the NOTES. Do not implement a
+uniform whose only justification is an assumption this lane has now falsified twice.
+
 ## Decisions taken here (do NOT re-litigate; they are the spec)
 
 **D1 — the shader carries the context scale, the CPU does not pre-multiply.** This mirrors

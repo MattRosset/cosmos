@@ -1,7 +1,16 @@
 # The universe vantage is washed out — the nebula sprites, not the impostor
 
+> **CORRECTED 2026-07-26 — the attribution below is FALSE.** This doc blames the procgen dust
+> lanes + HII sprites. Ablated since: skipping every dust/HII draw call at the same vantage
+> moves mean frame luminance by 0.01 out of 250.58, and the dust layer's footprint sits exactly
+> on the (correct) procgen star cloud's. The wash belongs to the `render-fx` **overlay** layers
+> mounted by `Overlays.tsx` — the nebula fields and the constellation line-set. Read
+> **`universe-vantage-blowout-is-the-overlays.md`** instead; the fix is TASK-085, not a
+> dust-lane change. The observation sections below (what the screen showed, the TASK-080 round
+> trip) still hold; only the "Why this is the dust/HII layer" attribution is wrong.
+
 **Date:** 2026-07-26
-**Status:** observed in the live app, cause strongly indicated but not isolated by ablation
+**Status:** SUPERSEDED — observation valid, cause misattributed (see banner)
 **Trigger:** TASK-080's "verification beyond the gate" — first time a human could stand in
 `universe` context and look.
 
