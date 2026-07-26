@@ -362,8 +362,17 @@ gives up, so a CI-only failure is diagnosable without a local repro (testing rul
 2. `pnpm test:e2e` exits 0 — the new `universe-ascent.spec.ts` passes **and** every
    existing spec still passes, in particular `flythrough3`, `flythrough4`, `m3`,
    `perception-literacy`, `perception-scale`, and the breadcrumb specs.
-3. `pnpm test:smoke` on `universe-ascent.spec.ts` alone passes locally before pushing
-   (the validated single-spec carve-out; never launch the full suite locally).
+3. The single-spec smoke carve-out passes locally before pushing. **Exact command** —
+   `test:smoke` exists only in `e2e/package.json`, so `pnpm test:smoke` from the repo root
+   fails with "command not found" (verified 2026-07-26):
+
+   ```
+   pnpm --filter @cosmos/e2e test:smoke universe-ascent.spec.ts
+   ```
+
+   **The filename argument is not optional.** Without it `test:smoke` runs all 22 specs on one
+   worker — the "never launch the full suite locally" trap (CPU storm + orphaned browsers).
+   Build `@cosmos/web` first, since `test:smoke` does not build the way `test:e2e` does.
 4. `git status` clean of build output; the NOTES file exists and is committed.
 
 ## Verification beyond the gate (report, do not assert)
