@@ -8,12 +8,11 @@
 **Dependency status:** TASK-081 and TASK-084 are **merged to `main`** (PR #34, a8a3fe5);
 `pcScales` is live at `apps/web/src/glue/context-scale.ts:30`.
 
-> **Status: spec-reviewed 2026-07-27** (against `main` @ a8a3fe5). Facts re-verified; the
-> F1/F2/F3 line citations below were corrected (TASK-086 inserted the local-group galaxy
-> pick + system planet raycast ahead of the star pick, shifting every line ~20 down). The
-> frozen surface was expanded to name the two OTHER `position.local` reads that must NOT be
-> scaled. The symptom is still **not measured live** — the "Before executing" measurement
-> is still required.
+> **Status: DONE 2026-07-27** on `feat/task-083-pick-ray-context-units`. Spec-reviewed
+> (F1/F2/F3 line citations corrected for TASK-086's insertions; frozen surface expanded to
+> name the two OTHER `position.local` reads that must NOT be scaled), symptom measured live
+> (readiness gate PASSED — see below), fix + e2e gate implemented and power-proven
+> (fail-on-`main` → pass-on-fix). Notes: `NOTES-2026-07-27-task-083.md`.
 
 ## Goal
 

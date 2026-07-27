@@ -257,7 +257,19 @@ export function StarScene({
       dir[1] /= len;
       dir[2] /= len;
 
-      const p = controller.state.position.local;
+      // The origin is in active-context units, but `pickNearestStar` subtracts
+      // `batch.originPc` (parsecs) — so scale it to parsecs first (TASK-083). Galaxy
+      // context returns literal `1`, keeping every existing galaxy pick bit-identical.
+      // Click-time only, so the allocation is fine (`pick.ts:13`). Do NOT scale the
+      // galaxy-pick or `projectToScreen` reads of `.local` — those are self-consistent
+      // in their own frames (see TASK-083 §Frozen surface).
+      const { unitsToPc } = pcScales(controller.contextId);
+      const local = controller.state.position.local;
+      const p: [number, number, number] = [
+        local[0] * unitsToPc,
+        local[1] * unitsToPc,
+        local[2] * unitsToPc,
+      ];
       return pickNearestStar(hygBatch, exoBatch, combined, p, dir);
     };
 
