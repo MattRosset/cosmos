@@ -10,5 +10,6 @@ export {
   type FrameContext,
 } from './frame-loop.js';
 export { SceneHost, FrameLoopRoot, useFrameContext, type SceneHostProps } from './SceneHost.js';
-export { type QualityController } from './quality.js';
+export { computeEffectivePixelRatio, type QualityController } from './quality.js';
 export { useQuality } from './use-quality.js';
+export { classifyRenderer, detectInitialTier } from './gpu-detect.js';

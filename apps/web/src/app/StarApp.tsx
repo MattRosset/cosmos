@@ -4,7 +4,7 @@ import { CONTEXT_UNIT_METERS } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
 import { loadStarPack, loadSystemsPack, loadOctreePack, loadConstellationPack, createCombinedSource } from '@cosmos/data';
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
-import { SceneHost, type QualityController } from '@cosmos/scene-host';
+import { detectInitialTier, SceneHost, type QualityController } from '@cosmos/scene-host';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import { useSelectionStore, useHistoryStore, useHudStore, useTourStore, useOverlayStore } from '@cosmos/app-state';
 import { INITIAL_CAMERA, NavDriver } from '../scene/NavDriver';
@@ -54,6 +54,9 @@ export function StarApp() {
   /** WebGL2 is required by the renderer; probed once so we show a clear message instead of
    *  a blank/broken canvas on a browser/device without it (error-handling-audit.md §3.2). */
   const webgl2 = useMemo(() => isWebGL2Available(), []);
+  /** Detected once at boot, before SceneHost mounts (TASK-072): starts an integrated
+   *  GPU on `medium` instead of stuttering on `high` until PerformanceMonitor reacts. */
+  const initialQualityTier = useMemo(() => detectInitialTier(), []);
   /** System mounted in the Canvas while `contextId === 'system'` (rare React state). */
   const [mountedSystemId, setMountedSystemId] = useState<BodyId | null>(null);
   /** Procgen Milky Way on the visible cut — gates scale breadcrumbs (§5.8 / M3 waitReady). */
@@ -569,7 +572,7 @@ export function StarApp() {
         <SceneHost
           onContextLost={handleContextLost}
           epochProvider={epochProvider}
-          initialQualityTier="high"
+          initialQualityTier={initialQualityTier}
           onQualityController={handleQc}
         >
           <color attach="background" args={['#02030a']} />

@@ -3,6 +3,22 @@ import { QUALITY_TIERS, type QualitySettings, type QualityTier } from '@cosmos/c
 const TIERS: readonly QualityTier[] = ['high', 'medium', 'low'];
 const DEBOUNCE_MS = 50;
 
+/** Per-tier cap on device pixel ratio (TASK-072): the single largest fill multiplier
+ *  on Retina/HiDPI integrated GPUs is dpr² fragments — cap it below `high` on tiers
+ *  that already exist to shed fill cost. */
+const TIER_DPR_CAP: Record<QualityTier, number> = { high: 2, medium: 1.5, low: 1 };
+
+/** Effective renderer pixel ratio for a given tier: `min(dpr, tierCap) *
+ *  resolutionScale`. Applied only on tier change (never per-frame) — see SceneHost's
+ *  QualityApplier. */
+export function computeEffectivePixelRatio(
+  tier: QualityTier,
+  dpr: number,
+  resolutionScale: number,
+): number {
+  return Math.min(dpr, TIER_DPR_CAP[tier]) * resolutionScale;
+}
+
 export interface QualityController {
   readonly tier: QualityTier;
   readonly settings: QualitySettings;
