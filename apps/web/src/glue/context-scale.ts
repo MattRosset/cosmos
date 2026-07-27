@@ -32,3 +32,19 @@ export function pcScales(ctx: ContextId): PcScales {
   const unitsToPc = CONTEXT_UNIT_METERS[ctx] / CONTEXT_UNIT_METERS.galaxy;
   return { unitsToPc, pcToUnits: 1 / unitsToPc };
 }
+
+/**
+ * System-baked geometry (AU) → active-context units (TASK-084). `SystemScene`'s meshes,
+ * orbit lines, and atmosphere are all sized in system units (AU) at build time; this
+ * converts that size to the active context so the anchored system renders at its true
+ * angular size everywhere, not only in `system`.
+ *
+ * `pcScales` is galaxy/parsec-anchored and cannot be reused here — see the task spec
+ * (TASK-084 §Fix D1). Do not derive this as a ratio of two `pcScales` results: that
+ * ratio-of-ratios can land on `0.9999999999999999` and move the `system`-context
+ * baseline off bit-identical (same trap as the note above on `pcScales`).
+ */
+export function systemToContextScale(ctx: ContextId): number {
+  if (ctx === 'system') return 1;
+  return CONTEXT_UNIT_METERS.system / CONTEXT_UNIT_METERS[ctx];
+}
