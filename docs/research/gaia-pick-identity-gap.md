@@ -46,10 +46,116 @@ confirm the gap.)
 
 ---
 
-## Step 3–5 — Findings (claims + absences)
+## Step 3–4 — Findings (claims)
 
-_(populated after this file is committed)_
+```
+CLAIM:    In galaxy context with the real catalog fully covering the cut
+          (catalogCoverage == 1, streaming.renderedPoints ≈ 1.11M, procgenOpacity 0),
+          sweeping __cosmos.pickAt over the ENTIRE viewport returns only `hyg:*` and
+          `exo:*` bodyIds — never `gaia:*` and never `hyg-v41:*`. Gaia DR3 stars that
+          exist only in the streamed octree are NOT individually pickable.
+EVIDENCE: runtime sweep, 8px grid over 882×910, 12654 non-null hits,
+          prefixCounts = { hyg: 12611, exo: 43 }, samples { hyg:"hyg:6198", exo:"exo:hd-3167" }.
+          Center pick (441,455) = "hyg:0". Measured 2026-07-27 on the default sample pack.
+VERIFIED: 2026-07-27
+RECHECK:  load app (galaxy context), run in console:
+          `(()=>{const c=window.__cosmos,W=innerWidth,H=innerHeight,p={};for(let y=0;y<H;y+=8)for(let x=0;x<W;x+=8){const id=c.pickAt(x,y);if(id)p[String(id).split(':')[0]]=(p[String(id).split(':')[0]]||0)+1;}return p;})()`
+          — expect keys ⊆ {hyg, exo}; a `gaia` key would falsify this claim.
+```
 
-## Step 6 — Verdict
+```
+CLAIM:    The only star-pick site in the app is StarScene.pickNearestStar, which
+          iterates exactly two batches: hygBatch (= stars.batch, the HYG base pack,
+          idPrefix 'hyg') and exoBatch (= combined.extraHostBatch, exo hosts, idPrefix
+          'exoidx' → canonicalId → 'exo'). No octree-stream batch is passed to any pick.
+EVIDENCE: apps/web/src/scene/StarScene.tsx:104-105 (batches), :273 (pickAt calls
+          pickNearestStar(hygBatch, exoBatch, …)), :364-396 (pickNearestStar body,
+          builds `${idPrefix}:${catalogIds[i]}` only for those two).
+VERIFIED: 2026-07-27
+RECHECK:  `grep -rln "Raycaster\|intersectObject\|pickStar\|pickNearest" apps/web/src/`
+          → single file (StarScene.tsx).
+```
 
-_(pending)_
+```
+CLAIM:    GalaxyScene mounts the streamed octree tiles for RENDER only; it contains no
+          pick / raycast / bodyId path. The ~1.11M rendered points are display-only.
+EVIDENCE: `grep -n "pickAt|pickStar|pickNearest|bodyId|idPrefix|canonicalId"
+          apps/web/src/scene/GalaxyScene.tsx` → no matches; mounts at
+          GalaxyScene.tsx:439 `addMount(e.chunkId, e.kind, e.batch)`.
+VERIFIED: 2026-07-27
+RECHECK:  re-run that grep on GalaxyScene.tsx → expect no matches.
+```
+
+```
+CLAIM:    The gaia-sourceids.bin sidecar (the real DR3 id source) is never referenced
+          in runtime code — Deliverable 1's premise ("designed, never loaded") holds.
+EVIDENCE: `grep -rn "gaia-sourceids\|sourceids\|sourceId\|source_id"
+          apps/web/src packages/data/src packages/render-stars/src` → none.
+VERIFIED: 2026-07-27
+RECHECK:  re-run that grep → expect no runtime-src hits (writer in tools/ is not runtime).
+```
+
+```
+CLAIM:    concatBatches collapses idPrefix to batches[0].idPrefix on a mixed tile — a
+          real, already-acknowledged bug (Deliverable 2's target) — but its output feeds
+          only the render path, so the "hyg-v41 mis-id" it causes is NOT reachable via
+          pick today (per the claims above, the octree stream is unpicked).
+EVIDENCE: apps/web/src/glue/octree-combined.ts:201; the test itself documents it:
+          apps/web/src/glue/octree-combined.test.ts:131
+          ("concat collapses idPrefix; a known BUG-8 follow-up").
+VERIFIED: 2026-07-27
+RECHECK:  read octree-combined.ts:193-203 (idPrefix: batches[0]!.idPrefix).
+```
+
+```
+CLAIM:    Current click-pick cost is ~1.2 ms (over base HYG batch + exo batch). A
+          brute-force extension of pick to the streamed octree would scan the mounted
+          batches too (order 1.1M points across ~10 chunks), i.e. a materially larger
+          per-click cost — click-time only, but not free.
+EVIDENCE: runtime timing loop, 200 calls to pickAt(441,455) = 1.206 ms/pick; the added
+          work is ~1.1M point angular tests (streaming.renderedPoints).
+VERIFIED: 2026-07-27
+RECHECK:  timing loop in console (see Q3 measurement in transcript).
+```
+
+## Step 5 — What I looked for and did NOT find (verified absences)
+
+- **No octree-stream pick path.** No `Raycaster`, `intersectObject`, `pickStar`, or
+  `pickNearest` anywhere except `StarScene.tsx`; `GalaxyScene.tsx` has none. The 1.11M
+  streamed points are unpickable.
+- **No `gaia:*` bodyId ever produced by a click.** A full-viewport runtime sweep at
+  coverage==1 produced only `hyg:*`/`exo:*`. `pickNearestStar` constructs no `gaia:` id.
+- **No sidecar load at runtime.** `gaia-sourceids.bin` / `sourceId` / `source_id` absent
+  from all runtime src trees.
+- **No second `pickProbeHolder` registrant.** Only StarScene registers the pick closure
+  (test-hook.ts:204 holder; StarScene.tsx:312 sole writer). Scale/zoom does not swap in a
+  different pick that could see the octree.
+
+## Step 6 — Verdict: REFRAME
+
+The premise of TASK-069 as written — *"Gaia stars are already pickable; only the returned
+identity is wrong (`gaia:<denseIndex>`), swap it for the real source_id"* — is **false and
+now measured false**. A click never yields a `gaia:*` id at all (CLAIM 1); the sole pick
+site is blind to the streamed octree by construction (CLAIMS 2–3). So Deliverable 3 ("where
+the picked star's bodyId is built, a Gaia star resolves denseIndex → source_id") has **no
+target in current code** — there is no `gaia:` bodyId site to rewire.
+
+The real question is therefore not "fix the identity" but **"make the streamed octree
+pickable at all, then attach real identity."** That splits cleanly:
+
+- **Enable now (premises verified true):** Deliverable 1 (sidecar loader — CLAIM 4 confirms
+  it's unwired) and Deliverable 2 (concatBatches idPrefix range-map — CLAIM 5 confirms the
+  bug is real) are both implementable and correct as render/data-correctness work,
+  **independent of pick**. They should be their own task.
+- **Prerequisite that TASK-069 silently assumed:** an octree-stream pick path (CLAIMS 1–3).
+  This is a NEW capability, not "identity swap." Cost is bounded but non-trivial (CLAIM 6);
+  the octree already provides the spatial structure to avoid a naive 1.1M brute-force scan,
+  which is the main design decision for that task.
+- **Reframe candidate:** if the goal is "Gaia realness the user can reach," search-by-id
+  (TASK-070) may deliver it without solving spatial pick over 1.1M streamed points — worth
+  weighing before committing to the pick prerequisite.
+
+Which claims carry the verdict: CLAIM 1 (runtime sweep — no `gaia:*` pickable) kills the
+premise; CLAIMS 2–3 explain why (structural pick blindness); CLAIMS 4–5 preserve D1+D2 as
+still-valid standalone work.
+
