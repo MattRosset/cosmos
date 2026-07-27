@@ -7,6 +7,7 @@ import {
   ECLIPTIC_TO_GALACTIC,
   applyMat3,
   type BodyId,
+  type ContextId,
   type StarSystemRecord,
   type UniversePosition,
 } from '@cosmos/core-types';
@@ -23,6 +24,7 @@ import {
 } from '@cosmos/render-planets';
 import { PRIORITY_RENDER, useFrameContext, useQuality } from '@cosmos/scene-host';
 import { useSettingsStore } from '@cosmos/app-state';
+import { systemToContextScale } from '../glue/context-scale';
 import { systemFeed, systemPickGroup, deactivateSystemFeed } from '../glue/system-feed';
 import { atmosphereHolder } from '../glue/test-hook';
 
@@ -106,7 +108,8 @@ async function loadTexture(
  * only while `contextId === 'system'`; positions/spins flow imperatively (§2.2).
  */
 export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSceneProps) {
-  void controllerRef; // picking is handled by StarScene against systemPickGroup
+  // controllerRef is read for contextId below (D2); picking is handled by StarScene
+  // against systemPickGroup, not by this component.
   const gl = useThree((s) => s.gl);
   const rootGroup = useMemo(() => new THREE.Group(), []);
   const builtRef = useMemo(() => ({ current: null as BuiltScene | null }), []);
@@ -247,6 +250,7 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
       // Publish the shared feed (NavDriver surface speed + goto live positions).
       systemFeed.positionsAu = new Float64Array(ordered.length * 3);
       systemFeed.radiiUnits = new Float64Array(ordered.length);
+      systemFeed.renderOffsetsContextUnits = new Float64Array(ordered.length * 3);
       const indexById = new Map<BodyId, number>();
       ordered.forEach((b, i) => {
         indexById.set(b.id, i);
@@ -296,8 +300,17 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
     propagateBatch(b.packed, epoch, b.outAu);
     origin.toRenderSpace(SYSTEM_ORIGIN, originRenderScratch);
 
+    // TASK-084: geometry is baked in system units (AU) at build (frozen — see spec);
+    // this per-frame object.scale is the only context correction. Exact `1` in `system`
+    // (the anchor), so this loop is bit-identical there. Never touch rootGroup.scale —
+    // that would also scale the already-correct render offsets (D2).
+    const contextId: ContextId = controllerRef.current?.contextId ?? origin.context;
+    const sizeScale = systemToContextScale(contextId);
+
     for (let i = 0; i < b.entries.length; i++) {
       const e = b.entries[i]!;
+      e.mesh.object.scale.setScalar(sizeScale);
+      if (e.line) e.line.object.scale.setScalar(sizeScale);
       let ax = 0;
       let ay = 0;
       let az = 0;
@@ -334,6 +347,9 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
       b.renderOffAu[i * 3] = renderScratch[0];
       b.renderOffAu[i * 3 + 1] = renderScratch[1];
       b.renderOffAu[i * 3 + 2] = renderScratch[2];
+      systemFeed.renderOffsetsContextUnits[i * 3] = renderScratch[0];
+      systemFeed.renderOffsetsContextUnits[i * 3 + 1] = renderScratch[1];
+      systemFeed.renderOffsetsContextUnits[i * 3 + 2] = renderScratch[2];
       e.mesh.setRenderOffset(renderScratch);
 
       // Star direction = −normalize(absolute) (host at origin).
@@ -364,6 +380,7 @@ export function SystemScene({ system, origin, packUrl, controllerRef }: SystemSc
     // direction, additive over the lit planet (ADR-005 §5). Zero-alloc per frame.
     const atm = atmRef.current;
     if (atm !== null && b.atmosphereIndex >= 0) {
+      atm.object.scale.setScalar(sizeScale);
       const ai = b.atmosphereIndex;
       atmOffScratch[0] = b.renderOffAu[ai * 3]!;
       atmOffScratch[1] = b.renderOffAu[ai * 3 + 1]!;

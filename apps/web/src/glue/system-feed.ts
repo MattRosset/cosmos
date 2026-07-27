@@ -18,6 +18,13 @@ export interface SystemFeed {
   radiiUnits: Float64Array;
   /** bodyId → index into positionsAu / radiiUnits. Reassigned per mount. */
   indexById: Map<BodyId, number>;
+  /**
+   * 3 × count camera-relative render offsets, ACTIVE-CONTEXT units (TASK-084) — the
+   * same values `SystemScene` passes to `mesh.setRenderOffset` each frame, mirrored
+   * here so e2e (`__cosmos.systemBody`) can query the real offset without re-deriving
+   * `OriginManager.toRenderSpace` (CLAUDE.md testing rule 1).
+   */
+  renderOffsetsContextUnits: Float64Array;
 }
 
 export const systemFeed: SystemFeed = {
@@ -26,6 +33,7 @@ export const systemFeed: SystemFeed = {
   positionsAu: new Float64Array(0),
   radiiUnits: new Float64Array(0),
   indexById: new Map(),
+  renderOffsetsContextUnits: new Float64Array(0),
 };
 
 /**

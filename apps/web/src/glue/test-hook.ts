@@ -1,9 +1,16 @@
-import type { BodyId, ContextId, QualityTier, UniversePosition } from '@cosmos/core-types';
+import {
+  CONTEXT_UNIT_METERS,
+  type BodyId,
+  type ContextId,
+  type QualityTier,
+  type UniversePosition,
+} from '@cosmos/core-types';
 import type { ErrorCounts } from '@cosmos/diagnostics';
 import { getErrorCounts } from '@cosmos/diagnostics';
 import type { FlightController } from '@cosmos/nav';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import { useOverlayStore, useSettingsStore, useTourStore } from '@cosmos/app-state';
+import { systemFeed, systemPickGroup } from './system-feed';
 
 /**
  * E2E/dev test hook (TASK-015 → M2 → M3 → M4a). Event-driven mirrors of app
@@ -17,6 +24,9 @@ export interface CosmosTestHook {
   selectedId: string | null;
   /** Active scale context, mirrored from the flight controller. */
   contextId: ContextId;
+  /** Meters per context unit (TASK-084), the app's real constant table — read this
+   *  instead of hardcoding a duplicate in a test (CLAUDE.md testing rule 1). */
+  readonly contextUnitMeters: Readonly<Record<ContextId, number>>;
   /** System the camera is inside, or null in 'galaxy' context. */
   anchorSystemId: string | null;
   epochJD: number;
@@ -101,6 +111,19 @@ export interface CosmosTestHook {
    * ShaderJitterProbe.tsx:154-156). Resolves `null` if no WebGL canvas is present.
    */
   readFrameStats(): Promise<FrameStats | null>;
+  /**
+   * TASK-084 — live read of a mounted system body's size + placement, for the
+   * context-scale e2e gate. `meshScaleX` is read directly off the THREE object
+   * (`mesh.object.scale.x`) via `systemPickGroup`, not recomputed — the actual
+   * value SystemScene applied this frame (D2), independent of the formula
+   * (`radiusAu`/`renderOffsetContextUnits` mirror `systemFeed`, also app-computed).
+   * `null` if no system is mounted or the body id is not tracked.
+   */
+  systemBody(bodyId: BodyId): {
+    radiusAu: number;
+    renderOffsetContextUnits: readonly [number, number, number];
+    meshScaleX: number;
+  } | null;
 }
 
 /** Frame-luminance statistic returned by `readFrameStats` (TASK-085). */
@@ -185,6 +208,7 @@ export const testHook: CosmosTestHook = {
   goToActive: false,
   selectedId: null,
   contextId: 'galaxy',
+  contextUnitMeters: CONTEXT_UNIT_METERS,
   anchorSystemId: null,
   epochJD: 2451545.0,
   cameraPosition: { context: 'galaxy', local: [0, 0, 0] },
@@ -225,6 +249,23 @@ export const testHook: CosmosTestHook = {
     return pickProbeHolder.current?.projectToScreen(localPos) ?? null;
   },
   readFrameStats,
+  systemBody(bodyId: BodyId) {
+    if (!systemFeed.active) return null;
+    const i = systemFeed.indexById.get(bodyId);
+    if (i === undefined) return null;
+    const group = systemPickGroup.current;
+    const mesh = group?.children.find((c) => c.userData['bodyId'] === bodyId);
+    if (!mesh) return null;
+    return {
+      radiusAu: systemFeed.radiiUnits[i]!,
+      renderOffsetContextUnits: [
+        systemFeed.renderOffsetsContextUnits[i * 3]!,
+        systemFeed.renderOffsetsContextUnits[i * 3 + 1]!,
+        systemFeed.renderOffsetsContextUnits[i * 3 + 2]!,
+      ],
+      meshScaleX: mesh.scale.x,
+    };
+  },
 };
 
 /**
