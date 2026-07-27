@@ -31,9 +31,11 @@ reference-machine activity (§Step 3), NOT part of this task's gate.
 ## Deliverables
 
 1. **Boot GPU detect** — wiring decided 2026-07-05 after reading the call sites:
-   `initialQualityTier="high"` is passed *explicitly* by `StarApp.tsx` AND six probe
-   apps (`M3App`, `M4aApp`, `Flythrough4ProbeApp`, `StreamingProbeApp`, `Soak4ProbeApp`,
-   `ErrorGateApp`), so a detection default buried inside SceneHost would be dead code —
+   `initialQualityTier` is passed *explicitly* by `StarApp.tsx` (`"high"`) AND six probe
+   apps — `M3App`, `M4aApp`, `StreamingProbeApp`, `Soak4ProbeApp`, `ErrorGateApp` (all
+   `"high"`), and `Flythrough4ProbeApp` (`"low"`, a deliberate deterministic-fixture pin,
+   verified `apps/web/src/app/Flythrough4ProbeApp.tsx:166`) — so a detection default
+   buried inside SceneHost would be dead code regardless of which literal each passes:
    the prop always wins. Therefore:
    - In `packages/scene-host`, export a pure `classifyRenderer(s: string | null):
      'integrated' | 'unknown'` matching (case-insensitive) `Apple M`,
@@ -70,9 +72,14 @@ reference-machine activity (§Step 3), NOT part of this task's gate.
 
 - **CI/SwiftShader:** CI runs `--use-angle=swiftshader`; its renderer string
   (`SwiftShader`/`ANGLE`-prefixed) must classify as `unknown` → `high`, or every
-  existing e2e baseline that implicitly assumes `high` shifts. Add SwiftShader strings
-  to the unit-test fixtures explicitly. If any e2e spec breaks, that spec was coupled
-  to the boot tier — fix per doctrine (query, don't assume), not by special-casing CI.
+  existing e2e baseline that implicitly assumes `high` shifts. Use the strings this repo
+  has actually measured, not invented ones: headless CI SwiftShader reported
+  `"SwiftShader Device (LLVM 10.0.0)"` (`docs/research/m1-metal-boot-and-flyin-stall-rootcause.md:56`,
+  same boot-perf gate this task's e2e run exercises) and a separate e2e probe recorded
+  `"ANGLE/SwiftShader"` (`docs/agent-tasks/NOTES-2026-07-25-task-081.md:78`, read via
+  `ShaderJitterProbe.tsx:198`'s `UNMASKED_RENDERER_WEBGL`). Add both to the unit-test
+  fixtures explicitly. If any e2e spec breaks, that spec was coupled to the boot tier —
+  fix per doctrine (query, don't assume), not by special-casing CI.
 - **Detection after first frame:** handled by the decided wiring (detection runs in
   `StarApp` before SceneHost mounts, via a throwaway context). Do NOT instead read the
   extension from SceneHost's own renderer post-mount and call `setTier` — that draws
@@ -88,16 +95,27 @@ reference-machine activity (§Step 3), NOT part of this task's gate.
 1. `pnpm verify` exits 0.
 2. Unit (`classifyRenderer`): `"Apple M1"`, `"Apple M3 Pro"`, `"Intel(R) Iris(R) Xe"`,
    `"Intel HD Graphics 620"` ⇒ integrated; `"NVIDIA GeForce RTX 4090"`,
-   `"AMD Radeon RX 9070 XT"`, `"Google SwiftShader"`, `"ANGLE (…SwiftShader…)"`,
-   `null`, `""` ⇒ unknown. Also `"ANGLE (Apple, ANGLE Metal Renderer: Apple M1, …)"`
-   ⇒ integrated (Chrome-on-Mac reports through an ANGLE wrapper — match the patterns
-   by substring anywhere in the string, never by prefix/whole-string; SwiftShader
-   strings contain no integrated pattern, so substring matching classifies them
-   `unknown` with no special-casing).
+   `"AMD Radeon RX 9070 XT"`, `"SwiftShader Device (LLVM 10.0.0)"`, `"ANGLE/SwiftShader"`,
+   `null`, `""` ⇒ unknown (the two SwiftShader strings are this repo's own measured CI
+   output — see Failure modes below, not invented fixtures). Also
+   `"ANGLE Metal Renderer: Apple M1"` ⇒ integrated (this repo's own measured headed-Chrome
+   M1 string, `docs/research/m1-metal-boot-and-flyin-stall-rootcause.md:56`; Chrome-on-Mac
+   reports through an ANGLE wrapper — match the patterns by substring anywhere in the
+   string, never by prefix/whole-string; the SwiftShader strings contain no integrated
+   pattern, so substring matching classifies them `unknown` with no special-casing).
 3. Unit: effective-pixel-ratio formula per (tier, dpr) table — dpr 2 × medium ⇒ 1.5 ×
    resolutionScale, etc.
 4. `pnpm test:e2e` fully green under SwiftShader with **zero spec changes** — proof CI
    still boots `high` and nothing regressed.
+
+## Provenance
+
+- 2026-07-26 spec-review pass: corrected the probe-app roll call (`Flythrough4ProbeApp`
+  actually pins `"low"`, not `"high"` — doesn't change the dead-code argument, all seven
+  call sites pass an explicit literal); replaced invented SwiftShader/Apple-M1 renderer
+  fixtures with the strings this repo has actually measured (`m1-metal-boot-and-flyin-
+  stall-rootcause.md:56`, `NOTES-2026-07-25-task-081.md:78`) per the mine-don't-invent
+  failure-modes rule.
 
 ## Context Files
 

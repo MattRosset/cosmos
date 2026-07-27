@@ -1,6 +1,6 @@
 import { QUALITY_TIERS } from '@cosmos/core-types';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { QualityControllerImpl } from '../src/quality';
+import { computeEffectivePixelRatio, QualityControllerImpl } from '../src/quality';
 
 describe('QualityControllerImpl', () => {
   beforeEach(() => {
@@ -193,5 +193,20 @@ describe('QualityControllerImpl', () => {
       vi.runAllTimers();
       expect(qc.tier).toBe('medium');
     });
+  });
+});
+
+describe('computeEffectivePixelRatio', () => {
+  it.each([
+    // tier, dpr, resolutionScale, expected
+    ['high', 1, 1, 1],
+    ['high', 2, 1, 2],
+    ['high', 3, 1, 2], // high cap unchanged: min(dpr,2)
+    ['medium', 2, 0.75, 1.125], // min(2,1.5) * 0.75
+    ['medium', 1, 0.75, 0.75], // dpr below the tier cap: cap doesn't bite
+    ['low', 2, 0.5, 0.5], // min(2,1) * 0.5
+    ['low', 1, 0.5, 0.5],
+  ] as const)('tier=%s dpr=%s scale=%s ⇒ %s', (tier, dpr, resolutionScale, expected) => {
+    expect(computeEffectivePixelRatio(tier, dpr, resolutionScale)).toBeCloseTo(expected);
   });
 });

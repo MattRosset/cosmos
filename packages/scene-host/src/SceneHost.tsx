@@ -13,7 +13,7 @@ import {
   type EpochProvider,
   type FrameCallback,
 } from './frame-loop.js';
-import { QualityControllerImpl, type QualityController } from './quality.js';
+import { computeEffectivePixelRatio, QualityControllerImpl, type QualityController } from './quality.js';
 import { QualityContext } from './use-quality.js';
 
 export interface SceneHostProps {
@@ -109,7 +109,9 @@ function QualityApplier({ qc }: { qc: QualityControllerImpl }): null {
 
   useEffect(() => {
     const apply = (settings: QualitySettings) => {
-      gl.setPixelRatio(Math.min(window.devicePixelRatio, 2) * settings.resolutionScale);
+      gl.setPixelRatio(
+        computeEffectivePixelRatio(settings.tier, window.devicePixelRatio, settings.resolutionScale),
+      );
     };
     apply(qc.settings);
     return qc.onChange(apply);
