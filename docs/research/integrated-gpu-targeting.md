@@ -181,6 +181,39 @@ settings UI), at native Retina:
 This calibrates: does the M1 hit ≤16/≤33 ms at `high`? If not, at which tier does it, and is
 `resolutionScale`/pixel-ratio the lever that gets it there? → sets the Step-1/Step-2 targets.
 
+### 5.4 M1 result — measured 2026-07-27 (N5, this repo's target hardware)
+
+ Run: Apple M1, Chromium/ANGLE Metal, `devicePixelRatio = 2`, `?debug=flythrough4&tier={high|medium|low}`
+(the probe app hardcodes `low`; a temp `?tier=` param + the §5.2 timer-query instrument were
+applied for this run and reverted). Universe segment `toGalaxy` (full procgen cloud) is the worst
+case; true GPU-ms via `EXT_disjoint_timer_query_webgl2` (supported). Fullscreen = 1440×900 CSS.
+
+| Tier | Buffer (fullscreen) | MP | `toGalaxy` points | GPU p50 / p95 / max (ms) | ≤16 | ≤33 |
+|---|---|---|---|---|---|---|
+| **high**   | 2880×1800 | 5.18 | 1,110,105 | **8.2 / 41.6 / 47.1** | ✗ | ✗ |
+| **medium** | 1620×1012 | 1.64 | 254,802   | **2.2 / 8.7 / 10.7**  | ✓ | ✓ |
+| **low**    | 239×356\* | 0.09 | 94,802    | **1.0 / 6.0 / 10.2**  | ✓ | ✓ |
+
+\* `low` measured at a 479×713-CSS pane; it is even cheaper at fullscreen (buffer capped hardest).
+Inner segments are cheap at every tier: e.g. high `toSol` 0.8/15.7/22.5, `toEarth` <0.7 ms.
+
+**Answers to §5.3:**
+- **The M1 does NOT hold `high`** at the universe view: p95 41.6 ms, max 47 ms — over both the
+  16 ms and 33 ms budgets. This is the first-seconds stutter TASK-072 targets, now a real number
+  (~11× the RX 9070 XT p50, ~38× its p95 — squarely inside the §6 "~4–37 ms, peak 40 ms+" guess).
+- **`medium` is a safe floor**: p95 8.7 ms, max 10.7 ms — sustains 60 fps with margin. Increasing
+  the window 3.8× (0.43→1.64 MP) did *not* raise its GPU-ms → medium is **geometry-bound**
+  (254k pts), not fill-bound, so the margin holds as the window grows.
+- **The tier IS the lever**: high→medium drops points 1.11M→255k AND caps the Retina pixel ratio
+  (effective dpr 2→~1.125, buffer 5.18→1.64 MP). Both are exactly what TASK-072 tuned.
+
+**Verdict:** TASK-072's decision to boot integrated / Apple-Silicon GPUs on `medium` (not `high`)
+is **validated and sufficient** on the target hardware — no tier-table retune needed. Note (from
+the §5.2 caveat): the timer query serialises the pipeline, so treat absolute ms as
+order-of-magnitude; the cross-tier ordering and the high-blows-budget / medium-clears-budget
+conclusion are robust (high's tail is far enough over budget that serialisation inflation cannot
+flip it). `low`'s Retina cap (open note in §7) is moot for the floor — `medium` already clears.
+
 ## 6. Reference numbers (AMD RX 9070 XT, 2026-06-28 — high-end baseline, NOT the target)
 
 - Scene points, universe segment (`toGalaxy`): **1,109,970** at procgen opacity 1 (full cloud).
