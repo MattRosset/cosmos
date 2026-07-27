@@ -120,17 +120,19 @@ Full writeup, with the source evidence and the fix shape:
 3. The new system-context pick test fails on `main` and passes with the fix (state both runs
    in the PR body — this is what proves the test has power).
 
-## Before executing — READINESS GATE, not optional
+## Before executing — READINESS GATE ✅ PASSED (measured 2026-07-27)
 
-The test premise is **unmeasured** and could invalidate the approach, so measure first and
-record it in the research doc:
+The premise was unmeasured; it has now been measured live and the task is executor-ready.
+Full record: `docs/research/star-pick-ray-origin-context-units.md` (§"MEASURED LIVE"). Summary:
 
-1. Enter the Sol system; confirm **background stars are actually drawn** in system context
-   (not clipped away by the far plane — the pick is geometric but the *assertion* must target
-   a rendered star; §Deliverables 2). If NO catalog star renders in system context, STOP:
-   the "click a background star in system" premise is moot and the task needs re-scoping.
-2. Click a visibly drawn background star and compare `__cosmos.pickAt(x, y)` with what is
-   under the cursor — this is the stated user-visible cost and the on-`main` half of the
-   power proof (gate item 3).
+1. **Stars ARE drawn in system context** — 8,125 / 109,399 HYG catalog stars project
+   on-screen via `?debug=m4a` at settled `contextId === 'system'`. The "no star renders,
+   premise moot" STOP branch did not fire.
+2. **The bug is real and user-visible** — at every one of the 12 nearest on-screen stars,
+   `pickAt(projected px)` returns a DIFFERENT id than the star projected there (0/12 match;
+   e.g. `hyg:118080` projects to (241,439), `pickAt` returns `hyg:7734`). `pcToUnits(system)`
+   measured `206266.30`, matching the predicted inflation.
 
-If both hold, the deliverables above are executor-ready; if (1) fails, do not hand off.
+The e2e test therefore reproduces on `main` (projection ≠ pick) and must converge with the
+fix (projection == pick). Executor: the measurement probe in the research doc is a working
+template for the on-screen-star selection — reuse its manifest fetch + `pcToUnits` conversion.

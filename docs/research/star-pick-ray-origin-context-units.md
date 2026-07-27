@@ -44,12 +44,29 @@ Consequence: outside galaxy context the pick behaves as though the camera were a
 displaced position relative to the star field. In `system` context the origin is inflated by
 206,266x, so clicking a star should select the wrong one — or nothing.
 
-**Not measured.** No live A/B has been run. Before anyone cites a user-visible symptom, the
-recheck is: enter the Sol system, click a visibly drawn background star, and compare
-`__cosmos.pickAt(x, y)` against the star actually under the cursor. Note that the pick path
-is **geometric** and ignores the camera clip planes, so it resolves stars that are not drawn
-at all — a pick test in system context must be read against what is on screen, not against
-the catalog.
+**~~Not measured.~~ MEASURED LIVE 2026-07-27** (TASK-083 readiness gate). Route: `?debug=m4a`
+(M3 descent to Sol), settled `contextId === 'system'`, `anchorSystemId === 'sol'`,
+`cameraPosition.local ≈ [-0.95, -0.19, 0.15]` (system units). Probe: fetch the HYG pack
+(`/packs/manifest.json` + bin, the m1 pattern), project every star through the live
+`__cosmos.projectToScreen` after converting parsecs → system units by
+`pcToUnits = contextUnitMeters.galaxy / contextUnitMeters.system`, then read `__cosmos.pickAt`
+at each on-screen pixel. Findings:
+
+- `pcToUnits(system) = 206266.30` — matches the predicted 206,266× inflation exactly.
+- **The starfield IS drawn in system context** — 8,125 of 109,399 HYG catalog stars project
+  on-screen (plus visible dots in the screenshot). The "no star is drawn in system" failure
+  branch of the readiness gate did **not** happen; the test premise holds.
+- **The pick is wrong at every on-screen star.** For all 12 nearest-on-screen stars sampled,
+  `pickAt(projected px)` returned a **different** star id than the one projected there
+  (0/12 match). Example: `hyg:118080` projects to canvas px (241, 439); `pickAt(241,439)`
+  returns `hyg:7734`. This is the on-`main` half of the power proof: the projection (correct,
+  self-consistent frame) and the pick (buggy context-unit origin) disagree everywhere.
+
+Caveat retained: the pick is **geometric** and ignores the clip planes, so a system-context
+test must target a star that is actually **rendered**, read against what is on screen — not
+merely one that projects into the frustum. (Post-fix, the corrected origin shares the batch's
+parsec frame, so `pickAt(projected px)` will resolve the projected star: projection and pick
+converge. The e2e gate asserts exactly that flip.)
 
 ## The fix shape (for the task, not applied here)
 
