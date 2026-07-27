@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import type { CombinedSource } from '@cosmos/data';
 import { useSelectionStore } from '@cosmos/app-state';
+import { localGroupGalaxyName } from '@cosmos/nav';
 import { STRINGS } from '@cosmos/ui';
 
 /**
@@ -31,7 +32,9 @@ export function Breadcrumb({
   const selectedId = useSelectionStore((s) => s.selectedId);
   const inSystem = systemName !== null;
   const selectedName =
-    selectedId !== null ? combined.getBody(selectedId)?.name ?? selectedId : null;
+    selectedId !== null
+      ? combined.getBody(selectedId)?.name ?? localGroupGalaxyName(selectedId) ?? selectedId
+      : null;
   const bodyCrumb =
     selectedName !== null && selectedName !== systemName ? selectedName : null;
 

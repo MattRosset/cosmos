@@ -28,6 +28,11 @@ export {
   GALAXY_HYSTERESIS_MIN_RATIO,
 } from './galaxy-switch.js';
 export type { LocalGroupParams } from './local-group.js';
-export { generateLocalGroup } from './local-group.js';
+export {
+  generateLocalGroup,
+  localGroupGalaxyName,
+  pickNearestGalaxy,
+  GALAXY_PICK_MAX_ANGLE_RAD,
+} from './local-group.js';
 // Cinematic camera mode (v5 — TASK-051)
 export { catmullRomCentripetal, DEFAULT_ORBIT_RATE_PER_SEC } from './cinematic.js';

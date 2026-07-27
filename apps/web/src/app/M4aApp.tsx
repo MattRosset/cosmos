@@ -16,6 +16,7 @@ import { useTourStore } from '@cosmos/app-state';
 import { StarScene } from '../scene/StarScene';
 import { SystemScene } from '../scene/SystemScene';
 import { GalaxyScene, impostorRadiusOverride } from '../scene/GalaxyScene';
+import { localGroupVisibleOverride } from '../scene/LocalGroupScene';
 import { Overlays } from '../scene/Overlays';
 import { M3DescentProbe, M3_START } from '../scene/M3DescentProbe';
 import { combineOctreeSources } from '../glue/octree-combined';
@@ -131,6 +132,34 @@ export function M4aApp() {
       // override reaches the impostor here as well.
       setImpostorRadiusPc: (radiusPc) => {
         impostorRadiusOverride.current = radiusPc;
+      },
+      // TASK-086: this debug app does not mount LocalGroupScene, so the override has
+      // no visible effect here — kept only so the shared __cosmosDev type (dev-surface.ts)
+      // is satisfied (same reasoning as setImpostorRadiusPc above, TASK-082).
+      setLocalGroupVisible: (visible) => {
+        localGroupVisibleOverride.current = visible;
+      },
+      orientTo: (local) => {
+        const ctrl = controllerHolder.current;
+        if (ctrl === null || ctrl.contextId !== 'universe') return;
+        const p = ctrl.state.position.local;
+        const dx = local[0] - p[0];
+        const dy = local[1] - p[1];
+        const dz = local[2] - p[2];
+        const len = Math.hypot(dx, dy, dz);
+        if (len < 1e-30) return;
+        const EPS_UNITS = 1e-6;
+        const inv = EPS_UNITS / len;
+        const target: UniversePosition = {
+          context: 'universe',
+          local: [p[0] + dx * inv, p[1] + dy * inv, p[2] + dz * inv],
+        };
+        ctrl.goTo({
+          target,
+          lookAtTarget: { context: 'universe', local: [local[0], local[1], local[2]] },
+          arrivalDistanceM: EPS_UNITS * CONTEXT_UNIT_METERS.universe * 0.5,
+          durationMs: 600,
+        });
       },
       startTour: () => useTourStore.getState().start(GRAND_TOUR),
       stopTour: () => useTourStore.getState().stop(),

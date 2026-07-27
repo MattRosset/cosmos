@@ -11,8 +11,10 @@ import type { ContextId } from '@cosmos/core-types';
 import { useSelectionStore, useSettingsStore } from '@cosmos/app-state';
 import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
+import { pickNearestGalaxy } from '@cosmos/nav';
 import { profileSpan } from '../glue/frame-profiler';
 import { systemPickGroup } from '../glue/system-feed';
+import { localGroupPickHolder } from '../glue/local-group-feed';
 import { pickProbeHolder } from '../glue/test-hook';
 import { pcScales } from '../glue/context-scale';
 
@@ -214,6 +216,25 @@ export function StarScene({
       const rect = el.getBoundingClientRect();
       const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
       const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+      // Universe context: the galaxy field fully OWNS the click (TASK-086, D4). Stars/
+      // planets are not present in universe context, so without this gate the fallback
+      // pickNearestStar below would run over the galaxy-context HYG batch and could
+      // return a bogus star id (Failure modes note). Computed and returned BEFORE the
+      // planet raycast; galaxy positions/camera are both universe-frame Mpc so the
+      // angle is unit-consistent with no conversion.
+      if (controller.contextId === 'universe' && localGroupPickHolder.current !== null) {
+        const persp = camera as PerspectiveCamera;
+        const tanY = Math.tan((persp.fov * Math.PI) / 360);
+        const tanX = tanY * persp.aspect;
+        const dir = rotateByQuat(controller.state.orientation, [ndcX * tanX, ndcY * tanY, -1]);
+        const len = Math.hypot(dir[0], dir[1], dir[2]);
+        dir[0] /= len;
+        dir[1] /= len;
+        dir[2] /= len;
+        const p = controller.state.position.local;
+        return pickNearestGalaxy(localGroupPickHolder.current, p, dir);
+      }
 
       // Planets first — raycast the mounted system group (camera-relative scene).
       const grp = systemPickGroup.current;

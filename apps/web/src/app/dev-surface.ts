@@ -20,6 +20,21 @@ declare global {
        * lit-pixel count that would encode one machine's SwiftShader build.
        */
       setImpostorRadiusPc(radiusPc: number | null): void;
+      /**
+       * Force-hide (`false`) or restore (`true`) the whole local-group galaxy field
+       * (TASK-086), regardless of context. Lets the e2e visibility gate ablate the
+       * layer within one run — a self-relative frame delta, never an absolute
+       * lit-pixel count that would encode one machine's SwiftShader build.
+       */
+      setLocalGroupVisible(visible: boolean): void;
+      /**
+       * Reorient the camera to face an arbitrary universe-context point (TASK-086),
+       * without flying there: nudges the camera a negligible distance toward it while
+       * slewing orientation via `goTo`'s `lookAtTarget`. No-op outside `universe`
+       * context or before the flight controller mounts. Backs the G3/G4 e2e gates,
+       * which need a known galaxy on-screen without depending on the boot vantage.
+       */
+      orientTo(local: readonly [number, number, number]): void;
     };
   }
 }

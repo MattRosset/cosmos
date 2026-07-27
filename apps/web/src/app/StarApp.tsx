@@ -11,6 +11,7 @@ import { INITIAL_CAMERA, NavDriver } from '../scene/NavDriver';
 import { StarScene } from '../scene/StarScene';
 import { SystemScene } from '../scene/SystemScene';
 import { GalaxyScene, impostorRadiusOverride } from '../scene/GalaxyScene';
+import { LocalGroupScene, localGroupVisibleOverride } from '../scene/LocalGroupScene';
 import { Overlays } from '../scene/Overlays';
 import { BreadcrumbFrameProfiler } from '../scene/BreadcrumbFrameProfiler';
 import { combineOctreeSources } from '../glue/octree-combined';
@@ -207,8 +208,11 @@ export function StarApp() {
   const origin = useMemo(() => createOriginManager(tree, INITIAL_CAMERA), [tree]);
 
   // M3: deterministic local group; the Milky Way is index 0 at the universe origin
-  // and its seed drives the procedural star cloud (§5.6/§5.8).
-  const { milkyWay } = useMemo(() => makeLocalGroup(), []);
+  // and its seed drives the procedural star cloud (§5.6/§5.8). The other 11 records
+  // (indices 1..N-1 — index 0 is a vestigial seed-donor slot, TASK-086 Step 0.2) are
+  // rendered by LocalGroupScene as the universe-context galaxy field.
+  const { galaxies, milkyWay } = useMemo(() => makeLocalGroup(), []);
+  const localGroupGalaxies = useMemo(() => galaxies.slice(1), [galaxies]);
 
   // The flight controller is created inside the Canvas (it needs the R3F frame
   // loop); the HUD and glue reach it through the shared holder at event time only.
@@ -504,6 +508,37 @@ export function StarApp() {
       },
       startTour: () => useTourStore.getState().start(GRAND_TOUR),
       stopTour: () => useTourStore.getState().stop(),
+      setLocalGroupVisible: (visible) => {
+        localGroupVisibleOverride.current = visible;
+      },
+      orientTo: (local) => {
+        // TASK-086 (NOTES JC-1): goTo is gated (`d0M <= arrivalDistanceM` is a no-op),
+        // so a facing-only reorientation needs a target strictly farther than
+        // arrival. Nudge the camera a NEGLIGIBLE distance (EPS_UNITS Mpc, ≈ 1 pc)
+        // toward `local` while slewing orientation to face it exactly via
+        // lookAtTarget. Universe-context only: the galaxy field this backs (G3/G4)
+        // only exists there.
+        const ctrl = controllerHolder.current;
+        if (ctrl === null || ctrl.contextId !== 'universe') return;
+        const p = ctrl.state.position.local;
+        const dx = local[0] - p[0];
+        const dy = local[1] - p[1];
+        const dz = local[2] - p[2];
+        const len = Math.hypot(dx, dy, dz);
+        if (len < 1e-30) return;
+        const EPS_UNITS = 1e-6;
+        const inv = EPS_UNITS / len;
+        const target: UniversePosition = {
+          context: 'universe',
+          local: [p[0] + dx * inv, p[1] + dy * inv, p[2] + dz * inv],
+        };
+        ctrl.goTo({
+          target,
+          lookAtTarget: { context: 'universe', local: [local[0], local[1], local[2]] },
+          arrivalDistanceM: EPS_UNITS * CONTEXT_UNIT_METERS.universe * 0.5,
+          durationMs: 600,
+        });
+      },
       focusFirstLabel: () => {
         const ctrl = controllerHolder.current;
         const label = sources?.overlay?.labels[0];
@@ -599,6 +634,11 @@ export function StarApp() {
                 milkyWayRadiusPc={milkyWay.radiusKpc * 1000}
               />
             ) : null}
+            <LocalGroupScene
+              galaxies={localGroupGalaxies}
+              origin={origin}
+              controllerRef={controllerHolder}
+            />
             <StarScene
               stars={pack.sources.stars}
               combined={pack.sources.combined}
