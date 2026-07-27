@@ -4,11 +4,16 @@
 **Target package:** `apps/web` (`SystemScene`) + `render-planets` (mesh / orbit line / atmosphere)
 **Size:** M
 **Phase:** Maintenance track — scale-transition lane
-**Depends on:** **TASK-081** (reuses the `pcScales` helper it introduces).
+**Depends on:** **TASK-081** — mirrors its *pattern* (`glue/context-scale.ts`), but needs a
+**different, system-anchored** scale. `pcScales` is galaxy/parsec-anchored
+(`unitsToPc = CONTEXT_UNIT_METERS[ctx] / CONTEXT_UNIT_METERS.galaxy`); it cannot be reused
+directly here (see §Fix, decision D1). No hard code dependency — TASK-081 is merged.
 
-> **Status: STUB, not spec-reviewed.** Filed from the m3 switch-delta root cause. The
-> mechanism is **measured and photographed**; the *fix shape* below is a proposal, not a
-> reviewed contract. Run `/spec-review` before handing this to an executor.
+> **Status: spec-reviewed 2026-07-27** (`/spec-review`, Opus 4.8). Facts F1–F5 re-verified
+> against live code; F5 line numbers refreshed after the TASK-086 merge. The four open forks
+> in the original stub (helper reuse, draw-vs-hide policy, scale channel, frozen surface) are
+> resolved below with evidence. Ready for hand-off. Mechanism is **measured and photographed**
+> in `docs/research/m3-switch-delta-yardstick.md` (CLAIM 5).
 
 ## Goal
 
@@ -44,25 +49,64 @@ of the selected system, a cross-context tour step, or a probe app.
   `createOrbitLine({ pointsUnits: poly })` (`SystemScene.tsx:209-216`).
 - **F4 — the atmosphere too.** `createAtmosphere({ planetRadiusUnits: b.atmosphereRadiusUnits })`
   with `atmosphereRadiusUnits = radiusKm*1000 / AU_METERS` (`SystemScene.tsx:234-235`).
-- **F5 — production cannot reach it today.** `StarApp.tsx:552-558` returns `null` when
-  `mountedSystemId === null`, and `:218` only sets it on `e.to === 'system'`.
+- **F5 — production cannot reach it today.** `StarApp.tsx:594` returns `null` when
+  `mountedSystemId === null` (the `mountedSystem` memo), `:225` only sets it on
+  `e.to === 'system'`, and `<SystemScene>` is mounted at `:658` guarded by that memo.
+  (Line numbers refreshed 2026-07-27 post-TASK-086 merge; were `:552-558`/`:218`.)
+  `RECHECK: grep -n "mountedSystemId\|to === 'system'\|SystemScene" apps/web/src/app/StarApp.tsx`
 
-## Proposed fix shape (NOT reviewed)
+## Fix (reviewed contract)
 
-Mirror TASK-081: keep one conversion site, keep galaxy/`system` bit-identical.
+Mirror TASK-081's *shape*: one derived scale, applied at a single per-frame site, exact-`1`
+in the anchor context.
 
-- Per frame, derive `systemToContext = CONTEXT_UNIT_METERS.system / CONTEXT_UNIT_METERS[ctx]`
-  (exactly `1` in `system` context — an early return, as in `glue/context-scale.ts`).
-- Apply it to the three size channels only (mesh scale, orbit-line points, atmosphere shell
-  radius), **not** to the offsets — those are already correct in every context.
-- The mesh scale is an object-space `scale`, so it is a per-frame `setScalar` write; the
-  orbit line and atmosphere need a scale uniform or an object scale, whichever keeps the
-  frame path allocation-free (§9).
+**D1 — the scale, and where it lives.** Add a sibling to `pcScales` in
+`apps/web/src/glue/context-scale.ts`:
 
-**Open question for the reviewer:** whether the sane behavior outside `system` is "draw it
-correctly (sub-pixel)" or "do not draw it at all". Correct-and-sub-pixel costs ~30 draw calls
-per frame for zero pixels; a `visible = ctx === 'system'` gate is cheaper but hard-codes a
-policy the tour/preview work may need to lift. Decide before implementing.
+```ts
+/** System-baked geometry (AU) → active-context units. Exactly 1 in `system` (the anchor). */
+export function systemToContextScale(ctx: ContextId): number {
+  if (ctx === 'system') return 1; // IEEE-754-exact; required, not an optimization (see pcScales note)
+  return CONTEXT_UNIT_METERS.system / CONTEXT_UNIT_METERS[ctx];
+}
+```
+
+Do **not** derive this by dividing two `pcScales` results — that ratio-of-ratios is the exact
+trap `context-scale.ts:24-28` warns against (can land on `0.9999999999999999` and move the
+`system`-context baseline off bit-identical).
+
+**D2 — apply it to size only, via per-child object scale.** All three size-bearing children are
+independent siblings under `rootGroup` — `mesh.object` (`SystemScene.tsx:205`), `line.object`
+(`:217`), `atm.object` (`:280`). Per frame write `object.scale.setScalar(systemToContextScale(ctx))`
+on each. This is allocation-free (matches `planet-mesh.ts:66`'s existing `setScalar`), and object
+`scale` is independent of object `position`, so it **cannot** disturb the render offset (which is
+a position, set via `setRenderOffset` at `:337`) — the offsets are already correct in every
+context (F2) and must stay untouched. **Never scale `rootGroup` itself** — that would scale the
+already-correct offsets too. The mesh's outer `object.scale` is currently unused (the build-time
+`setScalar` at `planet-mesh.ts:66` is on the inner `sphereMesh`), so the outer-object write
+compounds cleanly: `scaleUnits × systemToContext`.
+
+**D3 — draw correctly, do not add a visibility gate.** The Goal ("true angular size in *every*
+scale context") already answers the stub's open question: scale correctly and let it be sub-pixel
+outside `system`. A `visible = ctx === 'system'` gate is rejected — it hard-codes a policy the
+tour/preview/probe callers (the only things that reach this path, F5) may need to lift, and the
+~30 draw calls are paid *only* by a caller that deliberately mounts a system off-context. If a
+zero-pixel cull is wanted later it belongs in a separate task, gated on projected size, not on
+context id.
+
+## Frozen surface — do not touch
+
+The executor will be tempted by each of these; none is the fix.
+
+- **The AU bake.** `contextUnitMeters: AU_METERS` (`SystemScene.tsx:194`) and
+  `atmosphereRadiusUnits = radiusKm*1000 / AU_METERS` (`:234-235`). Geometry is baked **once**
+  in system units at build; the per-frame scale (D2) corrects for context. Do not change the bake
+  to active-context units — that recomputes geometry per context and defeats the build-once model.
+- **The render offsets.** `origin.toRenderSpace(...)` → `mesh.setRenderOffset(...)`
+  (`SystemScene.tsx:333-337`). Already correct in every context (F2). The scale is size-only.
+- **`rootGroup.scale`.** Scaling the group scales the offsets too (D2). Scale the children.
+- **`pcScales` / `PcScales` in `context-scale.ts`.** Add `systemToContextScale` alongside it;
+  do not repurpose the galaxy-anchored one.
 
 ## Out of scope
 
@@ -77,12 +121,21 @@ policy the tour/preview work may need to lift. Decide before implementing.
 - The point renderers (TASK-081), the impostor (TASK-082), the pick path (TASK-083).
 - The camera clip planes — shared with the planet meshes, which write depth.
 
-## Acceptance gate (draft)
+## Acceptance gate
 
 1. `pnpm verify` exits 0.
 2. `pnpm test:e2e` exits 0. **`m3` must stay green**: `M3App` no longer mounts the system
-   outside `system` context, so this task must not change the m3 numbers at all — if
-   `enterSystemDelta` moves off ~0.001, something else changed.
-3. A measurement, not an assertion: mount a system from galaxy context (a temporary probe is
-   fine) and show the body's projected diameter matches `2*r/d` within a few percent, where
-   both are read from the app — not recomputed in the test (CLAUDE.md testing rule 1).
+   outside `system` context (`M3App.tsx:122` returns `null` when `mountedSystemId === null`),
+   so this task must not change the m3 numbers at all — if `enterSystemDelta` moves off ~0.001,
+   something else changed.
+3. A measurement, not an assertion. Mount a system from **galaxy** context (a probe or a
+   `__cosmosDev` hook is fine — name it in the spec's NOTES) and, reading both quantities from
+   the app via `window.__cosmos` (`projectToScreen` for the body center + limb; never recompute
+   the projection in the test — CLAUDE.md testing rule 1):
+   - assert the projected diameter equals `2*r/d` (r = body radius, d = camera→body distance,
+     both read from the app) within **±5%**;
+   - **log the chosen input and both measured quantities** (context id, body id, r, d, measured
+     px, expected px) so a CI-only failure is triagable from logs alone (CLAUDE.md testing rule 6).
+   - **Guard against the trivial pass** (memory *verify-render-before-perf*): also assert the
+     same body's projected diameter in `system` context is bit-identical to today — the fix must
+     move the galaxy-context size **without** moving the system-context one.
