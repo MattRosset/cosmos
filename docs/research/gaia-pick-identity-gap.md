@@ -118,6 +118,33 @@ VERIFIED: 2026-07-27
 RECHECK:  timing loop in console (see Q3 measurement in transcript).
 ```
 
+```
+CLAIM:    Gaia IS rendered directly — the streamed combined source loads and draws the
+          Gaia octree tile. Near Sol the app fetches `octree-gaia-sample/tiles/0_0.bin`
+          (200), i.e. the 135-star Gaia sample is decoded + mounted alongside the HYG
+          octree tiles. So "rendered" and "pickable" diverge: Gaia renders, but is unpicked.
+          Caveat: the DEFAULT pack is the 135-star sample (packs.ts:26); the dense visible
+          galaxy is procgen, not real Gaia. renderedPoints (≈1.11M) counts octree+procgen
+          visible chunks together (policy.ts:752-761), so it is NOT a Gaia count.
+EVIDENCE: CDP network log shows GET .../octree-gaia-sample/tiles/0_0.bin → 200 and
+          .../octree/tiles/{0_0,1_0..1_7}.bin → 200. Code: StarApp.tsx:170
+          (octreeCombined = combineOctreeSources([octree, gaiaOctree])), :239 (fed to
+          streaming). Gaia sample manifest sums to 135 star pointCount.
+VERIFIED: 2026-07-27
+RECHECK:  DevTools/CDP Network filtered to "octree" after load near Sol → expect a
+          `octree-gaia-sample/tiles/*.bin` 200. NOTE: the main-thread
+          `performance.getEntriesByType('resource')` does NOT show these — octree tiles
+          are fetched in the decode WORKER (cosmos.worker.ts), invisible to the main
+          thread. Use CDP/DevTools network, not the Performance resource API.
+```
+
+> **Measurement-artifact correction (honesty, rule 4):** a first pass read tile fetches
+> via `performance.getEntriesByType('resource')` on the main thread and saw ZERO Gaia
+> tiles — nearly minting a false "Gaia is not rendered" claim. The octree decode runs in
+> a Web Worker, whose `fetch`es do not appear in the main-thread resource timeline. The
+> CDP network log (which does see worker traffic) shows the Gaia tile loading. The claim
+> above is from the CDP measurement; the resource-API reading was discarded as an artifact.
+
 ## Step 5 — What I looked for and did NOT find (verified absences)
 
 - **No octree-stream pick path.** No `Raycaster`, `intersectObject`, `pickStar`, or
