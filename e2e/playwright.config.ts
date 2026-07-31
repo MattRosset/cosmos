@@ -4,7 +4,16 @@ const CI = !!process.env['CI'];
 
 export default defineConfig({
   testDir: './tests',
-  timeout: 60_000,
+  // Per-test budget MUST exceed the sum of the internal waits a descent spec contains:
+  // waitReady (up to 30 s) THEN waitForFunction(__m3Result) (RESULT_TIMEOUT_MS = 60 s) —
+  // up to 90 s. At the old 60 s the test-level timeout fired first, so the descent's own
+  // 60 s allowance was dead code: on the slow 2-vCPU software-GL runner the descent (its
+  // pace is coupled to streaming load speed) + ready-wait exceeded 60 s and timed out mid-
+  // flight (m4a "budgets hold" flake on the merge to main), while it finishes in ~28 s on
+  // discrete-GPU dev. 120 s = 90 s of declared internal budget + headroom. This is a
+  // ceiling, not a wait: passing specs still finish in ~30 s, so job wall-clock is
+  // unchanged; only a genuinely hung test now costs 120 s instead of 60 s before failing.
+  timeout: 120_000,
   reporter: CI ? [['html', { outputFolder: 'playwright-report', open: 'never' }]] : 'list',
   // Serial on CI — NOT for perf accuracy (perf gates now run reference-only, @perf /
   // !process.env.CI). The 2-vCPU runner can't run the heavy WebGL specs (flythrough3,

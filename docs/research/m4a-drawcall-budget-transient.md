@@ -88,6 +88,28 @@ true, but it overrides a deliberate design choice (show one extra chunk rather t
 transient hole), worsens the visuals during loads for a 0.3 % work difference, and edits a
 perf-critical path (BUG-10). Letting a test dictate a worse product behavior is backwards.
 
+## Second, independent flake on the same test — descent timeout (initially misattributed)
+
+The m4a "budgets hold" test carries a SECOND flake that CI actually blocked on: the
+descent `waitForFunction(__m3Result)` timing out. It was initially misread as the draw-call
+failure — the draw-call 301 is a *fast-GPU-only* manifestation (dev completes the descent,
+then fails the assertion), whereas on CI the descent never finishes, so it never reaches the
+assertion. Corrected by reading the CI logs: `Test timeout of 60000ms exceeded` at the
+`__m3Result` wait, not the draw-call `expect`.
+
+Mechanism: the per-test budget was `timeout: 60_000`, but each descent spec runs `waitReady`
+(up to 30 s) **then** `waitForFunction(__m3Result)` (`RESULT_TIMEOUT_MS = 60_000`) — up to
+90 s of internal waits inside a 60 s test. The internal descent allowance was dead code; the
+test-level cap fired first. The descent's pace is coupled to streaming load speed, so on the
+slow 2-vCPU software-GL runner it exceeds 60 s and times out mid-flight (≈28 s on
+discrete-GPU dev; passed on #33–#37 when the runner was fast enough). 9 specs share this
+pattern.
+
+Fix: raise the per-test `timeout` to `120_000` (90 s of declared internal budget + headroom)
+in `e2e/playwright.config.ts`. Not coping (no retries): it makes the total budget consistent
+with the internal budgets it contains. A ceiling, not a wait — passing specs still finish in
+~30 s, so job wall-clock is unchanged.
+
 ## What would have caught this earlier
 
 Gating the **peak of a per-frame sample** is inherently frame-rate-coupled; any such gate
