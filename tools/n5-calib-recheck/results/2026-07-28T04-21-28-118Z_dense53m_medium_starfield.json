@@ -1,0 +1,55 @@
+{
+  "href": "http://localhost:5174/?n5hold=1&tier=medium",
+  "buffer": [
+    1620,
+    1012
+  ],
+  "dpr": 2,
+  "live": {
+    "phase": "done"
+  },
+  "hold": {
+    "tier": "medium",
+    "context": "galaxy",
+    "camPc": 0.0603,
+    "camM": 1861000000000000,
+    "scenePoints": 0,
+    "streamedPoints": 1008192,
+    "loadedChunks": 1268,
+    "drawCalls": 0,
+    "gpu": {
+      "n": 151,
+      "p50": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "supported": true,
+    "via": "breadcrumb-enterGalaxy"
+  },
+  "camera": {
+    "context": "galaxy",
+    "local": [
+      0,
+      0,
+      0.06032407557475071
+    ]
+  },
+  "streaming": {
+    "inFlight": 0,
+    "loadedChunks": 1268,
+    "renderedPoints": 1008192,
+    "drawCalls": 2,
+    "cutSize": 1094,
+    "pendingCount": 0,
+    "trackedChunks": 1268,
+    "evictionsTotal": 170,
+    "phaseMs": {
+      "select": 0.30000007152557373,
+      "cancelRequest": 0,
+      "coverage": 0,
+      "enforce": 6.299999952316284,
+      "evictFadeVisible": 0,
+      "total": 6.600000023841858
+    }
+  }
+}

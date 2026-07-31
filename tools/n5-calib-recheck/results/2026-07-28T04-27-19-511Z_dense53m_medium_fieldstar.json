@@ -1,0 +1,35 @@
+{
+  "href": "http://localhost:5174/?debug=flythrough4&hold=1&tier=medium",
+  "buffer": [
+    1620,
+    1012
+  ],
+  "dpr": 2,
+  "live": {
+    "phase": "hold-done",
+    "segment": "hyg:2",
+    "switchCount": 1
+  },
+  "hold": {
+    "tier": "medium",
+    "context": "galaxy",
+    "targetStarId": "hyg:2",
+    "targetDistPc": 47.962,
+    "camPc": 47.9613,
+    "camM": 1480000000000000000,
+    "scenePoints": 8763,
+    "streamedPoints": 1008192,
+    "loadedChunks": 1268,
+    "coverage": 1,
+    "procgenOpacity": 0,
+    "drawCalls": 5,
+    "gpu": {
+      "n": 149,
+      "p50": 0.2,
+      "p95": 0.229,
+      "max": 1.615
+    },
+    "supported": true
+  },
+  "gpu": null
+}

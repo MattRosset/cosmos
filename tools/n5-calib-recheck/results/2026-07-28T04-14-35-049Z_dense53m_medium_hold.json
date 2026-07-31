@@ -1,0 +1,32 @@
+{
+  "href": "http://localhost:5174/?debug=flythrough4&tier=medium&hold=1",
+  "buffer": [
+    1620,
+    1012
+  ],
+  "dpr": 2,
+  "live": {
+    "phase": "hold-done",
+    "segment": "hold",
+    "switchCount": 1
+  },
+  "result": null,
+  "gpu": null,
+  "hold": {
+    "tier": "medium",
+    "context": "galaxy",
+    "scenePoints": 8763,
+    "streamedPoints": 1008192,
+    "loadedChunks": 1268,
+    "coverage": 1,
+    "procgenOpacity": 0,
+    "drawCalls": 35,
+    "gpu": {
+      "n": 388,
+      "p50": 0.345,
+      "p95": 0.365,
+      "max": 1.41
+    },
+    "supported": true
+  }
+}
