@@ -248,6 +248,44 @@ describe('budget degradation (§9)', () => {
     expect(ctx.policy.visible.length).toBeGreaterThan(0);
     expect(ctx.policy.nearestBodyDistanceM).toBeLessThan(Infinity);
   });
+
+  // The DETERMINISTIC draw-call invariant. `enforceBudgets` collapses over-budget
+  // covered nodes into their coarser parents "until within budget" — but only into a
+  // parent that is already `ready`; when a parent is still loading it keeps the child
+  // ("not collapsible — keep child", policy.ts), so the cut can transiently sit at
+  // budget+K mid-flight while parents stream in. That transient is by design (a coarse
+  // hole would be worse than one extra chunk) and is exactly what makes the m4a e2e's
+  // PEAK-over-a-descent draw-call reading machine-dependent: a faster GPU samples more
+  // frames and is likelier to catch the transient (docs/research/
+  // m4a-drawcall-budget-transient.md). This test pins the invariant the budget actually
+  // guarantees — once every parent is `ready`, the collapse is unobstructed and the cap
+  // holds EXACTLY — with zero WebGL and zero frame-timing dependence.
+  it('collapses draw calls to ≤ maxDrawCalls once every parent is ready (steady-state invariant)', async () => {
+    const DRAW_CAP = 24;
+    const cam: [number, number, number] = [10, 10, 30];
+
+    // Baseline: the same settled cut under the default budget renders far more than
+    // DRAW_CAP chunks — so the cap below has real collapsing to do (guards a trivial
+    // pass where the fixture simply never exceeds the cap).
+    const wide = await makeCtx({ fixture: dense, start: [0, 0, 100000], policy: {} });
+    await settle(wide, cam, { frames: 26 });
+    expect(wide.policy.stats.drawCalls).toBeGreaterThan(DRAW_CAP);
+
+    // Under a tight draw-call budget, the fully-settled cut collapses to ≤ DRAW_CAP —
+    // deterministically, with no "parent not ready" residue, because settle() flushed
+    // every ancestor to `ready`.
+    const ctx = await makeCtx({
+      fixture: dense,
+      start: [0, 0, 100000],
+      policy: { budgets: { maxDrawCalls: DRAW_CAP } },
+    });
+    await settle(ctx, cam, { frames: 26 });
+
+    expect(ctx.policy.stats.drawCalls).toBeLessThanOrEqual(DRAW_CAP);
+    // Degraded, not dropped: the camera's region is still covered.
+    expect(ctx.policy.visible.length).toBeGreaterThan(0);
+    expect(ctx.policy.nearestBodyDistanceM).toBeLessThan(Infinity);
+  });
 });
 
 // ===========================================================================
