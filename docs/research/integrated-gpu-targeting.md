@@ -183,6 +183,13 @@ This calibrates: does the M1 hit ≤16/≤33 ms at `high`? If not, at which tier
 
 ### 5.4 M1 result — measured 2026-07-27 (N5, this repo's target hardware)
 
+> **⚠️ Corrected 2026-07-31 — this run used the 135-star Gaia SAMPLE, not the dense pack.**
+> The dev server was started without `VITE_GAIA_OCTREE_MANIFEST_URL`, so the octree fell back
+> to `/packs/octree-gaia-sample/` (135 stars). These numbers are therefore valid for the
+> **procgen universe cost** (which dominates `toGalaxy` and is Gaia-independent) but the
+> near-Sol / starfield figures below UNDER-count real Gaia geometry. See **§5.5** for the
+> dense-pack (4.63M) recheck. Verdict is unchanged and reinforced.
+
  Run: Apple M1, Chromium/ANGLE Metal, `devicePixelRatio = 2`, `?debug=flythrough4&tier={high|medium|low}`
 (the probe app hardcodes `low`; a temp `?tier=` param + the §5.2 timer-query instrument were
 applied for this run and reverted). Universe segment `toGalaxy` (full procgen cloud) is the worst
@@ -213,6 +220,52 @@ the §5.2 caveat): the timer query serialises the pipeline, so treat absolute ms
 order-of-magnitude; the cross-tier ordering and the high-blows-budget / medium-clears-budget
 conclusion are robust (high's tail is far enough over budget that serialisation inflation cannot
 flip it). `low`'s Retina cap (open note in §7) is moot for the floor — `medium` already clears.
+
+### 5.5 Dense-pack recheck — measured 2026-07-31 (4.63M Gaia, this M1)
+
+§5.4 ran on the 135-star sample. This recheck re-ran with the **dense Gaia pack**
+(`VITE_GAIA_OCTREE_MANIFEST_URL=/packs/octree-gaia/octree.json`, 1267 tiles / 5.34M points;
+1268 tiles resident, `coverage=1`). Full writeup + falsifiable claims:
+`n5-calibration-gaia-recheck.md`; harness + raw results: `tools/n5-calib-recheck/`.
+
+**(a) Flythrough, dense pack** (in-app pane, fullscreen 1440×900 — see the viewport caveat below):
+the dense catalog changes what `high` draws, not what `medium`/`low` draw (their point cap holds):
+
+| Seg | high pts / GPU p95·max | medium pts / GPU p95·max | low pts / GPU p95·max |
+|---|---|---|---|
+| `toGalaxy` (universe) | 1.37M / **48.4·61.4** | 259k / 9.8·11.7 | 99k / 6.5·8.0 |
+| `toSol` (near-Sol transit) | **2.02M / 29.0·32.4** | 259k / 4.0·4.8 | 99k / 1.8·2.6 |
+
+vs the sample's `high` `toSol` 15.7·22.5 — the dense pack roughly doubles near-Sol `high` cost
+(2.0M drawn pts). `medium`/`low` are unchanged (point-capped → **pack-independent**).
+
+**(b) Starfield steady-state** — the "where the most real stars render" measurement (**Playwright
+harness, headed Chromium/Metal, fixed 1440×900 viewport, no resize** → trustworthy full-frame).
+Camera parked 2.4 pc from Sol in **galaxy context** (starfield — never enters the solar system),
+octree fully streamed (`procgenOpacity=0`, all 1268 tiles resident):
+
+| Tier | Real stars drawn | GPU p50 / p95 / max (ms) |
+|---|---|---|
+| **high**   | **894,849** | 1.46 / 1.58 / 2.14 |
+| **medium** | 8,763 | 0.29 / 0.89 / 1.35 |
+| **low**    | 8,763 | 0.17 / 0.18 / 1.00 |
+
+**The real Gaia starfield is cheap at every tier** — even `high` drawing ~895k real star points
+at fullscreen Retina costs ~1.6 ms p95. The expensive part of the app is the **procgen universe
+cloud** (§5.4/§5.5a `toGalaxy`), *not* the streamed stars: §5.4's ~1.11M "worst case" was the
+procgen cloud, and the dense Gaia geometry parked in the field is ~20–30× cheaper than that.
+
+**Viewport caveat (methodology):** driving the in-app browser pane and resizing it *after* the
+R3F app mounts leaves the renderer sized for the old pane, so `gl.render` fills only a top-left
+corner of the buffer (`GL_VIEWPORT` full, but the manual render viewport stale) — under-counting
+fill. The fix used for (b): the harness sizes the window **at launch** and never resizes, so the
+render fills the whole 2880×1800 buffer (confirmed by the saved screenshot). Treat (a)'s in-pane
+fill numbers as indicative; (b)'s harness numbers are authoritative.
+
+**Verdict (reinforced):** TASK-072's `medium` boot floor stands. `high` blows the budget harder
+with the dense pack (near-Sol 2.0M pts, p95 29 ms; universe p95 48 ms); `medium` clears every
+segment including the dense starfield, and is **pack-independent** by construction (its point cap
+bounds draw work regardless of catalog size). No tier-table retune needed.
 
 ## 6. Reference numbers (AMD RX 9070 XT, 2026-06-28 — high-end baseline, NOT the target)
 
