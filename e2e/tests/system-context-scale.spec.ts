@@ -197,13 +197,20 @@ test.describe('TASK-084 — SystemScene bodies are context-scaled', () => {
     await waitReady(page);
     await waitDescentDone(page);
 
-    // `contextId`/`goToActive` are mirrored onto `window.__cosmos` from a 250ms timer
-    // (apps/web/src/glue/time.ts), not per-frame — give it a beat to catch the settled
-    // system-context arrival before reading the sampler's result.
+    // Wait on the sampler's REAL captured state, not a proxy for it. The mirrored
+    // `contextId`/`goToActive` flags (apps/web/src/glue/time.ts) flip at goTo arrival,
+    // but the system sample additionally needs `__cosmos.systemBody('sol:earth')`
+    // non-null — which only becomes true once SystemScene's ASYNC texture build
+    // resolves and sets `systemFeed.active`/`systemPickGroup` (SystemScene.tsx). Gating
+    // on the flags let `evaluate` read `store.system === null` in the window before that
+    // async build finished (the merge-to-main flake: 52 passed / 1 failed, byte-identical
+    // app code to the passing PR head). Gate on the captured samples directly instead —
+    // CLAUDE.md testing rule 1: query real state, never a proxy. Root cause:
+    // docs/research/system-context-scale-system-sample-flake.md.
     await page.waitForFunction(
-      () => window.__cosmos?.contextId === 'system' && window.__cosmos?.goToActive === false,
+      () => window.__task084?.galaxy != null && window.__task084?.system != null,
       undefined,
-      { timeout: 5_000 },
+      { timeout: 10_000 },
     );
 
     const result = await page.evaluate(() => window.__task084!);
