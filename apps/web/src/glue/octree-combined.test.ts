@@ -260,9 +260,88 @@ describe('combineOctreeSources push-down (BUG-8)', () => {
     expect(countInIdRange(loaded, 1000, 1003)).toBe(4);
   });
 
-  it('single source is a pass-through', () => {
+  it('single source is a faithful delegating wrapper (not the bare source)', async () => {
+    // TASK-087 D2: the single-source path is now WRAPPED (not `return sources[0]`) so a
+    // consumer (Task B) never gets an OctreeSource lacking `prefixRangesFor`. It must still
+    // delegate getNode/loadTile to the wrapped source unchanged.
     const { shallow } = buildPair();
-    expect(combineOctreeSources([shallow])).toBe(shallow);
+    const combined = combineOctreeSources([shallow]);
+    expect(combined).not.toBe(shallow); // wrapped, not identity
+    expect(combined.idPrefix).toBe(shallow.idPrefix);
+    expect(combined.getNode(L1)).toBe(shallow.getNode(L1));
+
+    const direct = await shallow.loadTile(L1);
+    const viaCombined = await combined.loadTile(L1);
+    expect(viaCombined.count).toBe(direct.count);
+    for (let i = 0; i < direct.count; i++) {
+      expect(viaCombined.catalogIds[i]).toBe(direct.catalogIds[i]);
+    }
+  });
+});
+
+/**
+ * TASK-087 D2: combined-tile idPrefix provenance. `concatBatches` collapses a mixed tile's
+ * `batch.idPrefix` to the first source, so it can no longer say which source a star came
+ * from. `prefixRangesFor(key)` restores that: after loadTile, it returns per-source ranges
+ * over the concatenated batch in concat order. THIS TEST IS THE CONTRACT Task B consumes —
+ * B maps a picked concatenated index → the range containing it → (for `gaia`) the DR3
+ * identity via the D1 sidecar. Nothing reads it yet (docs/research/gaia-pick-identity-gap.md).
+ *
+ * Fixture: the level-2 push-down cut from buildPair — each cut cell is MIXED (one pushed
+ * shallow `hyg` point id 1000+i AND one owned deep `gaia` point id i+1), so it exercises the
+ * multi-source concat path that collapses idPrefix.
+ */
+describe('combineOctreeSources prefixRangesFor provenance (TASK-087 D2)', () => {
+  it('mixed cut tile: ranges cover [0,count) with no gap/overlap and correct per-source prefix', async () => {
+    const { shallow, deep } = buildPair();
+    const combined = combineOctreeSources([shallow, deep]);
+    const cut = cutKeys(combined, 2);
+    expect(cut.length).toBeGreaterThan(0);
+
+    for (const key of cut) {
+      const batch = await combined.loadTile(key);
+      const ranges = combined.prefixRangesFor(key);
+      expect(batch.count).toBe(2); // 1 hyg (pushed) + 1 gaia (owned) per level-2 cell
+
+      // (a) exact cover of [0, count): contiguous, starts at 0, sums to count, no overlap.
+      let expectedOffset = 0;
+      for (const r of ranges) {
+        expect(r.offset).toBe(expectedOffset);
+        expectedOffset += r.count;
+      }
+      expect(expectedOffset).toBe(batch.count);
+
+      // (b) each range tagged with the contributing source's idPrefix (order = concat order
+      //     = sources order = [hyg, gaia]).
+      expect(ranges.map((r) => r.idPrefix)).toEqual(['hyg', 'gaia']);
+
+      // (c) a known concatenated index falls in the range whose idPrefix matches its origin:
+      //     hyg ids are 1000..1003, gaia ids are 1..4.
+      for (let i = 0; i < batch.count; i++) {
+        const id = batch.catalogIds[i]!;
+        const owner = ranges.find((r) => i >= r.offset && i < r.offset + r.count)!;
+        const expectedPrefix = id >= 1000 ? 'hyg' : 'gaia';
+        // Log the measured (index → prefix, id) so a CI-only failure is triagable (rule 6).
+        // eslint-disable-next-line no-console
+        console.log(`D2 ${key}: idx ${i} id ${id} → ${owner.idPrefix} (expect ${expectedPrefix})`);
+        expect(owner.idPrefix).toBe(expectedPrefix);
+      }
+    }
+  });
+
+  it('is empty for a key before it is loaded', () => {
+    const { shallow, deep } = buildPair();
+    const combined = combineOctreeSources([shallow, deep]);
+    expect(combined.prefixRangesFor(cutKeys(combined, 2)[0]!)).toEqual([]);
+  });
+
+  it('single-source wrapper exposes one full-width range with the source prefix', async () => {
+    const { shallow } = buildPair();
+    const combined = combineOctreeSources([shallow]);
+    const batch = await combined.loadTile(L1); // shallow's leaf: 4 points
+    const ranges = combined.prefixRangesFor(L1);
+    expect(ranges).toEqual([{ offset: 0, count: batch.count, idPrefix: 'hyg' }]);
+    expect(batch.count).toBe(4);
   });
 });
 

@@ -89,7 +89,9 @@ export function ErrorGateApp({ inject }: { inject: boolean }): React.JSX.Element
       ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
         if (cancelled) return;
         const combined = createCombinedSource(stars, [sol, exo]);
-        let octreeCombined = combineOctreeSources([octree, gaiaOctree]);
+        // Typed as the base OctreeSource: the app doesn't consume prefixRangesFor (that's
+        // Task B), and injectOctreeFault returns a bare OctreeSource (TASK-087 D2).
+        let octreeCombined: OctreeSource = combineOctreeSources([octree, gaiaOctree]);
         if (inject) octreeCombined = injectOctreeFault(octreeCombined);
         const overlay = buildOverlayData(constellationPack, stars);
         setPack({
