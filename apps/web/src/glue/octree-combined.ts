@@ -17,6 +17,34 @@ import { decodeMortonKey, encodeMortonKey, parentCell } from '@cosmos/core-types
 import type { OctreeNode, OctreeSource } from '@cosmos/data';
 import { assertInvariant } from '@cosmos/diagnostics';
 
+/**
+ * Per-source provenance for a slice of a concatenated combined tile (TASK-087 D2). A
+ * merged tile's `batch.idPrefix` collapses to `batches[0]` (below), so it cannot say which
+ * source a given star came from. `PrefixRange` restores that: `[offset, offset+count)` of
+ * the concatenated batch all originate from `idPrefix`. Task B (octree-stream pick) maps a
+ * picked concatenated index to the range that contains it, then to the DR3 identity via the
+ * D1 sidecar. There is no live consumer today (docs/research/gaia-pick-identity-gap.md).
+ */
+export interface PrefixRange {
+  readonly offset: number;
+  readonly count: number;
+  readonly idPrefix: string;
+}
+
+/**
+ * A combined source that also exposes per-source provenance for the last-loaded batch of a
+ * key (TASK-087 D2). A widening of `OctreeSource` (additive — existing callers typing the
+ * return as `OctreeSource`, e.g. packs.ts, are unaffected). Kept out of the frozen
+ * `OctreeSource` base and `StarBatch` deliberately (the reframe deferred base-surface
+ * changes to Task B).
+ */
+export interface CombinedOctreeSource extends OctreeSource {
+  /** Per-source provenance for the last-loaded batch of `key`, in concatenated order.
+   *  Empty until that key has been loaded. Task B: for a mixed tile use THIS, not
+   *  batch.idPrefix (which stays batches[0] and is not authoritative for mixed tiles). */
+  prefixRangesFor(key: MortonKey): readonly PrefixRange[];
+}
+
 /** Per-source outcome of loading one combined cut tile — the input to the BUG-8
  *  post-condition (TASK-058). */
 export interface TileContribution {
@@ -155,23 +183,35 @@ function pushDownToCell(
   };
 }
 
-/** Concatenate decoded tile batches that share an origin into one batch. Empty
- *  parts (a push-down that re-homed zero points) are dropped first so they neither
- *  allocate nor disturb the shared `originPc`. */
-function concatBatches(input: readonly StarBatch[]): StarBatch {
+/** Concatenate decoded tile batches that share an origin into one batch, and emit the
+ *  per-source `PrefixRange[]` (concatenated order) alongside it (TASK-087 D2 — provenance
+ *  the collapsed `batch.idPrefix` can no longer carry). Empty parts (a push-down that
+ *  re-homed zero points) are dropped first so they neither allocate nor disturb the shared
+ *  `originPc`, and so contribute no range. Ranges are derived in the SAME loop that copies
+ *  — never parallel-computed (TASK-069 drift failure mode). */
+function concatBatches(input: readonly StarBatch[]): {
+  batch: StarBatch;
+  ranges: readonly PrefixRange[];
+} {
   const batches = input.filter((b) => b.count > 0);
-  if (batches.length === 1) return batches[0]!;
+  if (batches.length === 1) {
+    const only = batches[0]!;
+    return { batch: only, ranges: [{ offset: 0, count: only.count, idPrefix: only.idPrefix }] };
+  }
   if (batches.length === 0) {
     const head = input[0]!; // ≥1 part always passed in; keep its origin/prefix for the empty result.
     return {
-      count: 0,
-      originPc: head.originPc,
-      positionsPc: new Float32Array(0),
-      absMag: new Float32Array(0),
-      colorIndexBV: new Float32Array(0),
-      catalogIds: new Uint32Array(0),
-      hipIds: new Uint32Array(0),
-      idPrefix: head.idPrefix,
+      batch: {
+        count: 0,
+        originPc: head.originPc,
+        positionsPc: new Float32Array(0),
+        absMag: new Float32Array(0),
+        colorIndexBV: new Float32Array(0),
+        catalogIds: new Uint32Array(0),
+        hipIds: new Uint32Array(0),
+        idPrefix: head.idPrefix,
+      },
+      ranges: [], // zero-width — no provenance to carry.
     };
   }
   let count = 0;
@@ -181,6 +221,7 @@ function concatBatches(input: readonly StarBatch[]): StarBatch {
   const colorIndexBV = new Float32Array(count);
   const catalogIds = new Uint32Array(count);
   const hipIds = new Uint32Array(count);
+  const ranges: PrefixRange[] = [];
   let p = 0;
   for (const b of batches) {
     positionsPc.set(b.positionsPc.subarray(0, b.count * 3), p * 3);
@@ -188,17 +229,24 @@ function concatBatches(input: readonly StarBatch[]): StarBatch {
     colorIndexBV.set(b.colorIndexBV.subarray(0, b.count), p);
     catalogIds.set(b.catalogIds.subarray(0, b.count), p);
     hipIds.set(b.hipIds.subarray(0, b.count), p);
+    ranges.push({ offset: p, count: b.count, idPrefix: b.idPrefix }); // post-filter count
     p += b.count;
   }
   return {
-    count,
-    originPc: batches[0]!.originPc,
-    positionsPc,
-    absMag,
-    colorIndexBV,
-    catalogIds,
-    hipIds,
-    idPrefix: batches[0]!.idPrefix,
+    batch: {
+      count,
+      originPc: batches[0]!.originPc,
+      positionsPc,
+      absMag,
+      colorIndexBV,
+      catalogIds,
+      hipIds,
+      // NOT authoritative for a mixed tile — collapses to the first source. Nothing reads
+      // it (docs/research/gaia-pick-identity-gap.md); mixed-tile provenance is `ranges`
+      // exposed via CombinedOctreeSource.prefixRangesFor (TASK-087 D2).
+      idPrefix: batches[0]!.idPrefix,
+    },
+    ranges,
   };
 }
 
@@ -206,9 +254,30 @@ function concatBatches(input: readonly StarBatch[]): StarBatch {
  * Combine ≥ 1 octree sources sharing a frame into one. With a single source this is a
  * pass-through (the HYG-only / debug paths); with two it presents the unified tree.
  */
-export function combineOctreeSources(sources: readonly OctreeSource[]): OctreeSource {
+export function combineOctreeSources(sources: readonly OctreeSource[]): CombinedOctreeSource {
   if (sources.length === 0) throw new Error('combineOctreeSources: no sources');
-  if (sources.length === 1) return sources[0]!;
+  if (sources.length === 1) {
+    // Wrap (not return bare) so B never receives an OctreeSource lacking prefixRangesFor
+    // (TASK-087 D2). Delegates faithfully; provenance is one full-width range per loaded key.
+    const source = sources[0]!;
+    const singleRanges = new Map<MortonKey, readonly PrefixRange[]>();
+    return {
+      root: source.root,
+      context: source.context,
+      rootHalfExtentUnits: source.rootHalfExtentUnits,
+      idPrefix: source.idPrefix,
+      getNode: (key) => source.getNode(key),
+      async loadTile(key: MortonKey, opts?: { readonly signal?: AbortSignal }): Promise<StarBatch> {
+        const batch = await source.loadTile(key, opts);
+        singleRanges.set(
+          key,
+          batch.count > 0 ? [{ offset: 0, count: batch.count, idPrefix: source.idPrefix }] : [],
+        );
+        return batch;
+      },
+      prefixRangesFor: (key) => singleRanges.get(key) ?? [],
+    };
+  }
 
   const head = sources[0]!;
   for (const s of sources) {
@@ -266,12 +335,17 @@ export function combineOctreeSources(sources: readonly OctreeSource[]): OctreeSo
   const root = getNode(head.root.key);
   if (root === undefined) throw new Error('combineOctreeSources: missing shared root');
 
+  // Per-source provenance for the last-loaded batch of each key (TASK-087 D2). Populated
+  // inside loadTile; read via prefixRangesFor. Empty until a key is loaded.
+  const prefixRanges = new Map<MortonKey, readonly PrefixRange[]>();
+
   return {
     root,
     context: head.context as OctreeManifest['context'],
     rootHalfExtentUnits: head.rootHalfExtentUnits,
     idPrefix: head.idPrefix,
     getNode,
+    prefixRangesFor: (key) => prefixRanges.get(key) ?? [],
     async loadTile(key: MortonKey, opts?: { readonly signal?: AbortSignal }): Promise<StarBatch> {
       const cutNode = getNode(key);
       if (cutNode === undefined) throw new Error(`combineOctreeSources: unknown key ${key}`);
@@ -307,7 +381,9 @@ export function combineOctreeSources(sources: readonly OctreeSource[]): OctreeSo
 
       const batches = contributions.map((c) => c.batch).filter((b): b is StarBatch => b !== null);
       if (batches.length === 0) throw new Error(`combineOctreeSources: unknown key ${key}`);
-      return concatBatches(batches);
+      const { batch, ranges } = concatBatches(batches);
+      prefixRanges.set(key, ranges);
+      return batch;
     },
   };
 }

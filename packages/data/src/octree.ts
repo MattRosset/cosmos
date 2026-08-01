@@ -43,7 +43,10 @@ export interface LoadOctreeOptions extends LoadOptions {
   readonly pool?: WorkerPool;
 }
 
-function resolveRelativeUrl(base: string, relative: string): string {
+/** Resolve `relative` against `base` (falls back to string splice for non-URL bases).
+ *  Exported for intra-package reuse (e.g. the Gaia sidecar resolver); NOT part of the
+ *  package's public `index.ts` surface. */
+export function resolveRelativeUrl(base: string, relative: string): string {
   try {
     return new URL(relative, base).href;
   } catch {
