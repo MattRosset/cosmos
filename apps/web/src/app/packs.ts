@@ -6,6 +6,7 @@ import type {
   OctreeSource,
 } from '@cosmos/data';
 import type { OverlayData } from '../glue/overlays';
+import type { CombinedOctreeSource } from '../glue/octree-combined';
 
 export const M3_SOL_SYSTEM_ID: BodyId = 'sol';
 
@@ -38,7 +39,7 @@ export interface Sources {
    * streaming policy so both catalogs share one cut + `catalogCoverage()`. Absent in
    * M1/M2/M3 debug modes (which keep the HYG-only octree to preserve their baselines).
    */
-  readonly octreeCombined?: OctreeSource;
+  readonly octreeCombined?: CombinedOctreeSource;
   /** Constellation lines + label candidates (M4a overlays); absent in older modes. */
   readonly overlay?: OverlayData;
 }

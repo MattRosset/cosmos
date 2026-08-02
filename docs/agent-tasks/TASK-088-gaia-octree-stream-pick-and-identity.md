@@ -306,11 +306,16 @@ places that actually mutate selection (`pickAt` / `__cosmos.pickAt` stay sync + 
 ### D5 — Re-type `packs.ts` + wire the props (StarApp, M4aApp)
 
 - `apps/web/src/app/packs.ts:41`: `readonly octreeCombined?: CombinedOctreeSource;` (import the
-  type from `../glue/octree-combined`). This is the frozen-in-087, B-owned re-type. Verify all
-  producers already assign a `CombinedOctreeSource` (they call `combineOctreeSources`, whose
-  return type is `CombinedOctreeSource`) — so no producer change is needed. `ErrorGateApp.tsx:94`
-  keeps its explicit `: OctreeSource` local annotation (it reassigns with `injectOctreeFault`,
-  TASK-087 JC-4) — leave it; it never feeds the pick.
+  type from `../glue/octree-combined`). This is the frozen-in-087, B-owned re-type. The four
+  streaming producers (StarApp, M4aApp, Soak4, Flythrough4) assign `combineOctreeSources(...)`
+  directly (return type `CombinedOctreeSource`) — no change needed.
+  **CORRECTION (impl 2026-08-01, NOTES JC-1):** `ErrorGateApp.tsx:94` CANNOT keep its
+  `: OctreeSource` local annotation once the field is `CombinedOctreeSource?` — it assigns that
+  local into `sources.octreeCombined`, so an `OctreeSource` value (no `prefixRangesFor`) fails
+  typecheck. The original D5 text ("leave it") was internally inconsistent with the re-type.
+  Fix: type the local `CombinedOctreeSource`, and change `injectOctreeFault` to preserve the
+  combined type by spreading (`{ ...source, loadTile }`) instead of rebuilding a bare
+  `OctreeSource`. ErrorGate still feeds no pick prop to StarScene.
 - Pass `octreeCombined={pack.sources.octreeCombined}` and `gaiaIds={gaiaIds}` to `<StarScene>`
   in **StarApp** (`StarApp.tsx:642`) and **M4aApp** (`M4aApp.tsx:224`) — the two apps that mount
   GalaxyScene + StarScene for the real experience.

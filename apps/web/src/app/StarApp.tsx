@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BodyId, UniversePosition } from '@cosmos/core-types';
 import { CONTEXT_UNIT_METERS } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
-import { loadStarPack, loadSystemsPack, loadOctreePack, loadConstellationPack, createCombinedSource } from '@cosmos/data';
+import { loadStarPack, loadSystemsPack, loadOctreePack, loadConstellationPack, createCombinedSource, loadGaiaSourceIds } from '@cosmos/data';
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { detectInitialTier, SceneHost, type QualityController } from '@cosmos/scene-host';
 import type { StreamingPolicy } from '@cosmos/streaming';
@@ -238,6 +238,10 @@ export function StarApp() {
     if (sources?.octreeCombined === undefined) return null;
     return createMilkyWayStreaming({ origin, octree: sources.octreeCombined, milkyWay });
   }, [origin, sources, milkyWay]);
+
+  // Gaia DR3 identity resolver, created once for the session (lazy single fetch on first
+  // resolve). Feeds StarScene's async pick upgrade (TASK-088 D4).
+  const gaiaIds = useMemo(() => loadGaiaSourceIds(GAIA_OCTREE_MANIFEST_URL), []);
 
   // Publish to the test-hook holder for the ≤ 4 Hz stats mirror. The policy lives
   // for the app session (like the module worker pool) — StarApp is the root and
@@ -646,6 +650,8 @@ export function StarApp() {
               controllerRef={controllerHolder}
               streaming={streaming ?? undefined}
               onActivate={handleGoTo}
+              octreeCombined={pack.sources.octreeCombined}
+              gaiaIds={gaiaIds}
             />
             {pack.sources.overlay ? (
               <Overlays

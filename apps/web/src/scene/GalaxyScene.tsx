@@ -29,6 +29,7 @@ import { profileSpan } from '../glue/frame-profiler';
 import { procgenOpacityHolder } from '../glue/test-hook';
 import { computeProcgenDrawFraction } from '../glue/procgen-draw-budget';
 import { pcScales } from '../glue/context-scale';
+import { octreePickHolder, type OctreePickMount } from '../glue/octree-pick-feed';
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -343,6 +344,12 @@ const posScratch: { context: ContextId; local: [number, number, number] } = {
 };
 const offScratch: [number, number, number] = [0, 0, 0];
 
+// Octree pick holder publishing (TASK-088 D2). `octreePickVisible` is the reused snapshot of
+// Mount refs published last frame; the frame loop rebuilds `octreePickHolder.current` (a fresh
+// `OctreePickMount[]`) ONLY when the visible-octree set differs from it — never allocating on an
+// unchanged frame (mirrors the imperative low-frequency-write discipline of the other feeds, §9).
+const octreePickVisible: Mount[] = [];
+
 export function GalaxyScene({ streaming, origin, controllerRef }: GalaxySceneProps) {
   const size = useThree((s) => s.size);
   const dpr = useThree((s) => s.viewport.dpr);
@@ -445,6 +452,9 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
       for (const m of mountList.current) m.dispose();
       mountList.current = [];
       mounts.current.clear();
+      // Drop the octree pick surface — no visible stream once this scene unmounts (TASK-088).
+      octreePickVisible.length = 0;
+      octreePickHolder.current = null;
     };
   }, [streaming, assets]);
 
@@ -608,6 +618,32 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
     const list = mountList.current;
     for (let i = 0; i < list.length; i++) {
       if (list[i]!.seen !== tick) list[i]!.hide();
+    }
+
+    // Publish the currently-visible octree mounts for the star pick (TASK-088 D2). Visible ⟺
+    // an octree mount on the cut this frame (`seen === tick`; procgen excluded — synthetic, no
+    // real catalogIds). Rebuild the holder only when this set changes vs. last frame, so an
+    // unchanged frame allocates nothing.
+    const vis = octreePickVisible;
+    let changed = false;
+    let n = 0;
+    for (let i = 0; i < list.length; i++) {
+      const m = list[i]!;
+      if (m.kind !== 'octree' || m.seen !== tick) continue;
+      if (n >= vis.length || vis[n] !== m) changed = true;
+      vis[n] = m;
+      n++;
+    }
+    if (n !== vis.length) changed = true;
+    vis.length = n;
+    if (changed) {
+      if (n === 0) {
+        octreePickHolder.current = null;
+      } else {
+        const next: OctreePickMount[] = new Array<OctreePickMount>(n);
+        for (let i = 0; i < n; i++) next[i] = { chunkId: vis[i]!.chunkId, batch: vis[i]!.batch };
+        octreePickHolder.current = next;
+      }
     }
     });
   }, PRIORITY_RENDER);

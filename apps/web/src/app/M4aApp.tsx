@@ -8,6 +8,7 @@ import {
   loadOctreePack,
   loadConstellationPack,
   createCombinedSource,
+  loadGaiaSourceIds,
 } from '@cosmos/data';
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { SceneHost, type QualityController } from '@cosmos/scene-host';
@@ -116,6 +117,9 @@ export function M4aApp() {
     if (sources?.octreeCombined === undefined) return null;
     return createMilkyWayStreaming({ origin, octree: sources.octreeCombined, milkyWay });
   }, [origin, sources, milkyWay]);
+
+  // Gaia DR3 identity resolver, created once (TASK-088 D4).
+  const gaiaIds = useMemo(() => loadGaiaSourceIds(GAIA_OCTREE_MANIFEST_URL), []);
 
   useEffect(() => {
     streamingHolder.current = streaming;
@@ -227,6 +231,8 @@ export function M4aApp() {
         origin={origin}
         controllerRef={controllerHolder}
         streaming={streaming}
+        octreeCombined={pack.sources.octreeCombined}
+        gaiaIds={gaiaIds}
       />
       {pack.sources.overlay ? (
         <Overlays
