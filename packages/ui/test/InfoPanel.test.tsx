@@ -395,3 +395,85 @@ describe('InfoPanel — galaxy display', () => {
     expect(screen.queryByText(/km/)).toBeNull();
   });
 });
+
+// ── TASK-089 additions: Gaia DR3 identity card ───────────────────────────────
+
+import type { GaiaCardView } from '../src/types';
+
+// A realistic Gaia DR3 star: source_id > 2^53 (19 digits).
+const GAIA_SOURCE_ID = 6827136600469308288n;
+const GAIA_VIEW: GaiaCardView = {
+  catalogId: 42,
+  sourceId: GAIA_SOURCE_ID,
+  positionPc: [200, 100, 50], // dist ≈ sqrt(200²+100²+50²) ≈ 229.1 pc
+  absMag: 4.2,
+  colorIndexBV: 0.65,
+};
+
+function makeGaiaAdapter(gaiaView: GaiaCardView | null): BodyLookupAdapter {
+  return {
+    search: vi.fn().mockReturnValue([]),
+    getBody: vi.fn().mockReturnValue(undefined),
+    getGaiaCard: vi.fn().mockReturnValue(gaiaView),
+  };
+}
+
+describe('InfoPanel — Gaia DR3 star card (TASK-089 D5)', () => {
+  it('renders the 19-digit source_id, ly distance, spectral class, visibility, and coordinates', () => {
+    useSelectionStore.setState({ selectedId: `gaia:${GAIA_SOURCE_ID.toString()}` });
+    const { container } = render(
+      <InfoPanel adapter={makeGaiaAdapter(GAIA_VIEW)} onGoTo={vi.fn()} />,
+    );
+
+    // aria-label for the Gaia card
+    expect(container.querySelector('[aria-label="Gaia star information"]')).not.toBeNull();
+
+    // Heading
+    expect(screen.getByText('Gaia DR3 star')).not.toBeNull();
+
+    // 19-digit source_id (grouped with spaces, matching the render format)
+    const fullText = container.textContent ?? '';
+    expect(fullText).toContain('6827136600469308288'.replace(/(\d)(?=(\d{4})+$)/g, '$1 '));
+
+    // Distance in ly: sqrt(200²+100²+50²) ≈ 229.1 pc → ≈ 747 ly
+    const distEl = container.querySelector('.cosmos-ui-info-distance')!;
+    expect(distEl.textContent).toContain('ly');
+    expect(distEl.textContent).toContain('light takes');
+
+    // Spectral class (bv=0.65 → G)
+    expect(screen.getByText(/G \(B−V/)).not.toBeNull();
+
+    // Naked-eye visibility line present
+    expect(container.querySelector('.cosmos-ui-info-visibility')).not.toBeNull();
+
+    // Position coordinates in the details section
+    expect(fullText).toContain('Position (pc)');
+  });
+
+  it('renders NO "Go to", "Enter system", or action button', () => {
+    useSelectionStore.setState({ selectedId: `gaia:${GAIA_SOURCE_ID.toString()}` });
+    render(<InfoPanel adapter={makeGaiaAdapter(GAIA_VIEW)} onGoTo={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /go to/i })).toBeNull();
+    expect(screen.queryByRole('button', { name: /enter system/i })).toBeNull();
+    // Close button is still there
+    expect(screen.getByRole('button', { name: /close/i })).not.toBeNull();
+  });
+
+  it('falls through to raw-id display when getGaiaCard returns null (no throw)', () => {
+    useSelectionStore.setState({ selectedId: 'gaia:42' });
+    render(<InfoPanel adapter={makeGaiaAdapter(null)} onGoTo={vi.fn()} />);
+    // Falls through to the !body branch which shows the raw id
+    expect(screen.getByText('gaia:42')).not.toBeNull();
+    expect(screen.queryByText('Gaia DR3 star')).toBeNull();
+  });
+
+  it('sourceId: null renders without crashing (degrade path shows catalogId + "resolving…")', () => {
+    const nullSourceView: GaiaCardView = { ...GAIA_VIEW, sourceId: null };
+    useSelectionStore.setState({ selectedId: 'gaia:42' });
+    const { container } = render(
+      <InfoPanel adapter={makeGaiaAdapter(nullSourceView)} onGoTo={vi.fn()} />,
+    );
+    expect(container.querySelector('[aria-label="Gaia star information"]')).not.toBeNull();
+    expect(container.textContent).toContain('resolving');
+  });
+});

@@ -11,10 +11,11 @@ import {
   TourChrome,
   ViewDrawer,
 } from '@cosmos/ui';
-import type { BodyLookupAdapter } from '@cosmos/ui';
+import type { BodyLookupAdapter, GaiaCardView } from '@cosmos/ui';
 import { liveLabels, subscribeLabelSet, type LiveLabel } from '../glue/overlays';
 import { controllerHolder } from '../glue/test-hook';
 import { jumpLetterboxHolder } from './JumpHudHost';
+import { gaiaCardHolder, gaiaCardFor } from '../glue/gaia-card';
 
 interface HudProps {
   readonly source: CombinedSource;
@@ -87,6 +88,10 @@ export function Hud({
         for (const b of system.bodies) if (b.parentId === system.star.id) count++;
         return count;
       },
+      // TASK-089 D5: return the picked Gaia star's physical details, only when the
+      // holder's lineage matches the queried id (single-slot safety check, D5.2). The
+      // match logic is the pure `gaiaCardFor` so it is unit-tested (gaia-card.test.ts).
+      getGaiaCard: (id): GaiaCardView | null => gaiaCardFor(id, gaiaCardHolder.current),
     }),
     [source, getSystem],
   );

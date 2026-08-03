@@ -23,7 +23,12 @@ export interface GaiaPickHit {
   readonly catalogId: number;
   /** Angle between the ray and the star, radians (for cross-batch nearest comparison). */
   readonly angleRad: number;
+  /** Camera-relative distance, parsecs (for cross-source arbitration only). */
   readonly distancePc: number;
+  /** Absolute galactic-frame position (Sol-origin), parsecs. |positionPc| = distance from Sol. */
+  readonly positionPc: readonly [number, number, number];
+  readonly absMag: number;
+  readonly colorIndexBV: number;
 }
 
 /**
@@ -45,6 +50,11 @@ export function pickNearestGaia(
   let bestCatalogId = -1;
   let bestAngle = maxAngleRad;
   let bestDist = Infinity;
+  let bestAbsMag = 0;
+  let bestColorIndexBV = 0;
+  let bestPx = 0;
+  let bestPy = 0;
+  let bestPz = 0;
 
   for (const tile of tiles) {
     const { batch, ranges } = tile;
@@ -71,13 +81,27 @@ export function pickNearestGaia(
           bestAngle = angle;
           bestDist = dist;
           bestCatalogId = batch.catalogIds[i]!;
+          bestAbsMag = batch.absMag[i]!;
+          bestColorIndexBV = batch.colorIndexBV[i]!;
+          // Absolute galactic-frame (Sol-origin) = tile-local + originPc.
+          // Do NOT use the camera-rebased sx/sy/sz — those are camera-relative.
+          bestPx = batch.positionsPc[i * 3]! + batch.originPc[0]!;
+          bestPy = batch.positionsPc[i * 3 + 1]! + batch.originPc[1]!;
+          bestPz = batch.positionsPc[i * 3 + 2]! + batch.originPc[2]!;
         }
       }
     }
   }
 
   if (bestCatalogId < 0) return null;
-  return { catalogId: bestCatalogId, angleRad: bestAngle, distancePc: bestDist };
+  return {
+    catalogId: bestCatalogId,
+    angleRad: bestAngle,
+    distancePc: bestDist,
+    positionPc: [bestPx, bestPy, bestPz],
+    absMag: bestAbsMag,
+    colorIndexBV: bestColorIndexBV,
+  };
 }
 
 /**
