@@ -71,11 +71,14 @@ Log any drift to `NOTES.md` and STOP if a load-bearing fact is false (CLAUDE.md 
   (`:312-314`). `pickAt` is documented "no selection side-effect" and is exposed as
   `__cosmos.pickAt` (`:354`) — the e2e sweep calls it thousands of times. **Do not add a holder
   write inside `pickAt`.** Confirm these line anchors.
-- **(b) Select sites.** The select + async upgrade is `selectAndUpgrade(id)` →
+- **(b) Select sites — there are TWO.** The select + async upgrade is `selectAndUpgrade(id)` →
   `selectWithGaiaUpgrade(id, selectionPort, gaiaIds)` (`StarScene.tsx:359-364`), called from
-  `onPointerUp` (`:381-403`). `onDoubleClick` calls `onActivate(id)` (go-to), NOT select
-  (`gaia-identity.ts` docstring; TASK-088 NOTES JC/step-0-f). Confirm the select path is
-  `onPointerUp` only.
+  BOTH `onPointerUp` (`:381-386`) AND `onDoubleClick`'s gaia branch (`:388-399`): for a `gaia:*`
+  id `onDoubleClick` calls `selectAndUpgrade(id)` (`:394-396`) — it falls to `onActivate` (go-to)
+  ONLY for non-gaia ids (`:398`), because a Gaia star is not a flyable host (TASK-088 D4 added
+  this). So the holder must be populated at BOTH select sites (D3), not `onPointerUp` alone.
+  (Confirm the double-click gaia branch is still there — if TASK-088's D4 branch were reverted the
+  holder plumbing would differ.)
 - **(c) `pickNearestGaia` return shape** = `{ catalogId, angleRad, distancePc }`
   (`octree-pick.ts:21-27, 79-80`); the winning index captures only `bestCatalogId` (`:73`). The
   batch at that index carries `positionsPc` (`:60-62`), and ALSO `absMag` / `colorIndexBV`
@@ -93,8 +96,9 @@ Log any drift to `NOTES.md` and STOP if a load-bearing fact is false (CLAUDE.md 
   localGroupGalaxyName(id) ?? selectedId` — for a `gaia:*` id this is the raw string. Confirm.
 - **(g) Existing astro-derive helpers.** InfoPanel already imports `spectralClassFromBV`,
   `spectralPlainLanguage`, `spectralTint`, `apparentMagnitude`, `nakedEyeVisibility`,
-  `formatLightTravel`, `formatEtaAtC`, `fmtSig3`, `PC_TO_LY` (`InfoPanel.tsx:1-19, 209-263`).
-  Confirm they are reachable for the new gaia branch (same file / package).
+  `formatLightTravel`, `formatEtaAtC` (`InfoPanel.tsx:1-18`); `fmtSig3` (`:21`) and `PC_TO_LY`
+  (`:19`) are in-file module-local helpers, not imports. All reachable for the new gaia branch
+  (same file). Confirm.
 
 ---
 
@@ -203,11 +207,13 @@ choose in NOTES):
   the same body as today's `pickAt` and, when a gaia hit wins, also returns the details built
   from the extended `GaiaPickHit`. Make `pickAt = (x,y) => pickAtDetailed(x,y).id` so
   `__cosmos.pickAt` is byte-identical to today.
-- In `onPointerUp` (`:381-403`), call `pickAtDetailed`; set `gaiaCardHolder.current = gaia`
+- In `onPointerUp` (`:381-386`), call `pickAtDetailed`; set `gaiaCardHolder.current = gaia`
   (with `sourceId: null`) when `gaia !== null`, else set it to `null`; then call
   `selectAndUpgrade(id)` as today.
-
-Do **not** populate the holder in `onDoubleClick` (go-to, not select).
+- In `onDoubleClick`'s gaia branch (`:394-396`) — which ALSO selects (Step 0b) — do the same:
+  populate the holder via `pickAtDetailed` before `selectAndUpgrade(id)`. Do NOT rely on the
+  preceding `onPointerUp` having set it; populate it explicitly so the plumbing is robust to event
+  ordering. The non-gaia `onActivate` path (`:398`) is unchanged and touches no holder.
 
 ### D4 — Fill `sourceId` on the async upgrade, under the SAME staleness guard
 When `selectWithGaiaUpgrade` resolves the real `source_id` and the guard passes
@@ -222,7 +228,11 @@ DR3 id. Two acceptable shapes — choose and log:
 Prefer (a): it keeps the guard's single source of truth in `gaia-identity.ts` and stays
 unit-testable there. **The holder update MUST be inside the guarded branch** (`if
 (selection.getSelectedId() === id)`), never before it — a slow resolve of an old click must not
-write a `sourceId` onto a holder a newer click already replaced.
+write a `sourceId` onto a holder a newer click already replaced. **Ordering inside the branch:**
+set `holder.sourceId` (call `onUpgrade`) BEFORE `selection.select('gaia:<sid>')`, so the holder is
+coherent at the instant the store change fires and its synchronous subscribers (InfoPanel) read a
+matching holder — otherwise there is a possible one-render flash to the bare id. The D5.2
+match-check already prevents *stale* data regardless of ordering; this only removes the flash.
 
 **Test (D4):** in `gaia-identity.test.ts`, extend the staleness-guard test: assert the upgrade
 callback fires with the resolved `sourceId` ONLY when the provisional id is still selected, and
@@ -237,7 +247,9 @@ does NOT fire (or is ignored) when a newer selection has superseded it.
    getGaiaCard?(id: BodyId): GaiaCardView | null;
    ```
    with `GaiaCardView = { sourceId: bigint | null; catalogId: number; positionPc: readonly
-   [number,number,number]; absMag: number; colorIndexBV: number }` (declare in `types.ts`).
+   [number,number,number]; absMag: number; colorIndexBV: number }` (declare in `types.ts` AND
+   re-export it from the `@cosmos/ui` package index/barrel alongside `BodyLookupAdapter`, so
+   `Hud.tsx` — which consumes ui types via `from '@cosmos/ui'` — can name it).
 2. `apps/web/src/hud/Hud.tsx`: implement `getGaiaCard(id)` in the `adapter` useMemo — parse the
    `gaia:` id, read `gaiaCardHolder.current`, and return it only if the holder's lineage matches
    the id (`holder.catalogId` matches a provisional `gaia:<catalogId>`, OR
