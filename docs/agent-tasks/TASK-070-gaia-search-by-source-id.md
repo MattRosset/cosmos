@@ -13,7 +13,9 @@ card, but is **not a flyable nav body** — see Step 0(z), which reshapes this t
 found the original Deliverable 2 ("reuse the named-star `goTo`") to be **impossible** against the
 current code — `goTo(gaia:*)` cannot resolve a target — and re-pointed the fly-to to a raw galaxy
 position. Dependency line re-pointed TASK-069→TASK-087 (069 was reframed into 087/088/089).
-Open decision left for the executor/user: the async-palette plumbing (see Deliverable 2 note).
+Async-palette plumbing DECIDED 2026-08-03 (option a — injected resolver + `onGoToPosition`
+prop + palette-owned staleness guard; see Deliverable 2). No open decisions remain — the
+spec is mechanical.
 
 ## Goal
 
@@ -90,19 +92,31 @@ star's position at `indexInTile`. Constraints:
    one result row (`Gaia DR3 <id>`); selecting it **flies the camera to the star's position**
    via a raw galaxy-position fly (Step 0(z)) — NOT `onGoTo(bodyId)`. Miss shows the normal
    empty state.
-   **Plumbing note (executor/user decision — the review left this open):** the current palette
-   is fully synchronous — it renders `adapter.search()` (`BodyRecord[]`) and selects with
-   `onGoTo(star.id)` (`packages/ui/src/SearchPalette.tsx:54,101,151`). A Gaia hit is neither a
-   `BodyRecord` nor synchronous. Pick ONE and log it in NOTES:
-   (a) Add a dedicated async gaia branch *inside* the palette: when the query matches the id
-       regex, run the reverse lookup (returns `{ sourceId, positionPc } | null`) off the debounce,
-       render a single synthetic row, and on select call a NEW `onGoToPosition(positionPc)` prop
-       (wired in `StarApp`/`Hud` to the `flyTo` of Step 0(z)). Named-star behavior via
-       `adapter.search`/`onGoTo` is untouched (satisfies the Frozen Interface).
-   (b) Keep the palette dumb: have the host resolve the id→position and inject it. More host
-       coupling; only choose if (a)'s new prop is judged worse.
-   Preferred: (a). Whichever ships, the Frozen Interface below is amended: adding a NEW
-   position-fly prop + a gaia branch is IN scope; the existing named-star path stays byte-identical.
+
+   **Plumbing — DECIDED 2026-08-03 (option a): palette owns the async UI, resolver is
+   INJECTED.** The current palette is fully synchronous — it renders `adapter.search()`
+   (`BodyRecord[]`) and selects with `onGoTo(star.id)` (`packages/ui/src/SearchPalette.tsx:54,101,151`).
+   A Gaia hit is neither a `BodyRecord` nor synchronous. Implement exactly this shape:
+   - **Injected resolver (NOT an import).** Add an OPTIONAL async method to the search adapter,
+     mirroring the optional-method pattern 087/088/089 established (`hostSystemIdFor?` etc.):
+     `resolveGaiaId?(id: string): Promise<{ sourceId: bigint; positionPc: readonly [number,number,number] } | null>`.
+     The reverse-lookup logic (Deliverable 1) lives in app glue / `@cosmos/data`, wired into this
+     method by the host (`StarApp`/`Hud`). **`@cosmos/ui` must NOT import the reverse lookup** —
+     keeping the data layer out of the ui package is the whole point of the injected adapter
+     (same discipline as 087/088/089).
+   - **New position-fly prop.** Add `onGoToPosition(positionPc: readonly [number,number,number]): void`
+     to `SearchPaletteProps`, wired in the host to the `flyTo` of Step 0(z). This is distinct
+     from `onGoTo(BodyId)` (which stays for named stars).
+   - **Async UI state lives in the palette.** When `query.trim()` matches the id regex, the debounced
+     effect calls `adapter.resolveGaiaId(id)` instead of `adapter.search`; render a loading row while
+     in flight, a single `Gaia DR3 <id>` row on hit (selecting → `onGoToPosition(positionPc)` +
+     close), the normal empty state on miss/`undefined` resolver.
+   - **Staleness guard (mandatory — the real reason a owns this).** Fast typing can land an
+     older `resolveGaiaId` after a newer query. Track the in-flight query (a ref/token) and
+     **ignore any resolve whose query is no longer current** — never render or fly a stale result.
+     This is the same staleness-guard class as TASK-088 JC-3; the unit test must prove a superseded
+     resolve does not update the rendered result.
+   - Named-star behavior via `adapter.search`/`onGoTo` is byte-identical (Frozen Interface).
 3. Loading state while the sidecar/index fetches (multi-MB on first query) — the
    palette must not freeze the frame loop; decode off the hot path.
 
@@ -146,6 +160,10 @@ star's position at `indexInTile`. Constraints:
    the guard against the "flew via `onGoTo(bodyId)` = silent no-op" trap: the assertion
    MUST verify the camera actually moved, not merely that select fired.
 4. e2e: garbage numeric input (e.g. `999...9`) shows empty state, no console errors.
+5. Unit (palette, staleness guard): a superseded `resolveGaiaId` resolving after a newer
+   query does NOT update the rendered result — drive two overlapping resolves (older resolves
+   last) and assert the row reflects the newer query only. Pure vitest with a mock adapter
+   (pattern: the InfoPanel adapter test from TASK-089); no WebGL, no wall-clock.
 
 ## Context Files
 
