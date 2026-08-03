@@ -19,11 +19,15 @@ export interface SelectionPort {
  * completes — a newer click must win, and a slow resolve of an old click must not clobber it.
  * The `bigint` source_id is interpolated directly (never `Number(sid)`: ids > 2^53 corrupt). A
  * null `sid` (absent / unavailable sidecar) leaves the provisional id (degrade to no-identity).
+ *
+ * TASK-089 D4: optional `onUpgrade` callback fires inside the staleness guard, BEFORE the
+ * selection.select call, so the holder is coherent at the instant the store change fires.
  */
 export function selectWithGaiaUpgrade(
   id: BodyId | null,
   selection: SelectionPort,
   gaiaIds: GaiaSourceIdResolver | undefined,
+  onUpgrade?: (catalogId: number, sourceId: bigint) => void,
 ): void {
   selection.select(id);
   if (id === null || gaiaIds === undefined || !id.startsWith('gaia:')) return;
@@ -31,6 +35,9 @@ export function selectWithGaiaUpgrade(
   if (!Number.isInteger(catalogId)) return;
   void gaiaIds.resolve(catalogId).then((sid) => {
     if (sid === null) return;
-    if (selection.getSelectedId() === id) selection.select(`gaia:${sid}`);
+    if (selection.getSelectedId() === id) {
+      onUpgrade?.(catalogId, sid);
+      selection.select(`gaia:${sid}`);
+    }
   });
 }

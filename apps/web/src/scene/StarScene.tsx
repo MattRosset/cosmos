@@ -21,6 +21,7 @@ import { octreePickHolder } from '../glue/octree-pick-feed';
 import { pickNearestGaia, gaiaHitWins, type OctreePickTile, type GaiaPickHit } from '../glue/octree-pick';
 import type { CombinedOctreeSource } from '../glue/octree-combined';
 import { selectWithGaiaUpgrade, type SelectionPort } from '../glue/gaia-identity';
+import { gaiaCardHolder, type GaiaCardDetails } from '../glue/gaia-card';
 
 /** Angular pick threshold, radians (TASK-015 fixed wiring). */
 const PICK_MAX_ANGLE_RAD = 0.02;
@@ -227,10 +228,14 @@ export function StarScene({
     let lastX = 0;
     let lastY = 0;
 
-    /** Body under (clientX, clientY): planets first, then the star batches. */
-    const pickAt = (clientX: number, clientY: number): BodyId | null => {
+    /** Body under (clientX, clientY) with the gaia pick's physical details (TASK-089 D3).
+     *  Pure query — no side-effects, no holder writes. `pickAt` delegates to this. */
+    const pickAtDetailed = (
+      clientX: number,
+      clientY: number,
+    ): { id: BodyId | null; gaia: GaiaCardDetails | null } => {
       const controller = controllerRef.current;
-      if (!controller) return null;
+      if (!controller) return { id: null, gaia: null };
 
       const rect = el.getBoundingClientRect();
       const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -252,7 +257,7 @@ export function StarScene({
         dir[1] /= len;
         dir[2] /= len;
         const p = controller.state.position.local;
-        return pickNearestGalaxy(localGroupPickHolder.current, p, dir);
+        return { id: pickNearestGalaxy(localGroupPickHolder.current, p, dir), gaia: null };
       }
 
       // Planets first — raycast the mounted system group (camera-relative scene).
@@ -262,7 +267,7 @@ export function StarScene({
         const hits = raycaster.intersectObject(grp, true);
         for (const hit of hits) {
           const id = bodyIdOf(hit.object);
-          if (id !== null) return id;
+          if (id !== null) return { id, gaia: null };
         }
       }
 
@@ -310,10 +315,17 @@ export function StarScene({
       // win returns the PROVISIONAL `gaia:<catalogId>` synchronously (identity is upgraded to
       // `gaia:<source_id>` at the select sites, D4); otherwise the hyg/exo/null result unchanged.
       if (gaiaHitWins(gaiaHit, starHit?.angleRad ?? null) && gaiaHit !== null) {
-        return `gaia:${gaiaHit.catalogId}`;
+        return {
+          id: `gaia:${gaiaHit.catalogId}`,
+          gaia: { catalogId: gaiaHit.catalogId, sourceId: null, positionPc: gaiaHit.positionPc, absMag: gaiaHit.absMag, colorIndexBV: gaiaHit.colorIndexBV },
+        };
       }
-      return starHit?.id ?? null;
+      return { id: starHit?.id ?? null, gaia: null };
     };
+
+    /** Pure id query (no side-effects). Backs `__cosmos.pickAt` (e2e sweep contract). */
+    const pickAt = (clientX: number, clientY: number): BodyId | null =>
+      pickAtDetailed(clientX, clientY).id;
 
     /**
      * Inverse of the star pick ray: a position in the camera's current context frame
@@ -360,8 +372,18 @@ export function StarScene({
       select: (id) => useSelectionStore.getState().select(id),
       getSelectedId: () => useSelectionStore.getState().selectedId,
     };
-    const selectAndUpgrade = (id: BodyId | null): void =>
-      selectWithGaiaUpgrade(id, selectionPort, gaiaIds);
+    const selectAndUpgrade = (id: BodyId | null, gaiaDetails: GaiaCardDetails | null = null): void => {
+      if (gaiaDetails !== null) {
+        gaiaCardHolder.current = gaiaDetails;
+      } else if (!id?.startsWith('gaia:')) {
+        gaiaCardHolder.current = null;
+      }
+      selectWithGaiaUpgrade(id, selectionPort, gaiaIds, (catalogId, sourceId) => {
+        if (gaiaCardHolder.current?.catalogId === catalogId) {
+          gaiaCardHolder.current.sourceId = sourceId;
+        }
+      });
+    };
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -382,17 +404,18 @@ export function StarScene({
       if (!tracking || e.button !== 0) return;
       tracking = false;
       if (dragPx >= CLICK_MAX_DRAG_PX) return;
-      selectAndUpgrade(pickAt(e.clientX, e.clientY));
+      const { id, gaia } = pickAtDetailed(e.clientX, e.clientY);
+      selectAndUpgrade(id, gaia);
     };
 
     const onDoubleClick = (e: MouseEvent) => {
-      const id = pickAt(e.clientX, e.clientY);
+      const { id, gaia } = pickAtDetailed(e.clientX, e.clientY);
       if (id === null) return;
       // A gaia star is not a flyable host — a double-click on it is a plain selection, never a
       // go-to (goto.goTo('gaia:…') would fail to resolve). TASK-088 D4. Non-gaia ids keep the
       // existing onActivate (select + fly) behavior byte-for-byte.
       if (id.startsWith('gaia:')) {
-        selectAndUpgrade(id);
+        selectAndUpgrade(id, gaia);
         return;
       }
       if (onActivate !== undefined) onActivate(id);

@@ -112,3 +112,53 @@ describe('selectWithGaiaUpgrade — staleness guard (TASK-088 D4, failure mode)'
     await vi.waitFor(() => expect(port.value).toBe(`gaia:${ID0.toString()}`));
   });
 });
+
+describe('selectWithGaiaUpgrade — TASK-089 D4: onUpgrade callback + staleness guard', () => {
+  it('onUpgrade fires with the resolved sourceId when the provisional id is still selected', async () => {
+    const { resolver, resolve } = deferredResolver();
+    const port = makePort();
+    const upgrades: Array<{ catalogId: number; sourceId: bigint }> = [];
+    selectWithGaiaUpgrade('gaia:0', port, resolver, (catalogId, sourceId) => {
+      upgrades.push({ catalogId, sourceId });
+    });
+    resolve(ID0);
+    await vi.waitFor(() => expect(upgrades.length).toBe(1));
+    expect(upgrades[0]?.catalogId).toBe(0);
+    expect(upgrades[0]?.sourceId).toBe(ID0);
+  });
+
+  it('onUpgrade does NOT fire when a newer selection has superseded the provisional id', async () => {
+    const { resolver, resolve } = deferredResolver();
+    const port = makePort();
+    const upgrades: Array<unknown> = [];
+    selectWithGaiaUpgrade('gaia:0', port, resolver, (catalogId, sourceId) => {
+      upgrades.push({ catalogId, sourceId });
+    });
+    // Newer click supersedes.
+    port.select('hyg-v41:999');
+    resolve(ID0);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(upgrades.length).toBe(0);
+    // Selection unchanged (staleness guard also protected selection.select).
+    expect(port.value).toBe('hyg-v41:999');
+  });
+
+  it('onUpgrade fires BEFORE selection.select so holder is coherent when subscribers read', async () => {
+    const { resolver, resolve } = deferredResolver();
+    const port = makePort();
+    const order: string[] = [];
+    const origSelect = port.select.bind(port);
+    port.select = (id) => { order.push(`select:${id ?? 'null'}`); origSelect(id); };
+    selectWithGaiaUpgrade('gaia:0', port, resolver, (catalogId, sourceId) => {
+      order.push(`upgrade:${sourceId.toString()}`);
+    });
+    resolve(ID0);
+    await vi.waitFor(() => order.length >= 2);
+    // 'select:gaia:0' fires first (sync), then upgrade, then select with upgraded id.
+    const upgradeIdx = order.findIndex((e) => e.startsWith('upgrade:'));
+    const selectUpgradeIdx = order.findIndex((e) => e.startsWith(`select:gaia:${ID0.toString()}`));
+    expect(upgradeIdx).toBeGreaterThanOrEqual(0);
+    expect(selectUpgradeIdx).toBeGreaterThan(upgradeIdx);
+  });
+});

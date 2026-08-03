@@ -156,8 +156,79 @@ describe('pickNearestGaia — pure gaia-range pick (TASK-088 D1)', () => {
   });
 });
 
+describe('pickNearestGaia — TASK-089 D1: hit carries absMag/colorIndexBV/positionPc', () => {
+  it('(a) returned hit has absMag and colorIndexBV equal to the batch values at the winning index', () => {
+    // Two gaia stars; the nearer one (idx1) should win and carry ITS attribute values.
+    const n = 2;
+    const positionsPc = new Float32Array(n * 3);
+    positionsPc[0] = 10; positionsPc[1] = 1; positionsPc[2] = 0; // idx0 off-axis
+    positionsPc[3] = 10; positionsPc[4] = 0; positionsPc[5] = 0; // idx1 on-ray
+    const absMag = new Float32Array([3.5, 7.2]);
+    const colorIndexBV = new Float32Array([0.4, 1.1]);
+    const batch: StarBatch = {
+      count: n,
+      originPc: [0, 0, 0],
+      positionsPc,
+      absMag,
+      colorIndexBV,
+      catalogIds: Uint32Array.from([100, 200]),
+      hipIds: new Uint32Array(n),
+      idPrefix: 'gaia',
+    };
+    const hit = pickNearestGaia(
+      [{ batch, ranges: [{ offset: 0, count: 2, idPrefix: 'gaia' }] }],
+      CAM, RAY_X, MAX,
+    );
+    expect(hit?.catalogId).toBe(200);
+    expect(hit?.absMag).toBeCloseTo(7.2, 4);
+    expect(hit?.colorIndexBV).toBeCloseTo(1.1, 4);
+  });
+
+  it('(b) positionPc is Sol-relative (tile-local + originPc), NOT camera-relative', () => {
+    // Non-zero originPc so a camera-relative bug would give wrong coordinates.
+    const originPc: [number, number, number] = [5, 3, 1];
+    const tileLocalX = 10; const tileLocalY = 0; const tileLocalZ = 0;
+    const positionsPc = new Float32Array([tileLocalX, tileLocalY, tileLocalZ]);
+    const batch: StarBatch = {
+      count: 1,
+      originPc,
+      positionsPc,
+      absMag: new Float32Array([4.0]),
+      colorIndexBV: new Float32Array([0.6]),
+      catalogIds: Uint32Array.from([42]),
+      hipIds: new Uint32Array(1),
+      idPrefix: 'gaia',
+    };
+    // Camera at the same position as originPc, ray along +x from there.
+    const camera: [number, number, number] = [5, 3, 1];
+    const hit = pickNearestGaia(
+      [{ batch, ranges: [{ offset: 0, count: 1, idPrefix: 'gaia' }] }],
+      camera, RAY_X, MAX,
+    );
+    // Sol-relative = tile-local + originPc = [10+5, 0+3, 0+1] = [15, 3, 1]
+    expect(hit?.positionPc[0]).toBeCloseTo(tileLocalX + originPc[0], 4);
+    expect(hit?.positionPc[1]).toBeCloseTo(tileLocalY + originPc[1], 4);
+    expect(hit?.positionPc[2]).toBeCloseTo(tileLocalZ + originPc[2], 4);
+  });
+});
+
+describe('pickNearestGaia — TASK-089 D1 additivity: non-gaia pick is unchanged', () => {
+  it('a hyg-only tile returns null (identical to before the GaiaPickHit extension)', () => {
+    const batch = makeBatch({
+      absPositions: [[10, 0, 0]],
+      catalogIds: [999],
+      idPrefix: 'hyg-v41',
+    });
+    const result = pickNearestGaia(
+      [{ batch, ranges: [{ offset: 0, count: 1, idPrefix: 'hyg-v41' }] }],
+      CAM, RAY_X, MAX,
+    );
+    expect(result).toBeNull();
+  });
+});
+
 describe('gaiaHitWins — cross-source arbitration (TASK-088 D3, gate 4 additivity)', () => {
-  const gaia: GaiaPickHit = { catalogId: 7, angleRad: 0.01, distancePc: 10 };
+  const gaia: GaiaPickHit = { catalogId: 7, angleRad: 0.01, distancePc: 10, positionPc: [10, 0, 0], absMag: 5.0, colorIndexBV: 0.65 };
 
   it('a null gaia hit never wins (octree pick off / empty holder → hyg/exo result unchanged)', () => {
     expect(gaiaHitWins(null, 0.02)).toBe(false);

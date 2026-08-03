@@ -1,5 +1,6 @@
 export type {
   BodyLookupAdapter,
+  GaiaCardView,
   SearchPaletteProps,
   InfoPanelProps,
   TimeControlsProps,

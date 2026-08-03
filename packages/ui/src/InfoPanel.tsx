@@ -157,6 +157,67 @@ export function InfoPanel({
     </button>
   );
 
+  // Gaia DR3 star card (TASK-089 D5) — before the generic fallthrough so a picked Gaia
+  // star shows its real physical identity, not the raw debug id string.
+  if (selectedId.startsWith('gaia:') && adapter.getGaiaCard !== undefined) {
+    const gaiaView = adapter.getGaiaCard(selectedId);
+    if (gaiaView !== null) {
+      const [gx, gy, gz] = gaiaView.positionPc;
+      const dist = Math.sqrt(gx * gx + gy * gy + gz * gz);
+      const distLy = dist * PC_TO_LY;
+      const spectral = spectralClassFromBV(gaiaView.colorIndexBV);
+      const classLine = spectralPlainLanguage(gaiaView.colorIndexBV);
+      const visibilityLine = nakedEyeVisibility(apparentMagnitude(gaiaView.absMag, dist));
+      const idLine =
+        gaiaView.sourceId !== null
+          ? gaiaView.sourceId.toString().replace(/(\d)(?=(\d{4})+$)/g, '$1 ')
+          : `${gaiaView.catalogId} (resolving…)`;
+      return (
+        <div
+          className="cosmos-ui-info"
+          role="complementary"
+          aria-label="Gaia star information"
+          style={tintStyle(spectralTint(gaiaView.colorIndexBV))}
+        >
+          {closeBtn}
+          <h2 className="cosmos-ui-info-name">Gaia DR3 star</h2>
+          <p className="cosmos-ui-info-gaia-id" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            {idLine}
+          </p>
+          <p className="cosmos-ui-info-hero cosmos-ui-info-distance">
+            <span className="cosmos-ui-info-hero-value">{fmtSig3(distLy)} ly</span>
+            <span className="cosmos-ui-info-hero-sub">
+              {STRINGS.lightTravelPrefix} {formatLightTravel(distLy)} {STRINGS.lightTravelSuffix}
+            </span>
+          </p>
+          {classLine !== null && <p className="cosmos-ui-info-class">{classLine}</p>}
+          {visibilityLine !== null && <p className="cosmos-ui-info-visibility">{visibilityLine}</p>}
+          <dl className="cosmos-ui-info-data">
+            <dt>Travel</dt>
+            <dd className="cosmos-ui-info-eta">{formatEtaAtC(distLy)}</dd>
+            <dt>Spectral Class</dt>
+            <dd className="cosmos-ui-info-spectral">
+              {spectral} (B−V {gaiaView.colorIndexBV.toFixed(2)})
+            </dd>
+          </dl>
+          <details className="cosmos-ui-info-details">
+            <summary>{STRINGS.detailsLabel}</summary>
+            <dl className="cosmos-ui-info-data">
+              <dt>Distance (pc)</dt>
+              <dd className="cosmos-ui-info-distance-pc">{fmtSig3(dist)} pc</dd>
+              <dt>Abs. Magnitude</dt>
+              <dd className="cosmos-ui-info-absmag">{fmtSig3(gaiaView.absMag)}</dd>
+              <dt>Position (pc)</dt>
+              <dd className="cosmos-ui-info-coords">
+                ({fmtSig3(gx)}, {fmtSig3(gy)}, {fmtSig3(gz)})
+              </dd>
+            </dl>
+          </details>
+        </div>
+      );
+    }
+  }
+
   if (!body) {
     return (
       <div className="cosmos-ui-info" role="complementary" aria-label="Star information">

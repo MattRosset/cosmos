@@ -33,7 +33,9 @@ export function Breadcrumb({
   const inSystem = systemName !== null;
   const selectedName =
     selectedId !== null
-      ? combined.getBody(selectedId)?.name ?? localGroupGalaxyName(selectedId) ?? selectedId
+      ? combined.getBody(selectedId)?.name ??
+        localGroupGalaxyName(selectedId) ??
+        (selectedId.startsWith('gaia:') ? 'Gaia DR3' : selectedId)
       : null;
   const bodyCrumb =
     selectedName !== null && selectedName !== systemName ? selectedName : null;

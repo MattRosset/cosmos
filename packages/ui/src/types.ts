@@ -1,5 +1,19 @@
 import type { BodyId, BodyRecord, BookmarkRecord } from '@cosmos/core-types';
 
+/**
+ * Physical attributes of a picked Gaia DR3 star for the InfoPanel card (TASK-089 D5).
+ * Injected via the adapter so @cosmos/ui stays decoupled from app glue.
+ */
+export interface GaiaCardView {
+  readonly catalogId: number;
+  /** Null until the async sidecar upgrade resolves (degrade path: show catalogId). */
+  readonly sourceId: bigint | null;
+  /** Absolute galactic-frame position, Sol-origin, parsecs. |positionPc| = dist from Sol. */
+  readonly positionPc: readonly [number, number, number];
+  readonly absMag: number;
+  readonly colorIndexBV: number;
+}
+
 /** Injected by the app. Adapter type widened in TASK-026 to cover all body kinds. */
 export interface BodyLookupAdapter {
   getBody(id: BodyId): BodyRecord | undefined;
@@ -16,6 +30,12 @@ export interface BodyLookupAdapter {
    * null ⇒ unresolvable system, badge omitted too.
    */
   planetCountFor?(systemId: BodyId): number | null;
+  /**
+   * TASK-089: physical attributes for the picked Gaia DR3 star. Returns null for
+   * non-gaia ids or when no pick detail is held. Optional + adapter-injected so
+   * @cosmos/ui stays decoupled from app glue (mirrors hostSystemIdFor?/planetCountFor?).
+   */
+  getGaiaCard?(id: BodyId): GaiaCardView | null;
 }
 
 export interface SearchPaletteProps {
