@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { Object3D, PerspectiveCamera } from 'three';
 import type { BodyId, StarBatch, UniversePosition } from '@cosmos/core-types';
 import type { OriginManager } from '@cosmos/coords';
-import type { StarDataSource, CombinedSource } from '@cosmos/data';
+import type { StarDataSource, CombinedSource, GaiaSourceIdResolver } from '@cosmos/data';
 import type { FlightController } from '@cosmos/nav';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import type { ContextId } from '@cosmos/core-types';
@@ -17,6 +17,10 @@ import { systemPickGroup } from '../glue/system-feed';
 import { localGroupPickHolder } from '../glue/local-group-feed';
 import { pickProbeHolder } from '../glue/test-hook';
 import { pcScales } from '../glue/context-scale';
+import { octreePickHolder } from '../glue/octree-pick-feed';
+import { pickNearestGaia, gaiaHitWins, type OctreePickTile, type GaiaPickHit } from '../glue/octree-pick';
+import type { CombinedOctreeSource } from '../glue/octree-combined';
+import { selectWithGaiaUpgrade, type SelectionPort } from '../glue/gaia-identity';
 
 /** Angular pick threshold, radians (TASK-015 fixed wiring). */
 const PICK_MAX_ANGLE_RAD = 0.02;
@@ -85,6 +89,19 @@ interface StarSceneProps {
   readonly streaming?: StreamingPolicy | undefined;
   /** Double-click on a body: select AND fly (host stars descend into the system). */
   readonly onActivate?: (id: BodyId) => void;
+  /**
+   * Combined HYG+Gaia octree source (TASK-088 D3). When present, `pickAt` also scans the
+   * currently-visible Gaia octree tiles (`octreePickHolder`) and can return a `gaia:*` id;
+   * its `prefixRangesFor(chunkId)` supplies per-source provenance at click time. Absent (M2/
+   * M3/debug paths that don't stream the combined source) ⇒ octree gaia pick simply off.
+   */
+  readonly octreeCombined?: CombinedOctreeSource | undefined;
+  /**
+   * Gaia DR3 identity resolver (TASK-088 D4). When present, a provisional `gaia:<catalogId>`
+   * pick is upgraded asynchronously to the real `gaia:<source_id>` at the select sites. Absent
+   * ⇒ the provisional catalog-indexed id is kept.
+   */
+  readonly gaiaIds?: GaiaSourceIdResolver | undefined;
 }
 
 /**
@@ -100,6 +117,8 @@ export function StarScene({
   controllerRef,
   streaming,
   onActivate,
+  octreeCombined,
+  gaiaIds,
 }: StarSceneProps) {
   const hygBatch = stars.batch;
   const exoBatch = combined.extraHostBatch;
@@ -270,7 +289,30 @@ export function StarScene({
         local[1] * unitsToPc,
         local[2] * unitsToPc,
       ];
-      return pickNearestStar(hygBatch, exoBatch, combined, p, dir);
+      const starHit = pickNearestStar(hygBatch, exoBatch, combined, p, dir);
+
+      // Octree Gaia branch (TASK-088 D3) — strictly ADDITIVE. Scan the currently-visible Gaia
+      // octree tiles (published by GalaxyScene) for the nearest gaia star, reusing the SAME
+      // already-pc-scaled `p`/`dir` the HYG pick used (do NOT re-scale — TASK-083). Only runs
+      // when the combined source is present (real experience); off for debug apps. Emits ONLY
+      // `gaia:*`: a hit in a hyg-v41 sub-range is never a candidate (pickNearestGaia scope).
+      let gaiaHit: GaiaPickHit | null = null;
+      const mounts = octreePickHolder.current;
+      if (octreeCombined !== undefined && mounts !== null && mounts.length > 0) {
+        const tiles: OctreePickTile[] = [];
+        for (const m of mounts) {
+          tiles.push({ batch: m.batch, ranges: octreeCombined.prefixRangesFor(m.chunkId) });
+        }
+        gaiaHit = pickNearestGaia(tiles, p, dir, PICK_MAX_ANGLE_RAD);
+      }
+
+      // Cross-batch nearest, gaia-scoped: smaller angle wins (same rule as exo vs hyg). A gaia
+      // win returns the PROVISIONAL `gaia:<catalogId>` synchronously (identity is upgraded to
+      // `gaia:<source_id>` at the select sites, D4); otherwise the hyg/exo/null result unchanged.
+      if (gaiaHitWins(gaiaHit, starHit?.angleRad ?? null) && gaiaHit !== null) {
+        return `gaia:${gaiaHit.catalogId}`;
+      }
+      return starHit?.id ?? null;
     };
 
     /**
@@ -311,6 +353,16 @@ export function StarScene({
     // Expose the live pick + projection to the e2e hook (no selection side-effect).
     pickProbeHolder.current = { pickAt, projectToScreen };
 
+    // Select + async gaia identity upgrade (TASK-088 D4), shared by onPointerUp and
+    // onDoubleClick. The store is read fresh on each side so the staleness guard sees the
+    // current selection. Logic + the guard live in the unit-tested `selectWithGaiaUpgrade`.
+    const selectionPort: SelectionPort = {
+      select: (id) => useSelectionStore.getState().select(id),
+      getSelectedId: () => useSelectionStore.getState().selectedId,
+    };
+    const selectAndUpgrade = (id: BodyId | null): void =>
+      selectWithGaiaUpgrade(id, selectionPort, gaiaIds);
+
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
       tracking = true;
@@ -330,13 +382,20 @@ export function StarScene({
       if (!tracking || e.button !== 0) return;
       tracking = false;
       if (dragPx >= CLICK_MAX_DRAG_PX) return;
-      useSelectionStore.getState().select(pickAt(e.clientX, e.clientY));
+      selectAndUpgrade(pickAt(e.clientX, e.clientY));
     };
 
     const onDoubleClick = (e: MouseEvent) => {
-      if (onActivate === undefined) return;
       const id = pickAt(e.clientX, e.clientY);
-      if (id !== null) onActivate(id);
+      if (id === null) return;
+      // A gaia star is not a flyable host — a double-click on it is a plain selection, never a
+      // go-to (goto.goTo('gaia:…') would fail to resolve). TASK-088 D4. Non-gaia ids keep the
+      // existing onActivate (select + fly) behavior byte-for-byte.
+      if (id.startsWith('gaia:')) {
+        selectAndUpgrade(id);
+        return;
+      }
+      if (onActivate !== undefined) onActivate(id);
     };
 
     el.addEventListener('pointerdown', onPointerDown);
@@ -350,7 +409,7 @@ export function StarScene({
       el.removeEventListener('dblclick', onDoubleClick);
       pickProbeHolder.current = null;
     };
-  }, [gl, camera, hygBatch, exoBatch, combined, controllerRef, onActivate]);
+  }, [gl, camera, hygBatch, exoBatch, combined, controllerRef, onActivate, octreeCombined, gaiaIds]);
 
   return (
     <>
@@ -360,14 +419,15 @@ export function StarScene({
   );
 }
 
-/** Pick the angularly-nearest star across both batches; smaller angle wins. */
+/** Pick the angularly-nearest star across both batches; smaller angle wins. Returns the id
+ *  AND its angle so the caller can compare it against the octree gaia hit (TASK-088 D3). */
 function pickNearestStar(
   hygBatch: StarBatch,
   exoBatch: StarBatch | null,
   combined: CombinedSource,
   cameraLocalPc: readonly [number, number, number],
   dir: readonly [number, number, number],
-): BodyId | null {
+): { id: BodyId; angleRad: number } | null {
   const hygOrigin: readonly [number, number, number] = [
     cameraLocalPc[0] - hygBatch.originPc[0],
     cameraLocalPc[1] - hygBatch.originPc[1],
@@ -387,10 +447,16 @@ function pickNearestStar(
 
   const exoWins = exoHit !== null && (hygHit === null || exoHit.angleRad < hygHit.angleRad);
   if (exoWins && exoBatch !== null && exoHit !== null) {
-    return combined.canonicalId(`${exoBatch.idPrefix}:${exoBatch.catalogIds[exoHit.index]!}`);
+    return {
+      id: combined.canonicalId(`${exoBatch.idPrefix}:${exoBatch.catalogIds[exoHit.index]!}`),
+      angleRad: exoHit.angleRad,
+    };
   }
   if (hygHit !== null) {
-    return `${hygBatch.idPrefix}:${hygBatch.catalogIds[hygHit.index]!}`;
+    return {
+      id: `${hygBatch.idPrefix}:${hygBatch.catalogIds[hygHit.index]!}`,
+      angleRad: hygHit.angleRad,
+    };
   }
   return null;
 }

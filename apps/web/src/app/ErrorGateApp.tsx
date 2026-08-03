@@ -7,7 +7,6 @@ import {
   loadOctreePack,
   loadConstellationPack,
   createCombinedSource,
-  type OctreeSource,
 } from '@cosmos/data';
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { SceneHost, type QualityController } from '@cosmos/scene-host';
@@ -17,7 +16,7 @@ import { SystemScene } from '../scene/SystemScene';
 import { GalaxyScene } from '../scene/GalaxyScene';
 import { Overlays } from '../scene/Overlays';
 import { ErrorGateProbe, ERRORGATE_START } from '../scene/ErrorGateProbe';
-import { combineOctreeSources } from '../glue/octree-combined';
+import { combineOctreeSources, type CombinedOctreeSource } from '../glue/octree-combined';
 import { buildOverlayData } from '../glue/overlays';
 import { clock, epochProvider, installTimeGlue } from '../glue/time';
 import { testHook, controllerHolder, mirrorControllerState, streamingHolder } from '../glue/test-hook';
@@ -42,14 +41,14 @@ import {
  * class deterministically — the gate's own self-test that it goes red, not always
  * green. Debug-only; never wired outside `?debug=errorgate&inject=1`.
  */
-function injectOctreeFault(source: OctreeSource): OctreeSource {
+function injectOctreeFault(source: CombinedOctreeSource): CombinedOctreeSource {
   const failKey = source.root.key;
+  // Spread the source (carrying getNode / prefixRangesFor / the rest) and override only
+  // loadTile — so the fault-injected source stays a CombinedOctreeSource (TASK-088 JC-1: the
+  // Sources.octreeCombined field is now CombinedOctreeSource; a bare OctreeSource no longer
+  // fits). ErrorGate still feeds no pick prop, so prefixRangesFor here is inert.
   return {
-    root: source.root,
-    context: source.context,
-    rootHalfExtentUnits: source.rootHalfExtentUnits,
-    idPrefix: source.idPrefix,
-    getNode: (key) => source.getNode(key),
+    ...source,
     loadTile(key, opts) {
       if (key === failKey) {
         return Promise.reject(new Error('TASK-059 injected fault (?inject=1)'));
@@ -89,9 +88,9 @@ export function ErrorGateApp({ inject }: { inject: boolean }): React.JSX.Element
       ([stars, sol, exo, octree, gaiaOctree, constellationPack]) => {
         if (cancelled) return;
         const combined = createCombinedSource(stars, [sol, exo]);
-        // Typed as the base OctreeSource: the app doesn't consume prefixRangesFor (that's
-        // Task B), and injectOctreeFault returns a bare OctreeSource (TASK-087 D2).
-        let octreeCombined: OctreeSource = combineOctreeSources([octree, gaiaOctree]);
+        // CombinedOctreeSource (TASK-088 JC-1): the Sources.octreeCombined field carries the
+        // combined type now; injectOctreeFault preserves it. ErrorGate never feeds the pick.
+        let octreeCombined: CombinedOctreeSource = combineOctreeSources([octree, gaiaOctree]);
         if (inject) octreeCombined = injectOctreeFault(octreeCombined);
         const overlay = buildOverlayData(constellationPack, stars);
         setPack({
