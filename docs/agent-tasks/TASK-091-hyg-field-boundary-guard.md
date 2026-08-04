@@ -50,7 +50,8 @@ do not improvise around it.
 6. `apps/web` has a vitest unit runner with existing glue tests (`apps/web/src/glue/*.test.ts` —
    e.g. `context-scale.test.ts`) — the home + precedent for the extracted pure functions below.
 7. Parking a camera far is done via `FlightController.goTo({ target: UniversePosition, … })`
-   (controller.ts:30; used at `M4aApp.tsx:161/176`) and the app-level `goto.goToPosition(pc)` that
+   (method at controller.ts:69, `GoToOptions` at :47; used at `M4aApp.tsx:161/176`) and the
+   app-level `goto.goToPosition(pc)` that
    search fly-to uses (`StarApp.tsx:336`). The test hook (`apps/web/src/glue/test-hook.ts`) exposes
    `goToActive`, `cameraPosition`, `flightTarget` but NO command to park at arbitrary coords and no
    `distanceToNearestSurface` getter — this task adds those two thin hook members for the gate
@@ -122,12 +123,22 @@ Semantics (implement exactly):
   universe branch's use of it.
 
 ### 4. Test-hook additions (for the e2e gate) — `apps/web/src/glue/test-hook.ts`
-- A `goToPosition(pc: readonly [number, number, number]): void` command that calls the same
-  app-level `goto.goToPosition` search uses (park at arbitrary galaxy coords without the dense pack).
-- A `distanceToNearestSurfacePc` read member mirroring the controller's current
-  `distanceToNearestSurface` (the value last fed by NavDriver), so the gate can assert the scalar
-  the speed law actually received. Follow the existing ≤4 Hz mirror discipline (or a live getter off
-  the controller holder) — match how `goToActive`/`cameraPosition` are exposed.
+Both go through NEW module-scoped holders in `test-hook.ts` (the pattern the file already uses for
+`controllerHolder` / `jumpDistancePcHolder` / `procgenOpacityHolder`) — do NOT add getters to
+`@cosmos/nav` or reach into `StarApp` internals from the hook (both violate Frozen / the file's
+structure):
+- **`distanceToNearestSurfacePc` read member.** The `FlightController` exposes only the *setter*
+  `setDistanceToNearestSurface` — the value is a private closure var (controller.ts:1164), so there
+  is NO controller getter to mirror and adding one is a frozen `@cosmos/nav` API change (forbidden).
+  Instead: NavDriver writes the last galaxy scalar it feeds to a new `surfaceFeedHolder: { current:
+  number }` in `test-hook.ts` (a zero-alloc primitive write each frame, exactly like
+  `procgenOpacityHolder`); the hook getter returns `surfaceFeedHolder.current`.
+- **`goToPosition(pc: readonly [number, number, number]): void` command.** The `goto` coordinator
+  lives inside `StarApp`'s `useMemo` (StarApp.tsx:311) and today is reachable only via
+  `handleGoToPosition` (:336) — the hook has no path to it. Add a `gotoHolder: { current:
+  Pick<GoToCoordinator, 'goToPosition'> | null }` in `test-hook.ts`, set it in `StarApp` where
+  `goto` is created (near :311/:324), and have the hook command delegate to
+  `gotoHolder.current?.goToPosition(pc)` (a safe no-op before wiring).
 
 ## Constraints & Forbidden Actions
 
@@ -195,14 +206,30 @@ All deterministic — no wall-clock, no screenshots (reference-machine only per 
    - Camera just outside the margin band vs just inside it → the NaN/non-NaN transition flips at
      `maxRadiusPc + marginPc`.
 3. **`pnpm verify` green** (lint + typecheck + unit + build), including the no-alloc discipline.
+   **NOTE — the environment-independent teeth live in the unit tests (#1, #2).** They test the
+   actual production functions directly and go red without Fix A regardless of pack/coverage. The
+   e2e below is *live integration confirmation*; its red-green teeth are environment-dependent, so
+   it carries a mandatory pre-flight verification.
 4. **`e2e/tests/gaia-park-speed-law.spec.ts`** (new, deterministic — reads counts + a scalar, NOT
-   frame times): boot; `await __cosmos.goToPosition([2835, 0, 0])`; wait `goToActive === false`;
-   settle; then assert BOTH:
-   - `__cosmos.distanceToNearestSurfacePc > 100` (the speed law received a cruising distance at the
-     park — this FAILS on the pre-fix streaming-0 path, PASSES on Fix A: the WASD-unstuck teeth).
-   - `getErrorCounts().total === 0` (the TASK-090 tripwire stayed silent — no sustained nav budget
-     breach at the park; teeth against the walk returning). Log both values so a CI failure is
-     triagable from the run alone.
+   frame times): boot; `await __cosmos.goToPosition([2835, 0, 0])`; wait `__cosmos.goToActive ===
+   false` (mirror `breadcrumb-perf.spec.ts:84`); settle a few frames; then assert BOTH:
+   - `__cosmos.distanceToNearestSurfacePc > 100` — the speed law received a cruising distance at the
+     park (Fix A). **Whether this goes RED on pre-fix HEAD is environment-dependent:** pre-fix, the
+     `distFromSolPc > 500` guard prefers `streaming.nearestBodyDistanceM`, which is only ~0 if a
+     Gaia octree chunk actually *covers* `[2835,0,0]`; on the default e2e pack (no dense
+     `octree-gaia`) it may instead fall through to `distToField`(diagonal ~1715) ≈ 1120 > 100 and
+     PASS pre-fix — a toothless green-on-both. **MANDATORY pre-flight:** before implementing, run
+     this new spec against pre-fix HEAD and confirm the `distanceToNearestSurfacePc` assertion
+     FAILS. If it passes pre-fix, the park coords / default pack do not reproduce the streaming-0
+     path → STOP and reconcile (pick a park position + pack state where pre-fix genuinely feeds ~0,
+     or rely on the unit tests for teeth and demote this to a smoke check — record the choice in
+     NOTES.md). Do not ship a gate that is green on both trees.
+   - `__cosmos.errorCounts.total === 0` (read the hook member, NOT a `getErrorCounts()` global — the
+     browser has no such global; the hook exposes `errorCounts` at test-hook.ts:97/247). This is
+     **regression protection, not red-green teeth**: pre-fix the 500-guard already skips the grid at
+     the park so `errorCounts.total` is already 0 — the assertion cannot go red on pre-fix. Its
+     value is that, once TASK-090's tripwire exists, a *future* regression that re-detonates the
+     walk here fails this spec. Log both values so a CI failure is triagable from the run alone.
 5. **Existing perf specs unregressed:** `breadcrumb-perf` / `breadcrumb-profile` (the Milky Way
    vantage, ~49 kpc, exercises the far branch) still pass. These are `@perf`/reference-machine and
    non-blocking, but confirm the guard change did not alter their deterministic assertions.

@@ -152,6 +152,12 @@ Two spec-able shapes, both eliminate the magic constant and both fix WASD-stuck:
   and feed the speed law from `distToField` instead of `streaming.nearestBodyDistanceM`. Uses
   only data already computed (hygBounds), O(1), no streaming dependency for galaxy speed,
   no grid walk, no WASD-stuck. Keeps the fast in-field grid path unchanged.
+  **Correction (via TASK-091 spec-review):** the ≈1845 pc figure above and this "distToField"
+  must use the TRUE max point radius (~990 pc), NOT the current `hygBounds.radius`, which is the
+  AABB half-*diagonal* `hypot(hx,hy,hz)` ≈ 990·√3 ≈ 1715 pc. Keying the guard on the diagonal
+  leaves a 990–1715 pc shell that is empty of HYG stars yet treated as "inside" → the grid walks
+  it (a smaller re-arm of the 93 ms cliff). TASK-091 therefore computes `maxRadiusPc` (true point
+  extent from centre) rather than reusing the diagonal `radius`.
 - **Fix B (thorough, grid-level).** Make `nearestStarIndex` bounds-aware (store the populated
   cell AABB at build; when the query is outside it, seed/short-circuit so the walk is cheap
   and still returns the true nearest star), then delete the NavDriver far-field guard
