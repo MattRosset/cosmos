@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BodyId, UniversePosition } from '@cosmos/core-types';
 import { CONTEXT_UNIT_METERS } from '@cosmos/core-types';
 import { createOriginManager, createScaleFrameTree } from '@cosmos/coords';
-import { loadStarPack, loadSystemsPack, loadOctreePack, loadConstellationPack, createCombinedSource, loadGaiaSourceIds } from '@cosmos/data';
+import { loadStarPack, loadSystemsPack, loadOctreePack, loadConstellationPack, createCombinedSource, loadGaiaSourceIds, loadGaiaReverseLookup } from '@cosmos/data';
 import type { FlightController, ContextSwitchEvent } from '@cosmos/nav';
 import { detectInitialTier, SceneHost, type QualityController } from '@cosmos/scene-host';
 import type { StreamingPolicy } from '@cosmos/streaming';
@@ -243,6 +243,23 @@ export function StarApp() {
   // resolve). Feeds StarScene's async pick upgrade (TASK-088 D4).
   const gaiaIds = useMemo(() => loadGaiaSourceIds(GAIA_OCTREE_MANIFEST_URL), []);
 
+  // TASK-070: reverse source_id → position lookup for the search palette (lazy; zero cost
+  // until the first `gaia:` query). Injected into the palette adapter via Hud.
+  const gaiaReverse = useMemo(() => loadGaiaReverseLookup(GAIA_OCTREE_MANIFEST_URL), []);
+  const resolveGaiaId = useCallback(
+    async (id: string) => {
+      // Parse to bigint in the glue (the palette hands over bare digits); bigint end-to-end.
+      let sid: bigint;
+      try {
+        sid = BigInt(id);
+      } catch {
+        return null;
+      }
+      return gaiaReverse.resolve(sid);
+    },
+    [gaiaReverse],
+  );
+
   // Publish to the test-hook holder for the ≤ 4 Hz stats mirror. The policy lives
   // for the app session (like the module worker pool) — StarApp is the root and
   // never truly unmounts, so we do NOT dispose on a (StrictMode/HMR) fake unmount,
@@ -311,6 +328,12 @@ export function StarApp() {
       useSelectionStore.getState().select(id);
       goto?.goTo(id);
     },
+    [goto],
+  );
+
+  // TASK-070 Step 0(z): fly to a Gaia star's raw galaxy position (it is not a flyable body).
+  const handleGoToPosition = useCallback(
+    (positionPc: readonly [number, number, number]) => goto?.goToPosition(positionPc),
     [goto],
   );
 
@@ -739,6 +762,8 @@ export function StarApp() {
               currentSystemId={mountedSystemId}
               onExitSystem={() => goto.exitSystem()}
               onGoTo={handleGoTo}
+              onGoToPosition={handleGoToPosition}
+              resolveGaiaId={resolveGaiaId}
               onSyncToNow={syncClockToNow}
               onCapture={goto.capture}
               onGoToBookmark={goto.goToBookmark}

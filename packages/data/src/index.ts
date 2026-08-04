@@ -9,6 +9,8 @@ export { loadOctreePack, OctreeFormatError } from './octree.js';
 export type { OctreeNode, OctreeSource, LoadOctreeOptions } from './octree.js';
 export { loadGaiaSourceIds } from './gaia-sourceids.js';
 export type { GaiaSourceIdResolver } from './gaia-sourceids.js';
+export { loadGaiaReverseLookup } from './gaia-reverse-lookup.js';
+export type { GaiaReverseLookup, GaiaReverseHit } from './gaia-reverse-lookup.js';
 // Worker-side tile decode handler (§5.13): injected into the app's unified worker
 // entry's `serveWorker`. Pure (no Three.js/DOM), the data counterpart to procgen's
 // `galaxyWorkerHandler`. `decodeTile` is the underlying main-thread decoder.

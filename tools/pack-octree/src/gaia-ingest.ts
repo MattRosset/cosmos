@@ -1,12 +1,12 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parse } from 'csv-parse/sync';
-import type { StarPackManifest } from '@cosmos/core-types';
+import type { OctreeManifest, StarPackManifest } from '@cosmos/core-types';
 // Reuse the HYG ICRS→galactic rotation (ADR-006 §2 / ADR-001): both catalogs
 // MUST land in the identical frame. Do not re-derive the rotation here.
 import { galacticPositionPc } from '../../pack-stars/src/convert';
 import { buildOctree } from './build';
-import type { StarData } from './build';
+import type { StarData, StarPlacement } from './build';
 
 const DEG2RAD = Math.PI / 180;
 
@@ -247,6 +247,91 @@ export function writeSourceIdSidecar(stars: readonly GaiaStar[], outDir: string)
   writeFileSync(join(outDir, 'gaia-sourceids.bin'), Buffer.from(arr.buffer));
 }
 
+/** Bytes per `gaia-sourceids-index.bin` record: source_id(i64) + tileId(u32) + indexInTile(u32). */
+export const SOURCE_ID_INDEX_RECORD_BYTES = 16;
+
+/**
+ * Write the reverse source_id → tile-placement index (TASK-070), sorted by source_id
+ * for a binary search at runtime. Each 16-byte record is
+ * `(source_id: i64 LE, tileId: u32 LE, indexInTile: u32 LE)`, where `tileId` indexes
+ * `manifest.tiles` (on-disk BFS order) and `indexInTile` is the star's slot in that
+ * leaf tile — both from the `placements` sink `buildOctree` filled for the SAME `stars`.
+ * Signed i64 matches the sidecar (TASK-069 Step 0(a)); real DR3 ids are positive, so
+ * signed and unsigned ordering coincide. Additive: a brand-new file, no existing output
+ * changes.
+ */
+export function writeSourceIdIndex(
+  stars: readonly GaiaStar[],
+  placements: readonly StarPlacement[],
+  outDir: string,
+): void {
+  const records = stars.map((s, i) => {
+    const p = placements[i];
+    if (p === undefined) {
+      throw new Error(
+        `gaia index: no tile placement for star index ${i} (catalogId ${s.catalogId})`,
+      );
+    }
+    return { sourceId: s.sourceId, tileId: p.tileIndex, indexInTile: p.indexInTile };
+  });
+  records.sort((a, b) => (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
+
+  const buf = Buffer.alloc(records.length * SOURCE_ID_INDEX_RECORD_BYTES);
+  records.forEach((r, i) => {
+    const off = i * SOURCE_ID_INDEX_RECORD_BYTES;
+    buf.writeBigInt64LE(BigInt.asIntN(64, r.sourceId), off);
+    buf.writeUInt32LE(r.tileId, off + 8);
+    buf.writeUInt32LE(r.indexInTile, off + 12);
+  });
+  writeFileSync(join(outDir, 'gaia-sourceids-index.bin'), buf);
+}
+
+/**
+ * Backfill `gaia-sourceids-index.bin` for an ALREADY-BUILT Gaia pack (TASK-070), deriving
+ * each star's tile placement straight from the on-disk octree instead of re-running the ingest
+ * from the source snapshot. The leaf tiles ARE the runtime's ground truth (the reverse lookup
+ * reads position at `indexInTile` from them), so the emitted index is byte-identical to what
+ * `buildGaiaPack` writes for that pack. For local dense packs built before the writer existed.
+ * Returns the record count. Throws on a corrupt/partial pack (a catalogId with no leaf).
+ */
+export function writeSourceIdIndexFromPack(packDir: string): number {
+  const manifest = JSON.parse(readFileSync(join(packDir, 'octree.json'), 'utf8')) as OctreeManifest;
+  const sidecar = readFileSync(join(packDir, 'gaia-sourceids.bin'));
+  const count = sidecar.byteLength / 8;
+
+  const placements: StarPlacement[] = new Array<StarPlacement>(count);
+  manifest.tiles.forEach((tile, tileIndex) => {
+    if (!tile.isLeaf) return;
+    const bin = readFileSync(join(packDir, tile.binUrl));
+    const buf = bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength) as ArrayBuffer;
+    const catIds = new Uint32Array(buf, tile.buffers.catalogIds.byteOffset, tile.pointCount);
+    for (let j = 0; j < tile.pointCount; j++) {
+      placements[catIds[j]!] = { tileIndex, indexInTile: j };
+    }
+  });
+
+  const missing = placements.findIndex((p) => p === undefined);
+  if (missing !== -1) {
+    throw new Error(`gaia index: catalogId ${missing} has no leaf placement (corrupt/partial pack)`);
+  }
+
+  const stars: GaiaStar[] = [];
+  for (let i = 0; i < count; i++) {
+    stars.push({
+      catalogId: i,
+      sourceId: sidecar.readBigInt64LE(i * 8),
+      x: 0,
+      y: 0,
+      z: 0,
+      absMag: 0,
+      colorIndexBV: 0,
+      hipId: 0,
+    });
+  }
+  writeSourceIdIndex(stars, placements, packDir);
+  return count;
+}
+
 /**
  * ADR-006 §4: the build fails if the Gaia/ESA/DPAC credit is absent from
  * ATTRIBUTIONS.md. Returns silently when present, throws otherwise.
@@ -291,12 +376,19 @@ export function buildGaiaPack(options: BuildGaiaPackOptions): BuildGaiaPackResul
 
   const converted = rows.reduce((n, r) => (convertGaiaRow(r) ? n + 1 : n), 0);
 
-  const manifest = buildOctree(stars, options.outDir, {
-    rootHalfExtent: 65536,
-    source: 'gaia-dr3-bright',
-    idPrefix: 'gaia',
-  });
+  const placements: StarPlacement[] = [];
+  const manifest = buildOctree(
+    stars,
+    options.outDir,
+    {
+      rootHalfExtent: 65536,
+      source: 'gaia-dr3-bright',
+      idPrefix: 'gaia',
+    },
+    placements,
+  );
   writeSourceIdSidecar(stars, options.outDir);
+  writeSourceIdIndex(stars, placements, options.outDir);
 
   const leaves = manifest.tiles.filter((t) => t.isLeaf);
   return {

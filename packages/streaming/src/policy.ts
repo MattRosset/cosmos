@@ -601,8 +601,18 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     // `parentKey` Morton re-encode in the inner "find deepest" loop was ~99% of frame
     // time on a dense pack (754-node cut ⇒ ~384 ms/frame). `draws` mirrors the count of
     // distinct covered nodes (coverageList holds exactly that set; addCoverage dedups).
+    // Only octree (real-catalog) points count toward the rendered-point cap. The procgen
+    // filler carries its NOMINAL starCount (1e6 for the Milky Way) but is already
+    // draw-fraction- + opacity-capped in the scene, so charging it here consumes the whole
+    // tier cap by itself at medium/low (1e6 ≥ the 1e6/5e5 caps). That forced the collapse
+    // loop to shed EVERY real octree tile up to the level-0 root, which — parked far from
+    // Sol (a Gaia search fly-to) — both blanked the catalog (black screen) and OVERDREW the
+    // coarse root tile into a ~10 fps stall: a lower tier producing a *more* expensive, empty
+    // frame. See docs/research/gaia-far-fly-quality-collapse.md.
     let pts = 0;
-    for (let i = 0; i < coverageList.length; i++) pts += coverageList[i]!.pointCount;
+    for (let i = 0; i < coverageList.length; i++) {
+      if (coverageList[i]!.kind === 'octree') pts += coverageList[i]!.pointCount;
+    }
     let draws = coverageList.length;
     if (pts <= cap && draws <= budgets.maxDrawCalls) return;
 

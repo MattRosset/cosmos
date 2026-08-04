@@ -35,6 +35,17 @@ export interface CosmosTestHook {
     readonly context: ContextId;
     readonly local: readonly [number, number, number];
   };
+  /**
+   * TASK-070: the LAST goTo/fly target (written synchronously by the coordinator's `flyTo`,
+   * before any animation), so the search-by-source_id e2e can assert the palette actually
+   * flew to the resolved star position — the guard against the "flew via onGoTo(bodyId) =
+   * silent no-op" trap. Live getter off the same holder the Jump HUD reads. Null before the
+   * first fly.
+   */
+  readonly flightTarget: {
+    readonly context: ContextId;
+    readonly local: readonly [number, number, number];
+  } | null;
   /** §5.8 streaming instrumentation (TASK-040), mirrored ≤ 4 Hz from `stats`.
    *  cutSize/pendingCount/trackedChunks/evictedThisFrame are the BUG-10 density-wall
    *  diagnostics (docs/research/bug-10-streaming-density-wall.md). */
@@ -238,6 +249,10 @@ export const testHook: CosmosTestHook = {
   },
   get failedChunks(): number {
     return streamingHolder.current?.stats.failedChunks ?? 0;
+  },
+  get flightTarget(): { context: ContextId; local: readonly [number, number, number] } | null {
+    const t = jumpDistancePcHolder.target;
+    return t === null ? null : { context: t.context, local: t.local };
   },
   // Delegate to StarScene's live pick closures (null until that effect mounts).
   pickAt(clientX: number, clientY: number): BodyId | null {

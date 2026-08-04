@@ -36,6 +36,15 @@ const MIN_SURFACE_DISTANCE_PC = 1e-7;
  * far outside the field, so we must short-circuit before calling it (see below).
  */
 const HYG_GRID_REACH_PC = 200 * 25;
+/**
+ * HYG monolith is Sol-local. Past this distance from Sol the expanding-shell search
+ * walks empty rings toward the catalog bubble (~90 ms/frame at a Gaia mid-disk park
+ * ~2.8 kpc — same mechanism as TASK-040 breadcrumb freeze, but AFTER goTo ends so
+ * the goToActive short-circuit no longer applies). Beyond this, feed the speed law
+ * from streaming's nearest loaded chunk (Gaia/HYG octree) instead.
+ * See docs/research/gaia-far-fly-quality-collapse.md §9.
+ */
+const HYG_SEARCH_MAX_FROM_SOL_PC = 500;
 /** Distance floor (AU) for the system-context surface feed. */
 const MIN_SURFACE_DISTANCE_AU = 1e-9;
 /** Distance floor (Mpc) for the universe-context streaming surface feed. */
@@ -183,18 +192,38 @@ export function NavDriver({
       return;
     }
 
-    // Galaxy context — HYG nearest-star distance (M1 unchanged near the field).
-    // Short-circuit when the camera is beyond the grid's reach from the field, OR
-    // during an animated goTo (breadcrumbs): both cases skip nearestStarIndex.
-    // The expanding-shell search scans up to 200 empty rings (~1.7 s/frame) when
-    // the camera is in the inter-arm void (3–20 kpc) where HYG has no cells — see
-    // docs/research/TASK-040-breadcrumb-freeze.md.
+    // Galaxy context — HYG nearest-star distance near Sol; streaming elsewhere.
+    // Short-circuit nearestStarIndex when:
+    //  - animated goTo (breadcrumb freeze — TASK-040),
+    //  - camera beyond grid reach outside the HYG bounding sphere, OR
+    //  - camera far from Sol (Gaia search park ~2.8 kpc): HYG has no cells there,
+    //    so the expanding shell walks empty rings (~90 ms/frame → ~11 fps) even
+    //    though the scene only shows one Gaia star. goToActive is already false
+    //    once parked, so the flight-only guard is not enough.
+    // See docs/research/TASK-040-breadcrumb-freeze.md and
+    // docs/research/gaia-far-fly-quality-collapse.md §9.
     const ddx = cx - hygBounds.cx;
     const ddy = cy - hygBounds.cy;
     const ddz = cz - hygBounds.cz;
     const distToField = Math.hypot(ddx, ddy, ddz) - hygBounds.radius;
-    if (flight.goToActive || distToField > HYG_GRID_REACH_PC) {
-      flight.setDistanceToNearestSurface(Math.max(distToField, MIN_SURFACE_DISTANCE_PC));
+    const distFromSolPc = Math.hypot(cx, cy, cz);
+    if (
+      flight.goToActive ||
+      distToField > HYG_GRID_REACH_PC ||
+      distFromSolPc > HYG_SEARCH_MAX_FROM_SOL_PC
+    ) {
+      const dM = streaming?.nearestBodyDistanceM ?? Infinity;
+      if (Number.isFinite(dM)) {
+        // Real octree chunk under/near the camera (Gaia park, far field).
+        flight.setDistanceToNearestSurface(
+          Math.max(dM / CONTEXT_UNIT_METERS.galaxy, MIN_SURFACE_DISTANCE_PC),
+        );
+      } else {
+        // No streaming yet — HYG-sphere lower bound (may be negative inside it).
+        flight.setDistanceToNearestSurface(
+          Math.max(distToField, MIN_SURFACE_DISTANCE_PC),
+        );
+      }
       return;
     }
     profileSpan('nav.hyg.nearestStarIndex', () => {
