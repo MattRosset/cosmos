@@ -6,5 +6,7 @@ export {
   __resetDiagnostics,
 } from './sink';
 export { assertInvariant } from './assert';
+export { createBudgetMonitor } from './budget-monitor';
+export type { BudgetMonitor, BudgetMonitorOptions } from './budget-monitor';
 export { installDevOverlay, devOverlayTransport } from './dev-overlay';
 export { __setDevForTests } from './env';
