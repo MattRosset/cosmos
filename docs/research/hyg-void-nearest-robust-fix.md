@@ -171,3 +171,32 @@ absence) — a separate feature, out of scope for de-magicking the guard.
 - `nearestBodyDistanceM` collapses to 0 inside tiles ⇒ unfit as galaxy speed-law input.
 - Packed HYG = ~990 pc sphere; 500 pc cuts coverage; ~990 pc is the real boundary.
 - `distToField`/`hygBounds` already exist in NavDriver and give the O(1) far-field scalar.
+
+## Decision (2026-08-04) — Fix A, with B recorded as a follow-up
+
+**Chosen: Fix A** (NavDriver `distToField`-boundary guard). Sequenced as TASK-091, *after* the
+always-on nav-frame tripwire (TASK-090).
+
+**Why A over B, given the tripwire lands first.** The user's decisive criterion was "never let
+this recur *silently*" (it cost ~2 sessions because a 90 ms main-thread stall only looked like a
+GPU/throttle issue). The sharpest argument for B was that A is a per-caller guard whose latent
+cliff could re-detonate *silently* from a future second caller of `nearestStarIndex`. Once the
+tripwire (TASK-090) exists, that residual cliff can no longer be silent — a re-detonation on the
+`nav.surfaceFeed` path fires the alarm with context, turning a blind bisect into one log line. So
+the general defense against silent recurrence is the **alarm**, not bounding this one primitive;
+with that in place the fix reverts to a right-sizing call, and A wins: one file, low risk,
+reversible, uses data already computed (`hygBounds`), fixes the observed bug **and** the WASD-stuck
+symptom (`gaia-park-navigation-open.md` §1), and encodes the real *geometric* precondition
+(outside the HYG sphere) rather than a lifecycle guard — satisfying LEARN D1. The tripwire also
+protects A's own implementation: if A's guard fails to prevent the walk, `nav.surfaceFeed` spikes
+and the alarm fires.
+
+**B is not discarded — it is deferred** (to a recorded follow-up task). Graduate to B when the
+landmine stops being hypothetical: a *second* void-caller of `nearestStarIndex` appears, or we
+decide we want defense-in-depth (bounded primitive *and* alarm). Deferring B is cheap precisely
+because the tripwire makes any interim regression loud, not silent. B additionally roots TASK-040
+breadcrumb-freeze, which is the strongest standing reason to pick it up later.
+
+**What A gives up:** a bounded primitive for hypothetical future callers (YAGNI today), and the
+"slow down near the visible Gaia star" nicety — which neither A nor B delivers (needs a per-point
+Gaia nearest that does not exist; verified absence above).
