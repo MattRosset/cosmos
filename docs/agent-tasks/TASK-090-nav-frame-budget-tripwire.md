@@ -4,7 +4,7 @@
 **Target package:** `packages/diagnostics` (new monitor) + `apps/web` (wiring)
 **Size:** M
 **Phase:** 4
-**Depends on:** none (lands BEFORE TASK-091 = bounds-aware nearest + park gate, and protects its implementation)
+**Depends on:** none (lands BEFORE TASK-091 = the HYG-cliff fix + park gate, and protects its implementation)
 
 ## Goal
 
@@ -19,9 +19,11 @@ keeps running (no crash) so the failing state stays observable. The tripwire is 
 primitive** (`createBudgetMonitor`), not hard-wired to HYG — nav is its first consumer.
 
 This is the "alarm for a known cliff" half of the plan; the *fix* for the specific HYG cliff is
-TASK-091 (bounds-aware `nearestStarIndex` + remove the magic-500 guard). The tripwire exists
-first so that when TASK-091 removes that guard, any regression re-detonating the walk announces
-itself on the spot instead of being bisected blind. See
+TASK-091 (the HYG-cliff fix — the research recommends Fix A, a NavDriver `distToField`-boundary
+guard, as the minimal Step 0, with the bounds-aware `nearestStarIndex` as the thorough Fix B;
+either way it removes/replaces the magic-500 guard). The tripwire exists first so that when
+TASK-091 touches that guard, any regression re-detonating the walk announces itself on the spot
+instead of being bisected blind. See
 `docs/research/hyg-void-nearest-robust-fix.md` and
 `docs/learnings/LEARN-hyg-void-search-rearm-2026-08-03.md` (proposal D2).
 
@@ -36,16 +38,23 @@ Confirm each; if any is false, STOP and reconcile in the spec (global rule 1), d
 2. `AppErrorKind` includes `'invariant'` and `ALL_KINDS` is a **frozen** list (sink.ts:11-19). This
    task reuses `'invariant'` and adds NO new kind (adding one changes `ErrorCounts` — a frozen
    surface needing its own thaw task).
-3. `getErrorCounts()` is the established deterministic gate proxy: `ErrorGateProbe.tsx` gates
-   `getErrorCounts().total === "no silent error"`, `test-hook.ts:248` exposes it, and
+3. `getErrorCounts()` is the established deterministic gate proxy: `ErrorGateProbe.tsx:231`
+   *exposes* it and the `total === 0` "no silent error" assertion lives in the e2e specs (e.g.
+   `e2e/tests/error-gate.spec.ts:64`); `test-hook.ts:248` also surfaces it; and
    `packages/diagnostics/test/assert.test.ts:28` asserts `getErrorCounts().invariant === 1` after
-   one invariant. The tripwire's acceptance rides this same proxy.
+   one invariant. The tripwire's acceptance rides this same proxy. **Blast radius:** ~7 live e2e
+   specs already assert `errorCounts.total === 0` (error-gate, gaia-pick-identity, universe-ascent,
+   universe-impostor-scale, universe-local-group-{select,visibility}, universe-overlay-scale). Once
+   this tripwire ships, a sustained nav breach during any of those runs will (correctly) fail that
+   spec too — that is the alarm working, a TRUE positive, not a regression in an unrelated spec. If
+   a slow shared runner ever false-fires, the fix is "raise `budgetMs`, log the measured `spanMs`"
+   (see Failure modes), NEVER editing those gates.
 4. `assertInvariant` (assert.ts) **throws in DEV**. This task must **NOT** use it (a per-frame
    throw kills the rAF loop and hides the state we want to observe) — call `reportError` directly.
 5. In `NavDriver.tsx`, the galaxy-context surface feed already computes `distFromSolPc`
    (`Math.hypot(cx,cy,cz)`, ~line 209) and `distToField` (~line 208) each frame, and the whole feed
    is wrapped in `profileSpan('nav.surfaceFeed', …)` (line 165). `profileSpan` is **opt-in**
-   (no-op unless `?debug=breadcrumb-profile`, frame-profiler.ts:81-89) so it cannot supply the ms —
+   (no-op unless `?debug=breadcrumb-profile` **or** `?debug=flythrough4`, frame-profiler.ts:11-16,81-89) so it cannot supply the ms —
    add an explicit `performance.now()` bracket.
 6. Repo hard rule: **no allocations inside frame-loop callbacks** (architecture.md §5.8; see
    `policy.ts` scratch discipline). The per-frame `sample()` path must allocate nothing; the
@@ -73,7 +82,9 @@ DOM, no React, no timers):
 export interface BudgetMonitor {
   /** Call once per frame with the measured span ms. Zero allocation on this path.
    *  `context` is a caller-owned scratch object (mutated in place each frame); the
-   *  monitor reads it ONLY when it reports, and shallow-copies it then. */
+   *  monitor reads it ONLY when it reports, and shallow-copies it then.
+   *  Typed `AppError['context']` (a Readonly Record) on the READ side here; the caller
+   *  keeps a MUTABLE alias of the same object to write per frame — see Wiring / finding-1. */
   sample(ms: number, context?: AppError['context']): void;
   /** Re-arm (e.g., on context switch / teardown). */
   reset(): void;
@@ -113,13 +124,24 @@ export function createBudgetMonitor(opts: BudgetMonitorOptions): BudgetMonitor;
 - Create ONE monitor instance for nav (module- or ref-scoped, created once — NOT per frame):
   `createBudgetMonitor({ label: 'nav.surfaceFeed', budgetMs: 4, sustainedFrames: 30 })`.
 - Hold ONE reused scratch context object (created once, mutated in place — mirror `policy.ts`
-  `posScratch`/`eventScratch`): fields `{ span: 'nav.surfaceFeed', context, distFromSolPc,
-  distToField, spanMs }`.
-- In the `useFrameContext` nav callback: bracket the existing surface-feed body with
-  `const t0 = performance.now();` … `const spanMs = performance.now() - t0;`, update the scratch
-  fields for the galaxy branch (set `distFromSolPc`/`distToField` from the values already computed;
-  for system/universe branches set them to the branch's own nearest scalar or `-1`), then
-  `navBudget.sample(spanMs, scratch)`. No object literal is created in the callback.
+  `posScratch`/`eventScratch`). **Type it as a local MUTABLE interface, NOT `AppError['context']`:**
+  `AppError['context']` is `Readonly<Record<string, string|number|boolean|null>>`
+  (`packages/core-types/src/errors.ts:23`), so typing the scratch as that param type makes the
+  per-frame field writes a compile error whose only easy escape is `as any` (a global-rule-5 red
+  flag — do NOT do that). Declare instead:
+  `interface NavBudgetCtx { span: string; context: string; distFromSolPc: number; distToField: number; spanMs: number }`
+  and pass the scratch to `sample(ms, ctx)` — all fields are `string|number`, so the object
+  **structurally satisfies** the readonly `AppError['context']` parameter on the read side with no
+  cast. No `as any`, no `as const`.
+- In the `useFrameContext` nav callback: put `const t0 = performance.now();` as the **first** line
+  and, at the callback's tail after the whole `profileSpan('nav.surfaceFeed', …)` statement,
+  `scratch.spanMs = performance.now() - t0; navBudget.sample(scratch.spanMs, scratch);` — the
+  bracket wraps the entire feed. **Mutate the scratch's distance fields INSIDE each branch, before
+  that branch's own `return`** (every branch — system :168/:179, universe :192, galaxy short-circuit
+  :227, galaxy grid path — early-returns from the `profileSpan` arrow, so there is no single linear
+  point after the body to set them): the galaxy branches set `distFromSolPc`/`distToField` from the
+  values already computed there; system/universe set both to `-1`; always set `scratch.context =
+  flight.contextId`. No object literal is created anywhere in the callback.
 - Call `navBudget.reset()` on context switch (reuse the existing `onContextSwitch`/effect path) so
   a legitimately different regime does not carry a stale `consecutiveOver`.
 
@@ -185,11 +207,23 @@ All deterministic — no wall-clock, no screenshots (those are reference-machine
      `.total === 1` (mirrors `assert.test.ts:28`).
 2. **`pnpm verify` green** (lint + typecheck + unit + build) — including the no-alloc lint/discipline
    the repo already enforces; the NavDriver frame callback creates no per-frame object literal.
-3. **Wiring smoke (unit or light e2e, deterministic):** drive the nav callback with a synthetic
-   feed body forced over budget for `sustainedFrames` frames and assert `getErrorCounts().invariant`
-   incremented by 1 and the context recorded `span:'nav.surfaceFeed'` + a numeric `distFromSolPc`.
-   (The *live park* end-to-end assertion belongs to TASK-091's park gate; here only prove the wire
-   fires from the NavDriver path.)
+3. **Wiring test (deterministic, via an injected clock — NOT real work).** A real >4 ms feed would
+   need thousands of synthetic bodies, and `useFrameContext` needs the scene-host frame loop, which
+   vitest cannot drive here (no WebGL — same limit noted in the repo's e2e/vitest split). So do NOT
+   try to make the feed genuinely slow. Instead add a thin seam and drive it:
+   - Give `NavDriver` an **optional** injected clock, `now?: () => number` (default
+     `() => performance.now()`), and use it for the `t0`/`spanMs` bracket. In prod it is
+     `performance.now`; a test passes a stub whose returns make `spanMs = 5` (> 4 ms budget) for 30
+     consecutive frames, then asserts `getErrorCounts().invariant` incremented by exactly 1 and the
+     reported `context` recorded `span: 'nav.surfaceFeed'` + a numeric `distFromSolPc`. Adding this
+     one optional prop is in-scope for THIS task (it is the only way to make the wire's breach
+     deterministic without WebGL); it defaults to prod behaviour and changes nothing else.
+   - If wiring `NavDriver` in isolation under vitest is impractical, the acceptable fallback is to
+     extract the two wiring lines (`spanMs = now() - t0; navBudget.sample(spanMs, scratch)`) into a
+     tiny pure helper `sampleNavBudget(monitor, ctx, spanMs)` and unit-test THAT with an injected
+     monitor + clock — same assertions. Either satisfies #3; do not leave the wire unproven.
+   (The *live park* end-to-end assertion — real cliff, real park — belongs to TASK-091's park gate,
+   which runs against the dense pack with the magic-500 guard removed; it is out of scope here.)
 
 Every failing acceptance check must be triagable from logs alone: on breach the report logs
 `[cosmos:invariant] nav.surfaceFeed exceeded 4ms for 30 frames { span, spanMs, distFromSolPc, distToField, context }`.
