@@ -64,6 +64,7 @@ interface SegmentStats {
   peakScenePoints: number;
   peakFrustumKept: number;
   peakFrustumCulled: number;
+  peakBrightnessCulled: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -130,6 +131,7 @@ function logSegments(result: Flythrough4Result): void {
         `streamPts=${s.peakRenderedPoints} streamDraws=${s.peakDrawCalls} ` +
         `scenePts=${s.peakScenePoints} sceneDraws=${s.peakSceneDrawCalls} inFlight=${s.peakInFlight} ` +
         `frustumKept=${s.peakFrustumKept} frustumCulled=${s.peakFrustumCulled} ` +
+        `brightnessCulled=${s.peakBrightnessCulled} ` +
         `req=${s.requestsIssued} cov=${s.minCoverage.toFixed(2)}..${s.maxCoverage.toFixed(2)} ` +
         `procgen=${s.minProcgenOpacity.toFixed(2)}..${s.maxProcgenOpacity.toFixed(2)}`,
     );

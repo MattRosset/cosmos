@@ -18,7 +18,7 @@ import {
 } from './flythrough-descent';
 import { procgenOpacityHolder } from '../glue/test-hook';
 import { buildProfileResult, type BreadcrumbProfileResult } from '../glue/frame-profiler';
-import { frustumCullStats } from './GalaxyScene';
+import { frustumCullStats, brightnessCullStats } from './GalaxyScene';
 
 /**
  * TASK-053 — the tier-unification budget probe (`?debug=flythrough4`, ADR-006 §5.4).
@@ -90,6 +90,8 @@ export interface SegmentStats {
   /** TASK-093 diagnostics: peak octree tiles kept/culled by draw-time frustum test. */
   readonly peakFrustumKept: number;
   readonly peakFrustumCulled: number;
+  /** TASK-094 diagnostics: peak octree tiles culled by brightness/distance test. */
+  readonly peakBrightnessCulled: number;
   /** Total tile requests issued while in this segment (streaming churn). */
   readonly requestsIssued: number;
   /** catalogCoverage range over the segment. */
@@ -165,6 +167,8 @@ interface SegmentAccum {
   /** TASK-093: peak octree tiles kept / culled by draw-time frustum test this segment. */
   peakFrustumKept: number;
   peakFrustumCulled: number;
+  /** TASK-094: peak octree tiles culled by brightness/distance test this segment. */
+  peakBrightnessCulled: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -186,6 +190,7 @@ function newSegmentAccum(): SegmentAccum {
     peakScenePoints: 0,
     peakFrustumKept: 0,
     peakFrustumCulled: 0,
+    peakBrightnessCulled: 0,
     requestsIssued: 0,
     minCoverage: Infinity,
     maxCoverage: 0,
@@ -211,6 +216,7 @@ function finalizeSegment(a: SegmentAccum): SegmentStats {
     peakScenePoints: a.peakScenePoints,
     peakFrustumKept: a.peakFrustumKept,
     peakFrustumCulled: a.peakFrustumCulled,
+    peakBrightnessCulled: a.peakBrightnessCulled,
     requestsIssued: a.requestsIssued,
     minCoverage: a.minCoverage === Infinity ? 0 : a.minCoverage,
     maxCoverage: a.maxCoverage,
@@ -386,6 +392,7 @@ export function Flythrough4Probe({
       a.peakScenePoints = Math.max(a.peakScenePoints, scenePoints);
       a.peakFrustumKept = Math.max(a.peakFrustumKept, frustumCullStats.kept);
       a.peakFrustumCulled = Math.max(a.peakFrustumCulled, frustumCullStats.culled);
+      a.peakBrightnessCulled = Math.max(a.peakBrightnessCulled, brightnessCullStats.culled);
       a.requestsIssued += st.requestsThisFrame;
       a.minCoverage = Math.min(a.minCoverage, coverage);
       a.maxCoverage = Math.max(a.maxCoverage, coverage);
