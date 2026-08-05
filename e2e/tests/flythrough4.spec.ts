@@ -62,6 +62,8 @@ interface SegmentStats {
   peakLoadedChunks: number;
   peakSceneDrawCalls: number;
   peakScenePoints: number;
+  peakFrustumKept: number;
+  peakFrustumCulled: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -127,6 +129,7 @@ function logSegments(result: Flythrough4Result): void {
         `max=${s.maxFrameMs.toFixed(1)} long=${s.longFrames} ` +
         `streamPts=${s.peakRenderedPoints} streamDraws=${s.peakDrawCalls} ` +
         `scenePts=${s.peakScenePoints} sceneDraws=${s.peakSceneDrawCalls} inFlight=${s.peakInFlight} ` +
+        `frustumKept=${s.peakFrustumKept} frustumCulled=${s.peakFrustumCulled} ` +
         `req=${s.requestsIssued} cov=${s.minCoverage.toFixed(2)}..${s.maxCoverage.toFixed(2)} ` +
         `procgen=${s.minProcgenOpacity.toFixed(2)}..${s.maxProcgenOpacity.toFixed(2)}`,
     );
@@ -241,6 +244,12 @@ test('flythrough4: near-Sol budgets drop vs M3 baseline; procgen fades where cat
       nearSolScenePoints,
       'near-Sol total scene points ≤ M3 baseline (ADR-006 §5.4 drop — monolith culled)',
     ).toBeLessThanOrEqual(baseline.nearSol.peakScenePoints);
+    // TASK-093 acceptance #2: the drop must come from CULLING off-frustum tiles, not from
+    // blanking the field. In-view tiles the camera faces must still draw.
+    expect(
+      nearSolScenePoints,
+      'near-Sol scene points > 0 (in-frustum tiles still draw — not an empty-field win)',
+    ).toBeGreaterThan(0);
   } else {
     console.log(
       `[flythrough4] M3 baseline NOT recorded — near-Sol drop clause SKIPPED. ` +

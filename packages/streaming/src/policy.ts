@@ -76,6 +76,12 @@ export interface VisibleChunk {
   readonly kind: ChunkKind;
   readonly lod: number;
   readonly opacity: number;
+  /**
+   * Tile half-extent in parsecs (octree: `manifest.halfExtentUnits`, galaxy context
+   * 1 unit = 1 pc). Static per chunk — set once at creation, never per-frame.
+   * Procgen is 0 (never frustum-culled at draw time). TASK-093.
+   */
+  readonly halfExtentPc: number;
 }
 
 export interface StreamingStats {
@@ -175,7 +181,13 @@ interface Chunk {
   abort: AbortController | null;
   token: CancelToken | null;
   /** Reused output object handed out through `visible`. */
-  readonly view: { chunkId: string; kind: ChunkKind; lod: number; opacity: number };
+  readonly view: {
+    chunkId: string;
+    kind: ChunkKind;
+    lod: number;
+    opacity: number;
+    halfExtentPc: number;
+  };
 }
 
 export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPolicy {
@@ -313,7 +325,13 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       extentCurrent: 0,
       abort: null,
       token: null,
-      view: { chunkId: node.key, kind: 'octree', lod: cell.level, opacity: 0 },
+      view: {
+        chunkId: node.key,
+        kind: 'octree',
+        lod: cell.level,
+        opacity: 0,
+        halfExtentPc: node.manifest.halfExtentUnits,
+      },
     };
     chunks.set(c.id, c);
     chunkList.push(c);
@@ -347,7 +365,8 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       extentCurrent: 0,
       abort: null,
       token: null,
-      view: { chunkId: id, kind: 'procgen', lod: 0, opacity: 0 },
+      // halfExtentPc: 0 — procgen is never draw-time frustum-culled (TASK-093).
+      view: { chunkId: id, kind: 'procgen', lod: 0, opacity: 0, halfExtentPc: 0 },
     };
     void galaxyId;
     chunks.set(c.id, c);

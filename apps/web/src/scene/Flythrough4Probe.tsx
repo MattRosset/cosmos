@@ -18,6 +18,7 @@ import {
 } from './flythrough-descent';
 import { procgenOpacityHolder } from '../glue/test-hook';
 import { buildProfileResult, type BreadcrumbProfileResult } from '../glue/frame-profiler';
+import { frustumCullStats } from './GalaxyScene';
 
 /**
  * TASK-053 — the tier-unification budget probe (`?debug=flythrough4`, ADR-006 §5.4).
@@ -86,6 +87,9 @@ export interface SegmentStats {
    */
   readonly peakSceneDrawCalls: number;
   readonly peakScenePoints: number;
+  /** TASK-093 diagnostics: peak octree tiles kept/culled by draw-time frustum test. */
+  readonly peakFrustumKept: number;
+  readonly peakFrustumCulled: number;
   /** Total tile requests issued while in this segment (streaming churn). */
   readonly requestsIssued: number;
   /** catalogCoverage range over the segment. */
@@ -158,6 +162,9 @@ interface SegmentAccum {
   peakLoadedChunks: number;
   peakSceneDrawCalls: number;
   peakScenePoints: number;
+  /** TASK-093: peak octree tiles kept / culled by draw-time frustum test this segment. */
+  peakFrustumKept: number;
+  peakFrustumCulled: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -177,6 +184,8 @@ function newSegmentAccum(): SegmentAccum {
     peakLoadedChunks: 0,
     peakSceneDrawCalls: 0,
     peakScenePoints: 0,
+    peakFrustumKept: 0,
+    peakFrustumCulled: 0,
     requestsIssued: 0,
     minCoverage: Infinity,
     maxCoverage: 0,
@@ -200,6 +209,8 @@ function finalizeSegment(a: SegmentAccum): SegmentStats {
     peakLoadedChunks: a.peakLoadedChunks,
     peakSceneDrawCalls: a.peakSceneDrawCalls,
     peakScenePoints: a.peakScenePoints,
+    peakFrustumKept: a.peakFrustumKept,
+    peakFrustumCulled: a.peakFrustumCulled,
     requestsIssued: a.requestsIssued,
     minCoverage: a.minCoverage === Infinity ? 0 : a.minCoverage,
     maxCoverage: a.maxCoverage,
@@ -298,7 +309,9 @@ export function Flythrough4Probe({
     const r = run.current;
     if (r.published) return;
 
-    // 1. Manual render (positive-priority useFrame disabled R3F auto-render).
+    // 1. Manual render (positive priority disables R3F auto-render and runs AFTER
+    // PRIORITY_RENDER subscribers — so GalaxyScene's draw-time frustum cull has
+    // already set object.visible for this frame before we measure gl.info.render).
     gl.render(scene, camera);
     // TOTAL scene draw work for THIS frame (gl.info.render auto-resets per render()).
     // Captures the whole composition — incl. the HYG monolith StarScene draws outside
@@ -371,6 +384,8 @@ export function Flythrough4Probe({
       a.peakLoadedChunks = Math.max(a.peakLoadedChunks, st.loadedChunks);
       a.peakSceneDrawCalls = Math.max(a.peakSceneDrawCalls, sceneDrawCalls);
       a.peakScenePoints = Math.max(a.peakScenePoints, scenePoints);
+      a.peakFrustumKept = Math.max(a.peakFrustumKept, frustumCullStats.kept);
+      a.peakFrustumCulled = Math.max(a.peakFrustumCulled, frustumCullStats.culled);
       a.requestsIssued += st.requestsThisFrame;
       a.minCoverage = Math.min(a.minCoverage, coverage);
       a.maxCoverage = Math.max(a.maxCoverage, coverage);
