@@ -62,6 +62,7 @@ interface SegmentStats {
   peakLoadedChunks: number;
   peakSceneDrawCalls: number;
   peakScenePoints: number;
+  peakScenePointsBreakdown: { kind: string; points: number }[];
   peakFrustumKept: number;
   peakFrustumCulled: number;
   peakBrightnessCulled: number;
@@ -241,6 +242,15 @@ test('flythrough4: near-Sol budgets drop vs M3 baseline; procgen fades where cat
       `[flythrough4] near-Sol M4a sceneDraws=${nearSolSceneDraws} scenePts=${nearSolScenePoints} ` +
         `(streamPts=${nearSolStreamPoints}) vs M3 baseline sceneDraws=${baseline.nearSol.peakSceneDrawCalls} ` +
         `scenePts=${baseline.nearSol.peakScenePoints}`,
+    );
+    // Log-only attribution of the SAME frame the peak came from: `gl.info.render` is one
+    // aggregate, and TASK-093/094 moved it by exactly 0 in CI. Without this line the total
+    // can only be guessed at.
+    console.log(
+      `[flythrough4] near-Sol peak-frame breakdown: ` +
+        (result.segments.toSol.peakScenePointsBreakdown ?? [])
+          .map((r) => `${r.kind}=${r.points}`)
+          .join(' '),
     );
     expect(
       nearSolSceneDraws,
