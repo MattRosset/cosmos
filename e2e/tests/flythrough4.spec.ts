@@ -65,6 +65,8 @@ interface SegmentStats {
   peakFrustumKept: number;
   peakFrustumCulled: number;
   peakBrightnessCulled: number;
+  peakContainmentCandidates: number;
+  peakContainmentCandidatePoints: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -132,6 +134,8 @@ function logSegments(result: Flythrough4Result): void {
         `scenePts=${s.peakScenePoints} sceneDraws=${s.peakSceneDrawCalls} inFlight=${s.peakInFlight} ` +
         `frustumKept=${s.peakFrustumKept} frustumCulled=${s.peakFrustumCulled} ` +
         `brightnessCulled=${s.peakBrightnessCulled} ` +
+        `containmentCandidates=${s.peakContainmentCandidates} ` +
+        `containmentCandidatePts=${s.peakContainmentCandidatePoints} ` +
         `req=${s.requestsIssued} cov=${s.minCoverage.toFixed(2)}..${s.maxCoverage.toFixed(2)} ` +
         `procgen=${s.minProcgenOpacity.toFixed(2)}..${s.maxProcgenOpacity.toFixed(2)}`,
     );

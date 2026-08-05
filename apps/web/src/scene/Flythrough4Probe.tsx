@@ -92,6 +92,9 @@ export interface SegmentStats {
   readonly peakFrustumCulled: number;
   /** TASK-094 diagnostics: peak octree tiles culled by brightness/distance test. */
   readonly peakBrightnessCulled: number;
+  /** TASK-095 diagnostics: peak covered descendants with a marked covered ancestor. */
+  readonly peakContainmentCandidates: number;
+  readonly peakContainmentCandidatePoints: number;
   /** Total tile requests issued while in this segment (streaming churn). */
   readonly requestsIssued: number;
   /** catalogCoverage range over the segment. */
@@ -169,6 +172,9 @@ interface SegmentAccum {
   peakFrustumCulled: number;
   /** TASK-094: peak octree tiles culled by brightness/distance test this segment. */
   peakBrightnessCulled: number;
+  /** TASK-095: peak covered descendants with a marked covered ancestor. */
+  peakContainmentCandidates: number;
+  peakContainmentCandidatePoints: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -191,6 +197,8 @@ function newSegmentAccum(): SegmentAccum {
     peakFrustumKept: 0,
     peakFrustumCulled: 0,
     peakBrightnessCulled: 0,
+    peakContainmentCandidates: 0,
+    peakContainmentCandidatePoints: 0,
     requestsIssued: 0,
     minCoverage: Infinity,
     maxCoverage: 0,
@@ -217,6 +225,8 @@ function finalizeSegment(a: SegmentAccum): SegmentStats {
     peakFrustumKept: a.peakFrustumKept,
     peakFrustumCulled: a.peakFrustumCulled,
     peakBrightnessCulled: a.peakBrightnessCulled,
+    peakContainmentCandidates: a.peakContainmentCandidates,
+    peakContainmentCandidatePoints: a.peakContainmentCandidatePoints,
     requestsIssued: a.requestsIssued,
     minCoverage: a.minCoverage === Infinity ? 0 : a.minCoverage,
     maxCoverage: a.maxCoverage,
@@ -393,6 +403,11 @@ export function Flythrough4Probe({
       a.peakFrustumKept = Math.max(a.peakFrustumKept, frustumCullStats.kept);
       a.peakFrustumCulled = Math.max(a.peakFrustumCulled, frustumCullStats.culled);
       a.peakBrightnessCulled = Math.max(a.peakBrightnessCulled, brightnessCullStats.culled);
+      a.peakContainmentCandidates = Math.max(a.peakContainmentCandidates, st.containmentCandidates);
+      a.peakContainmentCandidatePoints = Math.max(
+        a.peakContainmentCandidatePoints,
+        st.containmentCandidatePoints,
+      );
       a.requestsIssued += st.requestsThisFrame;
       a.minCoverage = Math.min(a.minCoverage, coverage);
       a.maxCoverage = Math.max(a.maxCoverage, coverage);

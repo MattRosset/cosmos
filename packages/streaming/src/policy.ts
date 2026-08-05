@@ -52,6 +52,7 @@ import {
 } from './budgets.js';
 import { advanceFade, DEFAULT_CROSS_FADE_MS, DEFAULT_LOD_HYSTERESIS } from './crossfade.js';
 import { LruClock, selectLruVictims } from './lru.js';
+import { hasMarkedAncestor } from './lod-coverage-antichain.js';
 
 export interface StreamingPolicyOptions {
   readonly origin: OriginManager;
@@ -111,6 +112,14 @@ export interface StreamingStats {
   readonly pendingCount: number;
   readonly trackedChunks: number;
   readonly evictionsTotal: number;
+  /**
+   * TASK-095 diagnostics (additive, read-only). Covered octree descendants that
+   * have a strict Morton ancestor also in this frame's coverage set — the
+   * pre-normalization ownership overlap. Independent of whether the antichain
+   * behavior is enabled.
+   */
+  readonly containmentCandidates: number;
+  readonly containmentCandidatePoints: number;
 }
 
 export interface StreamingPolicy {
@@ -174,6 +183,11 @@ interface Chunk {
   desiredEpoch: number;
   coverageEpoch: number;
   accessTick: number;
+  /**
+   * Creation-time Morton parent key (octree) or null (root / procgen). Cached so
+   * the TASK-095 antichain pass never decode/encodes on the update hot path.
+   */
+  readonly parentId: MortonKey | null;
   /** Camera→center distance in the current render context's units, refreshed on visit. */
   distUnits: number;
   /** Node half-extent expressed in current-context units, refreshed on visit. */
@@ -244,11 +258,15 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     get pendingCount() { return countPending(); },
     get trackedChunks() { return chunkList.length; },
     get evictionsTotal() { return evictionsTotal; },
+    get containmentCandidates() { return _containmentCandidates; },
+    get containmentCandidatePoints() { return _containmentCandidatePoints; },
   };
   let _renderedPoints = 0;
   let _drawCalls = 0;
   let _gpuBytes = 0;
   let _catalogCoverage = 0;
+  let _containmentCandidates = 0;
+  let _containmentCandidatePoints = 0;
   // BUG-10 per-phase timing of the last update() (ms). Debug instrumentation.
   const _phaseMs = { select: 0, cancelRequest: 0, coverage: 0, enforce: 0, evictFadeVisible: 0, total: 0 };
 
@@ -274,6 +292,18 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     const cell = decodeMortonKey(key);
     if (cell.level === 0) return null;
     return encodeMortonKey(parentCell(cell));
+  }
+
+  // Stable lookups for the TASK-095 antichain pass — declared once, never allocated
+  // inside the frame loop. Walk creation-time `parentId` caches only.
+  function parentOfCachedChunk(key: MortonKey): MortonKey | null {
+    const c = chunks.get(key);
+    return c ? c.parentId : null;
+  }
+
+  function isCoveredThisFrame(key: MortonKey): boolean {
+    const c = chunks.get(key);
+    return c !== undefined && c.coverageEpoch === frame;
   }
 
   /** Measure a chunk against the camera; writes distUnits + extentCurrent onto it. */
@@ -321,6 +351,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       desiredEpoch: 0,
       coverageEpoch: 0,
       accessTick: 0,
+      parentId: cell.level === 0 ? null : encodeMortonKey(parentCell(cell)),
       distUnits: Infinity,
       extentCurrent: 0,
       abort: null,
@@ -361,6 +392,7 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       desiredEpoch: 0,
       coverageEpoch: 0,
       accessTick: 0,
+      parentId: null,
       distUnits: Infinity,
       extentCurrent: 0,
       abort: null,
@@ -737,6 +769,21 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     buildCoverage(viewportHeightPx);
     const _t3 = performance.now();
     enforceBudgets();
+
+    // 4b) TASK-095 observe-only: count covered octree descendants that have a
+    // marked strict ancestor. Does NOT clear coverageEpoch — behavior unchanged
+    // until the go/STOP checkpoint authorizes the antichain.
+    _containmentCandidates = 0;
+    _containmentCandidatePoints = 0;
+    for (let i = 0; i < coverageList.length; i++) {
+      const c = coverageList[i]!;
+      if (c.kind !== 'octree') continue;
+      if (hasMarkedAncestor(c.parentId, parentOfCachedChunk, isCoveredThisFrame)) {
+        _containmentCandidates++;
+        _containmentCandidatePoints += c.pointCount;
+      }
+    }
+
     const _t4 = performance.now();
 
     // 5) LRU eviction once GPU memory exceeds budget (pin cut / coverage / camera node)
