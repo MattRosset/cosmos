@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@cosmos/core-types": "workspace:*",
+    "@cosmos/photometry": "workspace:*",
     "three": "^0.184.0"
   },
   "devDependencies": {

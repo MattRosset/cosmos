@@ -65,6 +65,9 @@ importers:
       '@cosmos/orbits':
         specifier: workspace:*
         version: link:../../packages/orbits
+      '@cosmos/photometry':
+        specifier: workspace:*
+        version: link:../../packages/photometry
       '@cosmos/procgen':
         specifier: workspace:*
         version: link:../../packages/procgen
@@ -201,6 +204,8 @@ importers:
         specifier: workspace:*
         version: link:../core-types
 
+  packages/photometry: {}
+
   packages/procgen:
     dependencies:
       '@cosmos/core-types':
@@ -263,6 +268,9 @@ importers:
       '@cosmos/core-types':
         specifier: workspace:*
         version: link:../core-types
+      '@cosmos/photometry':
+        specifier: workspace:*
+        version: link:../photometry
       three:
         specifier: ^0.184.0
         version: 0.184.0

@@ -30,6 +30,7 @@ import { procgenOpacityHolder } from '../glue/test-hook';
 import { computeProcgenDrawFraction } from '../glue/procgen-draw-budget';
 import { tileOutsideFrustum } from '../glue/tile-frustum-cull';
 import { tileBelowVisibilityFloor } from '../glue/tile-brightness-cull';
+import { effectiveStarExposure, NATURAL_VISIBILITY_PROFILE } from '@cosmos/photometry';
 import { pcScales } from '../glue/context-scale';
 import { octreePickHolder, type OctreePickMount } from '../glue/octree-pick-feed';
 
@@ -104,7 +105,13 @@ const CLOUD_EXPOSURE_BOOST = 4e5;
 // where the field "reads as a rich sky". ×6 → effective ~150 at the default slider: Gaia is
 // clearly visible without touching the control, with headroom left on the slider. Bright stars
 // clamp at flux 1 so they do not blow out. The slider stays a relative trim on top of this base.
-const GALAXY_FIELD_EXPOSURE_BOOST = 6;
+//
+// TASK-097: the ×6 multiplier now lives in NATURAL_VISIBILITY_PROFILE (ADR-007, galaxy-octree
+// layer). There is no mode setting yet, so Natural is hard-selected here and runtime behavior is
+// unchanged. Compute effective octree exposure through effectiveStarExposure(NATURAL, …) so the
+// renderer and the tile cull share one source for the multiplier.
+const galaxyFieldExposure = (sliderExposure: number): number =>
+  effectiveStarExposure(NATURAL_VISIBILITY_PROFILE, 'galaxy-octree', sliderExposure);
 
 /**
  * Distance guard (parsecs from the Milky Way centre) so the heavy 1M-point procgen
@@ -227,7 +234,7 @@ function makeOctreeMount(
   const points: StarPoints = createStarPoints({ batch });
   points.object.frustumCulled = false;
   points.setViewportHeight(viewportPx);
-  points.setExposure(exposure * GALAXY_FIELD_EXPOSURE_BOOST);
+  points.setExposure(galaxyFieldExposure(exposure));
   return {
     chunkId,
     kind: 'octree',
@@ -244,7 +251,7 @@ function makeOctreeMount(
       points.setOpacity(opacity);
     },
     setViewportHeight: (px) => points.setViewportHeight(px),
-    setExposure: (e) => points.setExposure(e * GALAXY_FIELD_EXPOSURE_BOOST),
+    setExposure: (e) => points.setExposure(galaxyFieldExposure(e)),
     // Hard hide via object.visible — additive/multiply opacity 0 does NOT remove a
     // draw (and MultiplyBlending at 0 would darken), so toggle visibility instead.
     hide: () => {
@@ -682,7 +689,7 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
                 Math.hypot(offScratch[0], offScratch[1], offScratch[2]),
                 v.halfExtentPc * SQRT3,
                 m.minAbsMag,
-                exposure.current * GALAXY_FIELD_EXPOSURE_BOOST,
+                galaxyFieldExposure(exposure.current),
               )
             ) {
               brightnessCulled += 1;

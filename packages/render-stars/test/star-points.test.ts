@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import type { StarBatch } from '@cosmos/core-types';
+import { STAR_RENDER_DEFAULTS } from '@cosmos/photometry';
 import { createStarPoints } from '../src/star-points.js';
 import { VERT } from '../src/shaders/stars.vert.glsl.js';
 import { FRAG } from '../src/shaders/stars.frag.glsl.js';
@@ -141,6 +142,45 @@ describe('shader strings', () => {
   it('fragment shader multiplies the output alpha by uOpacity (cross-fade, §5.8)', () => {
     expect(FRAG).toContain('uOpacity');
     expect(FRAG).toContain('alpha * uOpacity');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Shared photometry conformance (TASK-097)
+//
+// The renderer's default point-size uniforms come from @cosmos/photometry's
+// STAR_RENDER_DEFAULTS, and the CPU package replays this GLSL. These guards check two
+// things WITHOUT executing compiled GLSL (a node/jsdom suite cannot): that the uploaded
+// default uniforms equal the shared constants, and that the GLSL SOURCE still spells out
+// each operation the CPU package mirrors. If the shader math and the CPU replay diverge in
+// STRUCTURE, one of these string guards breaks; numeric equivalence is proven only by the
+// vector suite in @cosmos/photometry (kept there, never copied here) plus live browser render.
+// ---------------------------------------------------------------------------
+
+describe('shared photometry defaults (TASK-097)', () => {
+  it('default point-size uniforms equal STAR_RENDER_DEFAULTS (8 / 3 / 64)', () => {
+    const points = createStarPoints({ batch: makeBatch(5) });
+    const mat = points.object.material as THREE.ShaderMaterial;
+    expect(mat.uniforms['uBasePointPx']!.value).toBe(STAR_RENDER_DEFAULTS.basePointPx);
+    expect(mat.uniforms['uMinPointPx']!.value).toBe(STAR_RENDER_DEFAULTS.minPointPx);
+    expect(mat.uniforms['uMaxPointPx']!.value).toBe(STAR_RENDER_DEFAULTS.maxPointPx);
+    // Pin the frozen numbers too, so a change to STAR_RENDER_DEFAULTS itself is loud here.
+    expect(STAR_RENDER_DEFAULTS).toMatchObject({ basePointPx: 8, minPointPx: 3, maxPointPx: 64 });
+  });
+
+  it('GLSL source spells out every operation the CPU package mirrors (source guard, not execution)', () => {
+    // distance clamp — CPU: Math.max(distancePc, 0.001); GLSL: max(length(viewPos), 0.001)
+    expect(VERT).toContain('max(length(viewPos), 0.001)');
+    // apparent magnitude — CPU: absMag + 5*(log10(d) - 1); GLSL uses log2(d)/log2(10) (deliberate).
+    expect(VERT).toContain('5.0 * (log2(dPc) / log2(10.0) - 1.0)');
+    // natural point size — CPU: base * 10^(-0.2*m); GLSL: uBasePointPx * pow(10.0, -0.2 * m)
+    expect(VERT).toContain('uBasePointPx * pow(10.0, -0.2 * m)');
+    // rendered size clamp — CPU: min(max(sNat,min),max); GLSL: clamp(sNat, uMinPointPx, uMaxPointPx)
+    expect(VERT).toContain('clamp(sNat, uMinPointPx, uMaxPointPx)');
+    // area-ratio dimming — CPU: min(1, (sNat/sRen)^2); GLSL: min(1.0, (sNat/sRen)*(sNat/sRen))
+    expect(VERT).toContain('min(1.0, (sNat / sRen) * (sNat / sRen))');
+    // flux clamp then exposure and sizeDim — CPU: min(1, 10^(-0.4*m)) * exposure * sizeDim
+    expect(FRAG).toContain('clamp(pow(10.0, -0.4 * vApparentMag), 0.0, 1.0) * uExposure * vSizeDim');
   });
 });
 

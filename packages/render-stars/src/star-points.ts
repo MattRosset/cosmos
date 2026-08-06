@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { StarBatch } from '@cosmos/core-types';
+import { STAR_RENDER_DEFAULTS } from '@cosmos/photometry';
 import { buildBlackbodyLutData, LUT_SIZE } from './blackbody.js';
 import { VERT } from './shaders/stars.vert.glsl.js';
 import { FRAG } from './shaders/stars.frag.glsl.js';
@@ -44,7 +45,14 @@ export interface StarPoints {
 }
 
 export function createStarPoints(opts: StarPointsOptions): StarPoints {
-  const { batch, minPointPx = 3, maxPointPx = 64, basePointPx = 8 } = opts;
+  // Defaults come from @cosmos/photometry so the CPU perceptibility replay (tile cull,
+  // picking, diagnostics) uses the SAME numbers this renderer uploads to the shader.
+  const {
+    batch,
+    minPointPx = STAR_RENDER_DEFAULTS.minPointPx,
+    maxPointPx = STAR_RENDER_DEFAULTS.maxPointPx,
+    basePointPx = STAR_RENDER_DEFAULTS.basePointPx,
+  } = opts;
 
   // Build geometry — position attribute shares the batch buffer directly (no copy).
   const geometry = new THREE.BufferGeometry();
