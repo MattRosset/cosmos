@@ -55,25 +55,29 @@ satisfied by the arithmetic, not by a guard.
 
 ## 6. e2e verification (beyond the deterministic gate)
 
-Instead of the full local Playwright suite (CPU-storm + orphan risk per standing guidance), ran
-the deterministic-gate spec that exercises the changed code — `flythrough4` (near-Sol galaxy octree
-brightness cull + field exposure) — via `test:smoke` (chromium, workers=1, run-to-completion).
+Ran the deterministic-gate spec that exercises the changed code — `flythrough4` (near-Sol galaxy
+octree brightness cull + field exposure) — via `test:smoke` (chromium, workers=1).
 
-**Result: the documented `flythrough4` near-Sol draw-call cap known-red, failure shape unchanged.**
-Verified it is pre-existing, not introduced by this diff, by measuring both trees on this machine:
+**Result on the CI-representative sample pack: PASS.** M4a near-Sol = **43 draws / 200105 pts**
+(≤ M3 control 44) — bit-matches CI. The extraction is behavior-frozen: `brightnessCulled` fires,
+`cov=1.00`, procgen fades `0.00..1.00` correctly.
 
-| tree | M3 control draws | M4a near-Sol draws | assertion (M4a ≤ M3) |
-| --- | --- | --- | --- |
-| base (changes stashed) | 44 | 82 | FAIL (line 261) |
-| TASK-097 changes | 44 | 64 | FAIL (line 261) |
+### Correction — I first mis-called this a "known-red" (my error, not a code issue)
 
-Same assertion, same line, both fail; the exact M4a draw count swings run-to-run (documented
-near-Sol draw-call variance). Signal that the extraction is behavior-frozen: `brightnessCulled`
-still fires (58 / 87 / 0 across legs), `cov=1.00`, procgen fades `0.00..1.00` correctly — the tile
-cull and octree exposure behave exactly as before. `breadcrumb-transition` is `@perf`-tagged
-(reference-only), so it is out of the deterministic gate. Did NOT claim the full `pnpm test:e2e`
-exited 0.
+My initial run showed `flythrough4` FAILING (M4a 64–82 draws > 44) and I wrote it up as the
+"pre-existing near-Sol cap known-red." That was **wrong**: `apps/web/.env.local` points
+`VITE_GAIA_OCTREE_MANIFEST_URL` at the full ~3M pack, so the local build was serving the WRONG
+pack (CI serves `octree-gaia-sample`, 135 stars). My earlier "`.env.local` absent" check was a
+false negative — I ran the `ls` from the wrong cwd (`e2e/`, not repo root). This is exactly the
+`.env.local` contamination trap that a memory note explicitly warned about (and that I repeated
+from a prior PR). After moving `.env.local` aside, rebuilding, and confirming the bundle inlines
+`/packs/octree-gaia-sample/octree.json`, the spec PASSES at the CI numbers. `.env.local` restored
+afterward.
 
-Aside (CLAUDE.md rule 2): a prior memory recalled the sample-pack near-Sol assertion *passing*
-(~43 draws). Current measured reality on this machine is 64–82 draws → red on base too. The cap
-assertion is machine/frame-timing dependent; recall was stale, measurement is truth.
+Lesson (CLAUDE.md rule 2, current state is truth): verify the baked manifest BEFORE trusting any
+`flythrough4` number — `grep -roE '/packs/octree-gaia[a-z0-9-]*/octree.json' apps/web/dist/assets/*.js`.
+The base-vs-branch comparison I ran on the contaminated pack was still internally valid (both
+matched in shape) but its absolute "red" was a pack artifact, not a gate result.
+
+`breadcrumb-transition` is `@perf`-tagged (reference-only), so it is out of the deterministic gate.
+Did NOT run the full `pnpm test:e2e`.
