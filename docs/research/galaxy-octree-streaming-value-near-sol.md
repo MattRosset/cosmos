@@ -297,7 +297,10 @@ latency and visible-star recall before any task is enabled.
 - `TASK-097` — extract `@cosmos/photometry` (pays regardless of any verdict below).
 - `TASK-100` — Claim 5's user-visible half: gate the Gaia pick on perceptibility. Independent of
   the streaming candidates; ships first.
-- `TASK-096` — freeze the Natural/Survey display contract the profiles depend on.
+- `TASK-096` — freeze the Natural/Survey display contract the profiles depend on. **Done:**
+  [`ADR-007`](../decisions/ADR-007-star-visibility-modes.md), which also records why the
+  92% faint share below is not simply waste: Survey is the mode that reveals it, at the
+  cost of shrinking every photometric reduction this document motivates (ADR-007 §9).
 - `TASK-098` — co-timed `galaxyWorkingSet()` snapshot (the oracle for the replay).
 - `TASK-099` — selector + prefetch candidate replay, with per-profile GO/STOP verdicts.
 - `TASK-101` — photometric band layouts, gated on a TASK-099 GO.
