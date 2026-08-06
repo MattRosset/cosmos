@@ -12,6 +12,7 @@ import { useSelectionStore, useSettingsStore } from '@cosmos/app-state';
 import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
 import { pickNearestGalaxy } from '@cosmos/nav';
+import { effectiveStarExposure, NATURAL_VISIBILITY_PROFILE } from '@cosmos/photometry';
 import { profileSpan } from '../glue/frame-profiler';
 import { systemPickGroup } from '../glue/system-feed';
 import { localGroupPickHolder } from '../glue/local-group-feed';
@@ -312,7 +313,17 @@ export function StarScene({
         for (const m of mounts) {
           tiles.push({ batch: m.batch, ranges: octreeCombined.prefixRangesFor(m.chunkId) });
         }
-        gaiaHit = pickNearestGaia(tiles, p, dir, PICK_MAX_ANGLE_RAD);
+        // TASK-100: gate candidates on the SAME perceptibility predicate the renderer and tile
+        // cull use, so the pick can only claim a star the frame draws. Natural is hard-selected
+        // until VIS-05; when mode state lands, this one call switches profile and the pick
+        // follows automatically. Read the slider at click time (`GalaxyScene` mounts draw with
+        // this exact effective exposure).
+        const octreeExposure = effectiveStarExposure(
+          NATURAL_VISIBILITY_PROFILE,
+          'galaxy-octree',
+          useSettingsStore.getState().exposure,
+        );
+        gaiaHit = pickNearestGaia(tiles, p, dir, PICK_MAX_ANGLE_RAD, octreeExposure);
       }
 
       // Cross-batch nearest, gaia-scoped: smaller angle wins (same rule as exo vs hyg). A gaia

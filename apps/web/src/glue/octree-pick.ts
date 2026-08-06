@@ -9,6 +9,7 @@
  * frozen `pick.ts` must not depend on it.
  */
 import type { StarBatch } from '@cosmos/core-types';
+import { starIsPerceptible, STAR_PERCEPTIBILITY_FLOOR } from '@cosmos/photometry';
 import type { PrefixRange } from './octree-combined';
 
 /** One visible octree tile as pick input: the decoded batch + its per-source provenance
@@ -38,12 +39,23 @@ export interface GaiaPickHit {
  * is rebased by `batch.originPc` (tile-local parsecs, exactly as StarScene does for hyg). The
  * angular test is IDENTICAL to `pickStar` (smaller angle wins; ties in angle → nearer
  * distance). Returns null if no gaia star is within threshold.
+ *
+ * PERCEPTIBILITY GATE (TASK-100). A candidate is skipped unless it is perceptible at the
+ * SAME predicate the renderer and tile cull use (`@cosmos/photometry`), evaluated at the
+ * camera-relative `dist` and the effective octree exposure the scene draws with. This makes
+ * the pick unable to claim a star the frame does not show. `effectiveExposure` is REQUIRED
+ * (an unmigrated call site must fail typecheck, not silently keep the old, over-claiming
+ * behavior); `perceptibilityFloor` defaults to the shared `STAR_PERCEPTIBILITY_FLOOR` and
+ * must never be replaced by a pick-only floor — a pick-visible star the renderer omits is
+ * exactly the bug this closes.
  */
 export function pickNearestGaia(
   tiles: readonly OctreePickTile[],
   cameraLocalPc: readonly [number, number, number],
   rayDirUnit: readonly [number, number, number],
   maxAngleRad: number,
+  effectiveExposure: number,
+  perceptibilityFloor: number = STAR_PERCEPTIBILITY_FLOOR,
 ): GaiaPickHit | null {
   const [dx, dy, dz] = rayDirUnit;
 
@@ -73,6 +85,23 @@ export function pickNearestGaia(
 
         const dist = Math.sqrt(sx * sx + sy * sy + sz * sz);
         if (dist === 0) continue;
+
+        // TASK-100: skip a candidate the frame does not draw. Cheaper than `acos`, so it goes
+        // first; it uses `dist` (camera-relative parsecs), the SAME distance the renderer uses.
+        // Fail-CLOSED by design: a non-finite `absMag` yields non-perceptible, so the point is
+        // skipped rather than claimed. This is the opposite bias from the tile cull (which fails
+        // OPEN, because dropping a tile loses pixels) — for a pick, a wrong claim is worse than a
+        // miss. Floor equality is claimable, matching the render/cull boundary.
+        if (
+          !starIsPerceptible({
+            absMag: batch.absMag[i]!,
+            distancePc: dist,
+            exposure: effectiveExposure,
+            perceptibilityFloor,
+          })
+        ) {
+          continue;
+        }
 
         const cosA = (dx * sx + dy * sy + dz * sz) / dist;
         const angle = Math.acos(Math.max(-1, Math.min(1, cosA)));
