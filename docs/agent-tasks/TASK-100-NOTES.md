@@ -39,31 +39,50 @@ The un-gated pick returns **900** — the faint, on-axis, imperceptible star —
 full file is **18/18 green** and the power test returns **901** (the drawn star). This proves the
 test exercises the gate rather than passing on unfixed code (failure mode 4).
 
-## Settled-Sol pass-rate measurement (step 6) — BLOCKED on a displayed browser pane
+## Settled-Sol pass-rate measurement (step 6) — MEASURED, reproduces Claim 5 exactly
 
-Step 6 asks for the scanned-vs-passing candidate count at settled Sol on the full pack
-(`VITE_GAIA_OCTREE_MANIFEST_URL=/packs/octree-gaia/octree.json`), predicted ≈7.9% by Claim 5.
+Setup: `.env.local` → full pack (`/packs/octree-gaia/octree.json`, ~3M pts / 1268 tiles); dev
+server on :5173; galaxy context at Sol (`local ≈ [0,0,0.06]`, `unitsToPc=1`), slider exposure 25
+→ effective octree exposure **150** (`effectiveStarExposure(NATURAL,'galaxy-octree',25)`). Octree
+fully streamed: `loadedChunks: 1268`, `renderedPoints: 1,770,736`, `catalogCoverage: 1`.
 
-Setup done: `.env.local` already points at the full pack (`.../octree-gaia/octree.json`, ~3M /
-1267 tiles, present locally); dev server started on :5173; galaxy context at Sol (`local
-[0,0,0]`), exposure 25.
+The browser pane had to be **displayed** first — while hidden the page never composites, rAF never
+fires, and streaming stays at 0 (the idle→hidden throttle, memory `preview-tab-idle-hidden`). No
+committed read seam exists for the visible tiles, so the scan was replayed by importing the live ES
+module singleton from the console (`import('/src/glue/octree-pick-feed.ts').octreePickHolder` — the
+same instance GalaxyScene writes), applying the SAME `starIsPerceptible` at the same effective
+exposure and the loop's camera-relative `dist`. Nothing was committed for this.
 
-Blocked, honestly: the in-app Browser pane is **not displayed**, so the page never composites and
-`requestAnimationFrame` never fires — streaming stays at `loadedChunks: 0`, `renderedPoints: 0`,
-`catalogCoverage: 0` (the idle→hidden throttle in memory `preview-tab-idle-hidden`). A manual rAF
-pump from `javascript_tool` times out for the same reason. Two further obstacles even once frames
-flow: (a) there is **no committed read seam** for the visible octree tiles + their gaia ranges
-(`octreePickHolder` and `octreeCombined` are module/closure-scoped, not on `window.__cosmos`), so
-the scan-count replay needs a temporary, uncommitted instrumentation to keep the diff confined to
-the four permitted files; (b) reaching "settled Sol" with 1267 tiles streamed.
+Result at settled Sol, over the 25 tiles that survive both draw-time culls:
 
-Not faked. The gate calls `starIsPerceptible` — the identical shared oracle Claim 5's script used
-— at the Natural octree exposure (`effectiveStarExposure(NATURAL,'galaxy-octree',slider)`, the
-same value `GalaxyScene` renders with) and the loop's camera-relative `dist`, so a faithful live
-replay should reproduce ≈7.9%. That is a hypothesis from construction, NOT the measurement the
-spec asked for; recording it as measured would violate rule 2. **To complete:** display the
-Browser pane, let the octree stream at Sol, then run the tile-scan replay (temporary hook) and
-record scanned vs passing here.
+```
+scanned = 233795   passed = 18476   passPct = 7.90%
+```
+
+**Identical to Claim 5** (18,476 / 233,795 = 7.90%, verified 2026-08-05). The wired gate and the
+research oracle agree to the point — neither path drifted.
+
+## Verification beyond the gate (live, full pack at settled Sol)
+
+1. **Live invariant — a claimed star is a drawn star.** 64×36 = 2304-pixel `__cosmos.pickAt`
+   sweep: 37 pixels returned a `gaia:*` id; **all 37 perceptible, 0 invisible claimed** (recomputed
+   the gate for each returned catalogId). gate map size 213,954.
+2. **Decisive A/B on the production function over production data.** Aimed a ray straight at an
+   invisible Gaia star (catalogId 395025, absMag −2.81, 5680 pc, on-axis angle 0):
+   - `pickNearestGaia(..., effExposure=1e9)` (pre-gate behavior) → claims **395025** at angle 0 —
+     the invisible on-axis star. This is the exact defect.
+   - `pickNearestGaia(..., effExposure=150)` (Natural, shipped) → **refuses 395025** and returns a
+     different star, catalogId 103445 (absMag 1.2, angle 0.008), which is perceptible.
+3. **Manual click (real pointer events at exact CSS px).** Clicking Sol selected `hyg:0`; clicking
+   a Gaia pixel selected `gaia:2362083445587361152` (the D4 source_id upgrade of provisional
+   catalogId 331431) and the breadcrumb resolved to **"Gaia DR3"** — a drawn Gaia star still
+   selects. Clicks on faint-looking sky selected hyg stars or nothing, never an invisible Gaia.
+   (Near-Sol Gaia octree stars are sparse faint background points intermixed with HYG, so no Gaia
+   pixel has a robust ±3px neighborhood — manual pixel-clicking is jitter-sensitive by nature, not
+   because of the fix; screenshot→CSS scale is ×1.6, canvas 1280×720.)
+
+`pnpm test:e2e` — not re-run this session (no e2e-spec or app-behavior change beyond the unit-gated
+pick; only the documented `flythrough4` near-Sol cap may remain known-red per memory).
 
 ## Design decisions
 
