@@ -18,6 +18,7 @@
     "@cosmos/diagnostics": "workspace:*",
     "@cosmos/nav": "workspace:*",
     "@cosmos/orbits": "workspace:*",
+    "@cosmos/photometry": "workspace:*",
     "@cosmos/procgen": "workspace:*",
     "@cosmos/render-fx": "workspace:*",
     "@cosmos/render-galaxy": "workspace:*",
