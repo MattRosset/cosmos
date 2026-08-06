@@ -315,6 +315,14 @@ export const jumpDistancePcHolder: {
 export const procgenOpacityHolder: { current: number } = { current: 1 };
 
 /**
+ * Is the HYG `stars.bin` monolith currently DRAWING? StarScene writes its live
+ * `object.visible` here every frame. Exists so the ADR-006 §5.4 gate can assert the
+ * redundant layer is actually gone at the frame it measures, instead of inferring it
+ * from a hard-coded catalog point count (testing-conventions rule 1: ask the app).
+ */
+export const monolithVisibleHolder: { current: boolean } = { current: true };
+
+/**
  * Module-scoped atmosphere-mounted flag. SystemScene flips it when it mounts /
  * unmounts the Earth shell (an event, not per-frame).
  */

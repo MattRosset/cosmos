@@ -51,6 +51,7 @@ interface SegmentStats {
   peakSceneDrawCalls: number;
   peakScenePoints: number;
   peakScenePointsBreakdown: { kind: string; points: number }[];
+  peakFrameMonolithVisible: boolean;
   peakFrustumKept: number;
   peakFrustumCulled: number;
   peakBrightnessCulled: number;
@@ -267,12 +268,17 @@ test('flythrough4: near-Sol budgets drop vs M3 baseline; procgen fades where cat
   // The redundant layer is genuinely gone, not merely quieter: the HYG monolith draws in the
   // control's peak frame and must NOT draw in M4a's. Without this, both totals could fall for
   // an unrelated reason and the relation would still hold vacuously.
-  const monolithRow = (controlSol.peakScenePointsBreakdown ?? []).some((x) => x.points === 109_399);
-  const m4aHasMonolith = (result.segments.toSol.peakScenePointsBreakdown ?? []).some(
-    (x) => x.points === 109_399,
-  );
-  expect(monolithRow, 'M3 control draws the HYG monolith near Sol').toBe(true);
-  expect(m4aHasMonolith, 'M4a culls the HYG monolith near Sol (ADR-006 SS5.2)').toBe(false);
+  // Read from the live scene flag StarScene publishes, sampled in the same peak frame — not
+  // inferred from a catalog point count, which would be an incidental value (testing
+  // conventions rules 1 and 5) and would read as a regression the day the HYG pack changes.
+  expect(
+    controlSol.peakFrameMonolithVisible,
+    'M3 control draws the HYG monolith in its near-Sol peak frame',
+  ).toBe(true);
+  expect(
+    result.segments.toSol.peakFrameMonolithVisible,
+    'M4a culls the HYG monolith in its near-Sol peak frame (ADR-006 §5.2)',
+  ).toBe(false);
 
   // TASK-093 acceptance #2: the drop must come from CULLING off-frustum tiles, not from
   // blanking the field. In-view tiles the camera faces must still draw.

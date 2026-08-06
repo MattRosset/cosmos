@@ -18,6 +18,7 @@ import { localGroupPickHolder } from '../glue/local-group-feed';
 import { pickProbeHolder } from '../glue/test-hook';
 import { pcScales } from '../glue/context-scale';
 import { octreePickHolder } from '../glue/octree-pick-feed';
+import { monolithVisibleHolder } from '../glue/test-hook';
 import { pickNearestGaia, gaiaHitWins, type OctreePickTile, type GaiaPickHit } from '../glue/octree-pick';
 import type { CombinedOctreeSource } from '../glue/octree-combined';
 import { selectWithGaiaUpgrade, type SelectionPort } from '../glue/gaia-identity';
@@ -192,6 +193,9 @@ export function StarScene({
           streaming.catalogCoverage() >= MONOLITH_COVERAGE_GATE;
         hygPoints.object.visible = !gated;
       }
+      // Publish the LIVE flag (not `!gated`): in the M3 baseline path `streaming` is
+      // absent and the monolith always draws, and that is exactly what the gate must see.
+      monolithVisibleHolder.current = hygPoints.object.visible;
       // TASK-081: the renderers' offset contract is PARSECS, but toRenderSpace returns
       // ACTIVE-CONTEXT units. Convert in place (zero alloc) and pair with the scale the
       // shader applies at the projection. Both are exactly 1 in galaxy context, so this

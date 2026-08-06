@@ -16,7 +16,7 @@ import {
   FLYTHROUGH3_START,
   type DescentPhase,
 } from './flythrough-descent';
-import { procgenOpacityHolder } from '../glue/test-hook';
+import { procgenOpacityHolder, monolithVisibleHolder } from '../glue/test-hook';
 import { buildProfileResult, type BreadcrumbProfileResult } from '../glue/frame-profiler';
 import { frustumCullStats, brightnessCullStats } from './GalaxyScene';
 
@@ -96,6 +96,12 @@ export interface SegmentStats {
    * object so the number can be attributed instead of guessed. Sorted by points desc.
    */
   readonly peakScenePointsBreakdown: readonly { readonly kind: string; readonly points: number }[];
+  /**
+   * Was the HYG monolith drawing in that same peak frame? Read from the live scene flag
+   * StarScene publishes, so the §5.4 gate can assert the redundant layer is gone without
+   * hard-coding a catalog point count.
+   */
+  readonly peakFrameMonolithVisible: boolean;
   /** TASK-093 diagnostics: peak octree tiles kept/culled by draw-time frustum test. */
   readonly peakFrustumKept: number;
   readonly peakFrustumCulled: number;
@@ -218,6 +224,7 @@ interface SegmentAccum {
   peakSceneDrawCalls: number;
   peakScenePoints: number;
   peakScenePointsBreakdown: { kind: string; points: number }[];
+  peakFrameMonolithVisible: boolean;
   /** TASK-093: peak octree tiles kept / culled by draw-time frustum test this segment. */
   peakFrustumKept: number;
   peakFrustumCulled: number;
@@ -246,6 +253,7 @@ function newSegmentAccum(): SegmentAccum {
     peakSceneDrawCalls: 0,
     peakScenePoints: 0,
     peakScenePointsBreakdown: [],
+    peakFrameMonolithVisible: true,
     peakFrustumKept: 0,
     peakFrustumCulled: 0,
     peakBrightnessCulled: 0,
@@ -275,6 +283,7 @@ function finalizeSegment(a: SegmentAccum): SegmentStats {
     peakSceneDrawCalls: a.peakSceneDrawCalls,
     peakScenePoints: a.peakScenePoints,
     peakScenePointsBreakdown: a.peakScenePointsBreakdown,
+    peakFrameMonolithVisible: a.peakFrameMonolithVisible,
     peakFrustumKept: a.peakFrustumKept,
     peakFrustumCulled: a.peakFrustumCulled,
     peakBrightnessCulled: a.peakBrightnessCulled,
@@ -457,6 +466,7 @@ export function Flythrough4Probe({
         // Same frame as the peak — attribution must be co-timed or it describes a
         // different composition than the number it explains.
         a.peakScenePointsBreakdown = sceneDrawBreakdown(scene as unknown as DrawableLike);
+        a.peakFrameMonolithVisible = monolithVisibleHolder.current;
       }
       a.peakFrustumKept = Math.max(a.peakFrustumKept, frustumCullStats.kept);
       a.peakFrustumCulled = Math.max(a.peakFrustumCulled, frustumCullStats.culled);
