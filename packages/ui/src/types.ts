@@ -36,12 +36,30 @@ export interface BodyLookupAdapter {
    * @cosmos/ui stays decoupled from app glue (mirrors hostSystemIdFor?/planetCountFor?).
    */
   getGaiaCard?(id: BodyId): GaiaCardView | null;
+  /**
+   * TASK-070: resolve a Gaia DR3 `source_id` (bare digits, `gaia:` already stripped by
+   * the palette) to the star's absolute galactic-frame position — the async, injected
+   * reverse lookup that lets the palette fly to any of the ~4.6M real stars by id.
+   * Returns null on a miss / unavailable index. Optional + adapter-injected so
+   * @cosmos/ui never imports the data layer (same discipline as the resolvers above).
+   * bigint end-to-end — never `Number()` a source_id.
+   */
+  resolveGaiaId?(
+    id: string,
+  ): Promise<{ readonly sourceId: bigint; readonly positionPc: readonly [number, number, number] } | null>;
 }
 
 export interface SearchPaletteProps {
   readonly adapter: BodyLookupAdapter;
-  /** Called on Enter/click of a result: the app selects AND flies to it. */
+  /** Called on Enter/click of a NAMED-star result: the app selects AND flies to it. */
   onGoTo(id: BodyId): void;
+  /**
+   * TASK-070: called on select of a Gaia DR3 source_id hit — flies the camera to the
+   * raw galaxy-frame position (a Gaia star is NOT a flyable body, so this must NOT route
+   * through `onGoTo(BodyId)`; see goto.ts Step 0(z)). Optional so named-star-only hosts
+   * (and existing tests) are unaffected; a Gaia hit is inert without it.
+   */
+  onGoToPosition?(positionPc: readonly [number, number, number]): void;
   /** Controlled open state. Omit for self-managed (Ctrl+K / "/") behavior. */
   readonly open?: boolean;
   /** Notified when the palette wants to open/close (required for controlled use). */

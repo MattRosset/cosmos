@@ -1,6 +1,4 @@
 import { test, expect, type Page } from '@playwright/test';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 
 /**
  * TASK-053 — Phase 4a acceptance gate: the tier-unification budget test
@@ -39,16 +37,6 @@ const RESULT_TIMEOUT_MS = 60_000;
 // Resolve relative to THIS spec file, not process.cwd(): CI runs playwright with cwd =
 // the e2e package dir (`pnpm --filter @cosmos/e2e exec …`), so a cwd-based path resolved
 // to `e2e/apps/web/…` → ENOENT and the test threw on every browser. __dirname is e2e/tests.
-const BASELINE_PATH = path.join(
-  __dirname,
-  '..',
-  '..',
-  'apps',
-  'web',
-  'src',
-  'scene',
-  'flythrough4-m3-baseline.json',
-);
 
 interface SegmentStats {
   frames: number;
@@ -62,6 +50,13 @@ interface SegmentStats {
   peakLoadedChunks: number;
   peakSceneDrawCalls: number;
   peakScenePoints: number;
+  peakScenePointsBreakdown: { kind: string; points: number }[];
+  peakFrameMonolithVisible: boolean;
+  peakFrustumKept: number;
+  peakFrustumCulled: number;
+  peakBrightnessCulled: number;
+  peakContainmentCandidates: number;
+  peakContainmentCandidatePoints: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -101,13 +96,29 @@ declare global {
   }
 }
 
-interface BaselineFile {
-  _recorded: boolean;
-  // The near-Sol drop compares TOTAL scene work (gl.info.render), which includes the HYG
-  // monolith M3 always draws and M4a culls. The streaming-only peakRenderedPoints/Draws
-  // could not see the monolith, so they are kept for logging only, not the gate.
-  nearSol: { peakSceneDrawCalls: number | null; peakScenePoints: number | null };
-  caps: { inFlightMax: number; renderedPointsMax: number; drawCallsMax: number };
+
+/** Run one probe arm end to end and return its published result. */
+async function runArm(page: Page, url: string): Promise<Flythrough4Result> {
+  await page.goto(url);
+  await page.waitForSelector('canvas');
+  await waitReady(page);
+  await page.waitForFunction(() => window.__flythrough4Result !== undefined, undefined, {
+    timeout: RESULT_TIMEOUT_MS,
+  });
+  return (await page.evaluate(() => window.__flythrough4Result)) as Flythrough4Result;
+}
+
+/** Log a near-Sol peak with its per-object attribution (log-only). */
+function logNearSol(label: string, r: Flythrough4Result): void {
+  const s = r.segments.toSol;
+  console.log(
+    `[flythrough4] ${label} (variant=${r.variant}) near-Sol draws=${s.peakSceneDrawCalls} ` +
+      `pts=${s.peakScenePoints} :: ` +
+      (s.peakScenePointsBreakdown ?? [])
+        .filter((x) => x.kind === 'Points')
+        .map((x) => x.points)
+        .join(' '),
+  );
 }
 
 async function waitReady(page: Page): Promise<void> {
@@ -127,6 +138,10 @@ function logSegments(result: Flythrough4Result): void {
         `max=${s.maxFrameMs.toFixed(1)} long=${s.longFrames} ` +
         `streamPts=${s.peakRenderedPoints} streamDraws=${s.peakDrawCalls} ` +
         `scenePts=${s.peakScenePoints} sceneDraws=${s.peakSceneDrawCalls} inFlight=${s.peakInFlight} ` +
+        `frustumKept=${s.peakFrustumKept} frustumCulled=${s.peakFrustumCulled} ` +
+        `brightnessCulled=${s.peakBrightnessCulled} ` +
+        `containmentCandidates=${s.peakContainmentCandidates} ` +
+        `containmentCandidatePts=${s.peakContainmentCandidatePoints} ` +
         `req=${s.requestsIssued} cov=${s.minCoverage.toFixed(2)}..${s.maxCoverage.toFixed(2)} ` +
         `procgen=${s.minProcgenOpacity.toFixed(2)}..${s.maxProcgenOpacity.toFixed(2)}`,
     );
@@ -160,14 +175,12 @@ test('flythrough4: near-Sol budgets drop vs M3 baseline; procgen fades where cat
   const pageErrors: string[] = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
 
-  await page.goto('/?debug=flythrough4');
-  await page.waitForSelector('canvas');
-  await waitReady(page);
+  // The M3 CONTROL, measured live in this same run (see the near-Sol assertion below for
+  // why the committed baseline was retired). Runs first so a boot failure fails fast.
+  const control = await runArm(page, '/?debug=flythrough4&baseline=m3');
+  logNearSol('M3 control', control);
 
-  await page.waitForFunction(() => window.__flythrough4Result !== undefined, undefined, {
-    timeout: RESULT_TIMEOUT_MS,
-  });
-  const result = (await page.evaluate(() => window.__flythrough4Result)) as Flythrough4Result;
+  const result = await runArm(page, '/?debug=flythrough4');
 
   console.log(
     `[flythrough4:${browserName}] variant=${result.variant} frames=${result.frames} ` +
@@ -220,35 +233,59 @@ test('flythrough4: near-Sol budgets drop vs M3 baseline; procgen fades where cat
   // re-draws ~109,970 in both). So the drop is asserted on toSol, where it is unambiguous.
   const nearSolSceneDraws = result.segments.toSol.peakSceneDrawCalls;
   const nearSolScenePoints = result.segments.toSol.peakScenePoints;
-  const nearSolStreamPoints = result.segments.toSol.peakRenderedPoints;
 
-  const baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')) as BaselineFile;
-  if (
-    baseline._recorded &&
-    baseline.nearSol.peakSceneDrawCalls !== null &&
-    baseline.nearSol.peakScenePoints !== null
-  ) {
-    console.log(
-      `[flythrough4] near-Sol M4a sceneDraws=${nearSolSceneDraws} scenePts=${nearSolScenePoints} ` +
-        `(streamPts=${nearSolStreamPoints}) vs M3 baseline sceneDraws=${baseline.nearSol.peakSceneDrawCalls} ` +
-        `scenePts=${baseline.nearSol.peakScenePoints}`,
-    );
-    expect(
-      nearSolSceneDraws,
-      'near-Sol total scene draw calls ≤ M3 baseline (ADR-006 §5.4 drop — monolith culled)',
-    ).toBeLessThanOrEqual(baseline.nearSol.peakSceneDrawCalls);
-    expect(
-      nearSolScenePoints,
-      'near-Sol total scene points ≤ M3 baseline (ADR-006 §5.4 drop — monolith culled)',
-    ).toBeLessThanOrEqual(baseline.nearSol.peakScenePoints);
-  } else {
-    console.log(
-      `[flythrough4] M3 baseline NOT recorded — near-Sol drop clause SKIPPED. ` +
-        `M4a near-Sol sceneDraws=${nearSolSceneDraws} scenePts=${nearSolScenePoints}. ` +
-        `Record the baseline: open ?debug=flythrough4&baseline=m3, copy max(toSol,toEarth) ` +
-        `peakSceneDrawCalls/peakScenePoints into flythrough4-m3-baseline.json, set _recorded=true.`,
-    );
-  }
+  logNearSol('M4a', result);
+
+  // ADR-006 §5.4 — the unification must not draw MORE near Sol than the tier it replaces.
+  //
+  // This used to compare against `flythrough4-m3-baseline.json`, an ABSOLUTE recorded on
+  // 2026-06-24. That baseline was measured, 2026-08-05, to no longer describe M3: the same
+  // probe in the same mode on the production pack reports 44 draws / 309,369 points against
+  // the recorded 40 / 109,971 — the control fails its own threshold by 2.8x. Composition
+  // drifted underneath it (procgen's LOD rework, the combined HYG+Gaia octree) and nothing
+  // caught it, because a recorded control is never re-run.
+  //
+  // The relation is what §5.4 actually claims, so the relation is what is asserted, with both
+  // arms measured in THIS run. That costs a second traversal of the path and cannot go stale.
+  // Evidence: docs/research/near-sol-gate-stale-baseline-and-real-gap.md.
+  //
+  // Measured when this was written (production pack, chromium): M3 44 / 309,369 vs M4a
+  // 43 / 200,105 — the monolith (109,399) is culled in M4a and drawn in M3, which is the
+  // whole point of §5.4. The margin on draws is thin (1); on points it is 35%.
+  const controlSol = control.segments.toSol;
+  expect(control.variant, 'the control arm really is M3').toBe('m3');
+  expect(
+    nearSolSceneDraws,
+    `near-Sol scene draw calls <= the M3 control measured in this run ` +
+      `(M4a ${nearSolSceneDraws} vs M3 ${controlSol.peakSceneDrawCalls})`,
+  ).toBeLessThanOrEqual(controlSol.peakSceneDrawCalls);
+  expect(
+    nearSolScenePoints,
+    `near-Sol scene points <= the M3 control measured in this run ` +
+      `(M4a ${nearSolScenePoints} vs M3 ${controlSol.peakScenePoints})`,
+  ).toBeLessThanOrEqual(controlSol.peakScenePoints);
+
+  // The redundant layer is genuinely gone, not merely quieter: the HYG monolith draws in the
+  // control's peak frame and must NOT draw in M4a's. Without this, both totals could fall for
+  // an unrelated reason and the relation would still hold vacuously.
+  // Read from the live scene flag StarScene publishes, sampled in the same peak frame — not
+  // inferred from a catalog point count, which would be an incidental value (testing
+  // conventions rules 1 and 5) and would read as a regression the day the HYG pack changes.
+  expect(
+    controlSol.peakFrameMonolithVisible,
+    'M3 control draws the HYG monolith in its near-Sol peak frame',
+  ).toBe(true);
+  expect(
+    result.segments.toSol.peakFrameMonolithVisible,
+    'M4a culls the HYG monolith in its near-Sol peak frame (ADR-006 §5.2)',
+  ).toBe(false);
+
+  // TASK-093 acceptance #2: the drop must come from CULLING off-frustum tiles, not from
+  // blanking the field. In-view tiles the camera faces must still draw.
+  expect(
+    nearSolScenePoints,
+    'near-Sol scene points > 0 (in-frustum tiles still draw — not an empty-field win)',
+  ).toBeGreaterThan(0);
 
   expect(pageErrors, 'no uncaught errors during the flythrough').toHaveLength(0);
 });

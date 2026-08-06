@@ -96,6 +96,13 @@ export interface GoToDeps {
 export interface GoToCoordinator {
   /** Select-and-fly to any id: star/host (one leg) or planet (live or two-leg). */
   goTo(id: BodyId): void;
+  /**
+   * TASK-070 Step 0(z): fly to a raw galaxy-frame position (parsecs, Sol-origin). Used for
+   * a Gaia DR3 star, which has NO BodyRecord — `goTo('gaia:*')` would no-op. Reuses the SAME
+   * lone-star flight primitive (`flyTo` + HOST_ARRIVAL_M) as `goTo`'s star branch, just
+   * entered by position instead of by id. Do NOT synthesize a fake `gaia:*` BodyRecord.
+   */
+  goToPosition(positionPc: readonly [number, number, number]): void;
   /** Fly out of the current system back to a galaxy vantage. No-op in galaxy. */
   exitSystem(): void;
   /** Fly out to a GALAXY vantage (~49 kpc) where the Milky Way reads as a spiral
@@ -222,6 +229,16 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
         arrivalDistanceM: sys !== undefined ? systemArrivalM(sys) : HOST_ARRIVAL_M,
       });
     }
+  }
+
+  /** Fly to a lone galaxy position (TASK-070) — the Gaia search fly-to. */
+  function goToPosition(positionPc: readonly [number, number, number]): void {
+    const controller = deps.controllerRef.current;
+    if (controller === null) return;
+    flyTo(controller, {
+      target: { context: 'galaxy', local: [positionPc[0], positionPc[1], positionPc[2]] },
+      arrivalDistanceM: HOST_ARRIVAL_M,
+    });
   }
 
   /** Issue the pending second leg once the system is anchored AND built. */
@@ -432,6 +449,7 @@ export function createGoToCoordinator(deps: GoToDeps): GoToCoordinator {
 
   return {
     goTo,
+    goToPosition,
     exitSystem,
     viewGalaxy,
     viewUniverse,

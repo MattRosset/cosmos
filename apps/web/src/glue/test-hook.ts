@@ -35,6 +35,17 @@ export interface CosmosTestHook {
     readonly context: ContextId;
     readonly local: readonly [number, number, number];
   };
+  /**
+   * TASK-070: the LAST goTo/fly target (written synchronously by the coordinator's `flyTo`,
+   * before any animation), so the search-by-source_id e2e can assert the palette actually
+   * flew to the resolved star position — the guard against the "flew via onGoTo(bodyId) =
+   * silent no-op" trap. Live getter off the same holder the Jump HUD reads. Null before the
+   * first fly.
+   */
+  readonly flightTarget: {
+    readonly context: ContextId;
+    readonly local: readonly [number, number, number];
+  } | null;
   /** §5.8 streaming instrumentation (TASK-040), mirrored ≤ 4 Hz from `stats`.
    *  cutSize/pendingCount/trackedChunks/evictedThisFrame are the BUG-10 density-wall
    *  diagnostics (docs/research/bug-10-streaming-density-wall.md). */
@@ -239,6 +250,10 @@ export const testHook: CosmosTestHook = {
   get failedChunks(): number {
     return streamingHolder.current?.stats.failedChunks ?? 0;
   },
+  get flightTarget(): { context: ContextId; local: readonly [number, number, number] } | null {
+    const t = jumpDistancePcHolder.target;
+    return t === null ? null : { context: t.context, local: t.local };
+  },
   // Delegate to StarScene's live pick closures (null until that effect mounts).
   pickAt(clientX: number, clientY: number): BodyId | null {
     return pickProbeHolder.current?.pickAt(clientX, clientY) ?? null;
@@ -298,6 +313,14 @@ export const jumpDistancePcHolder: {
  * ≤ 4 Hz mirror reads it. Replaces M3's hard-coded floor in the test hook.
  */
 export const procgenOpacityHolder: { current: number } = { current: 1 };
+
+/**
+ * Is the HYG `stars.bin` monolith currently DRAWING? StarScene writes its live
+ * `object.visible` here every frame. Exists so the ADR-006 §5.4 gate can assert the
+ * redundant layer is actually gone at the frame it measures, instead of inferring it
+ * from a hard-coded catalog point count (testing-conventions rule 1: ask the app).
+ */
+export const monolithVisibleHolder: { current: boolean } = { current: true };
 
 /**
  * Module-scoped atmosphere-mounted flag. SystemScene flips it when it mounts /

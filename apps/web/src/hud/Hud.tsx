@@ -27,6 +27,10 @@ interface HudProps {
   onExitSystem(): void;
   /** Select AND fly: wired to the goto coordinator in App. */
   onGoTo(id: BodyId): void;
+  /** TASK-070: fly to a Gaia star's raw galaxy position (search palette hit). */
+  onGoToPosition(positionPc: readonly [number, number, number]): void;
+  /** TASK-070: async reverse lookup source_id → position, injected into the search adapter. */
+  resolveGaiaId(id: string): Promise<{ readonly sourceId: bigint; readonly positionPc: readonly [number, number, number] } | null>;
   onSyncToNow(): void;
   onCapture(name: string): BookmarkRecord | null;
   onGoToBookmark(bookmark: BookmarkRecord): void;
@@ -52,6 +56,8 @@ export function Hud({
   currentSystemId,
   onExitSystem,
   onGoTo,
+  onGoToPosition,
+  resolveGaiaId,
   onSyncToNow,
   onCapture,
   onGoToBookmark,
@@ -92,8 +98,10 @@ export function Hud({
       // holder's lineage matches the queried id (single-slot safety check, D5.2). The
       // match logic is the pure `gaiaCardFor` so it is unit-tested (gaia-card.test.ts).
       getGaiaCard: (id): GaiaCardView | null => gaiaCardFor(id, gaiaCardHolder.current),
+      // TASK-070: async reverse lookup so the palette can fly to any Gaia star by source_id.
+      resolveGaiaId: (id) => resolveGaiaId(id),
     }),
-    [source, getSystem],
+    [source, getSystem, resolveGaiaId],
   );
 
   return (
@@ -108,6 +116,7 @@ export function Hud({
       <SearchPalette
         adapter={adapter}
         onGoTo={onGoTo}
+        onGoToPosition={onGoToPosition}
         open={searchOpen}
         onOpenChange={setSearchOpen}
       />

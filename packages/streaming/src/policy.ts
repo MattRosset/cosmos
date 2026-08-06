@@ -52,6 +52,7 @@ import {
 } from './budgets.js';
 import { advanceFade, DEFAULT_CROSS_FADE_MS, DEFAULT_LOD_HYSTERESIS } from './crossfade.js';
 import { LruClock, selectLruVictims } from './lru.js';
+import { hasMarkedAncestor } from './lod-coverage-antichain.js';
 
 export interface StreamingPolicyOptions {
   readonly origin: OriginManager;
@@ -76,6 +77,12 @@ export interface VisibleChunk {
   readonly kind: ChunkKind;
   readonly lod: number;
   readonly opacity: number;
+  /**
+   * Tile half-extent in parsecs (octree: `manifest.halfExtentUnits`, galaxy context
+   * 1 unit = 1 pc). Static per chunk — set once at creation, never per-frame.
+   * Procgen is 0 (never frustum-culled at draw time). TASK-093.
+   */
+  readonly halfExtentPc: number;
 }
 
 export interface StreamingStats {
@@ -105,6 +112,14 @@ export interface StreamingStats {
   readonly pendingCount: number;
   readonly trackedChunks: number;
   readonly evictionsTotal: number;
+  /**
+   * TASK-095 diagnostics (additive, read-only). Covered octree descendants that
+   * have a strict Morton ancestor also in this frame's coverage set — the
+   * pre-normalization ownership overlap. Independent of whether the antichain
+   * behavior is enabled.
+   */
+  readonly containmentCandidates: number;
+  readonly containmentCandidatePoints: number;
 }
 
 export interface StreamingPolicy {
@@ -168,6 +183,11 @@ interface Chunk {
   desiredEpoch: number;
   coverageEpoch: number;
   accessTick: number;
+  /**
+   * Creation-time Morton parent key (octree) or null (root / procgen). Cached so
+   * the TASK-095 antichain pass never decode/encodes on the update hot path.
+   */
+  readonly parentId: MortonKey | null;
   /** Camera→center distance in the current render context's units, refreshed on visit. */
   distUnits: number;
   /** Node half-extent expressed in current-context units, refreshed on visit. */
@@ -175,7 +195,13 @@ interface Chunk {
   abort: AbortController | null;
   token: CancelToken | null;
   /** Reused output object handed out through `visible`. */
-  readonly view: { chunkId: string; kind: ChunkKind; lod: number; opacity: number };
+  readonly view: {
+    chunkId: string;
+    kind: ChunkKind;
+    lod: number;
+    opacity: number;
+    halfExtentPc: number;
+  };
 }
 
 export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPolicy {
@@ -232,11 +258,15 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     get pendingCount() { return countPending(); },
     get trackedChunks() { return chunkList.length; },
     get evictionsTotal() { return evictionsTotal; },
+    get containmentCandidates() { return _containmentCandidates; },
+    get containmentCandidatePoints() { return _containmentCandidatePoints; },
   };
   let _renderedPoints = 0;
   let _drawCalls = 0;
   let _gpuBytes = 0;
   let _catalogCoverage = 0;
+  let _containmentCandidates = 0;
+  let _containmentCandidatePoints = 0;
   // BUG-10 per-phase timing of the last update() (ms). Debug instrumentation.
   const _phaseMs = { select: 0, cancelRequest: 0, coverage: 0, enforce: 0, evictFadeVisible: 0, total: 0 };
 
@@ -262,6 +292,18 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     const cell = decodeMortonKey(key);
     if (cell.level === 0) return null;
     return encodeMortonKey(parentCell(cell));
+  }
+
+  // Stable lookups for the TASK-095 antichain pass — declared once, never allocated
+  // inside the frame loop. Walk creation-time `parentId` caches only.
+  function parentOfCachedChunk(key: MortonKey): MortonKey | null {
+    const c = chunks.get(key);
+    return c ? c.parentId : null;
+  }
+
+  function isCoveredThisFrame(key: MortonKey): boolean {
+    const c = chunks.get(key);
+    return c !== undefined && c.coverageEpoch === frame;
   }
 
   /** Measure a chunk against the camera; writes distUnits + extentCurrent onto it. */
@@ -309,11 +351,18 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       desiredEpoch: 0,
       coverageEpoch: 0,
       accessTick: 0,
+      parentId: cell.level === 0 ? null : encodeMortonKey(parentCell(cell)),
       distUnits: Infinity,
       extentCurrent: 0,
       abort: null,
       token: null,
-      view: { chunkId: node.key, kind: 'octree', lod: cell.level, opacity: 0 },
+      view: {
+        chunkId: node.key,
+        kind: 'octree',
+        lod: cell.level,
+        opacity: 0,
+        halfExtentPc: node.manifest.halfExtentUnits,
+      },
     };
     chunks.set(c.id, c);
     chunkList.push(c);
@@ -343,11 +392,13 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
       desiredEpoch: 0,
       coverageEpoch: 0,
       accessTick: 0,
+      parentId: null,
       distUnits: Infinity,
       extentCurrent: 0,
       abort: null,
       token: null,
-      view: { chunkId: id, kind: 'procgen', lod: 0, opacity: 0 },
+      // halfExtentPc: 0 — procgen is never draw-time frustum-culled (TASK-093).
+      view: { chunkId: id, kind: 'procgen', lod: 0, opacity: 0, halfExtentPc: 0 },
     };
     void galaxyId;
     chunks.set(c.id, c);
@@ -601,8 +652,18 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     // `parentKey` Morton re-encode in the inner "find deepest" loop was ~99% of frame
     // time on a dense pack (754-node cut ⇒ ~384 ms/frame). `draws` mirrors the count of
     // distinct covered nodes (coverageList holds exactly that set; addCoverage dedups).
+    // Only octree (real-catalog) points count toward the rendered-point cap. The procgen
+    // filler carries its NOMINAL starCount (1e6 for the Milky Way) but is already
+    // draw-fraction- + opacity-capped in the scene, so charging it here consumes the whole
+    // tier cap by itself at medium/low (1e6 ≥ the 1e6/5e5 caps). That forced the collapse
+    // loop to shed EVERY real octree tile up to the level-0 root, which — parked far from
+    // Sol (a Gaia search fly-to) — both blanked the catalog (black screen) and OVERDREW the
+    // coarse root tile into a ~10 fps stall: a lower tier producing a *more* expensive, empty
+    // frame. See docs/research/gaia-far-fly-quality-collapse.md.
     let pts = 0;
-    for (let i = 0; i < coverageList.length; i++) pts += coverageList[i]!.pointCount;
+    for (let i = 0; i < coverageList.length; i++) {
+      if (coverageList[i]!.kind === 'octree') pts += coverageList[i]!.pointCount;
+    }
     let draws = coverageList.length;
     if (pts <= cap && draws <= budgets.maxDrawCalls) return;
 
@@ -708,6 +769,21 @@ export function createStreamingPolicy(opts: StreamingPolicyOptions): StreamingPo
     buildCoverage(viewportHeightPx);
     const _t3 = performance.now();
     enforceBudgets();
+
+    // 4b) TASK-095 observe-only: count covered octree descendants that have a
+    // marked strict ancestor. Does NOT clear coverageEpoch — behavior unchanged
+    // until the go/STOP checkpoint authorizes the antichain.
+    _containmentCandidates = 0;
+    _containmentCandidatePoints = 0;
+    for (let i = 0; i < coverageList.length; i++) {
+      const c = coverageList[i]!;
+      if (c.kind !== 'octree') continue;
+      if (hasMarkedAncestor(c.parentId, parentOfCachedChunk, isCoveredThisFrame)) {
+        _containmentCandidates++;
+        _containmentCandidatePoints += c.pointCount;
+      }
+    }
+
     const _t4 = performance.now();
 
     // 5) LRU eviction once GPU memory exceeds budget (pin cut / coverage / camera node)

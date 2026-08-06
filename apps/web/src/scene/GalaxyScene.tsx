@@ -28,8 +28,30 @@ import { milkyWayArmGeometry, milkyWayResolvedParams } from '../glue/milky-way-g
 import { profileSpan } from '../glue/frame-profiler';
 import { procgenOpacityHolder } from '../glue/test-hook';
 import { computeProcgenDrawFraction } from '../glue/procgen-draw-budget';
+import { tileOutsideFrustum } from '../glue/tile-frustum-cull';
+import { tileBelowVisibilityFloor } from '../glue/tile-brightness-cull';
 import { pcScales } from '../glue/context-scale';
 import { octreePickHolder, type OctreePickMount } from '../glue/octree-pick-feed';
+
+/** Bounding-sphere radius factor for an axis-aligned cube of half-extent h: h·√3. */
+const SQRT3 = Math.sqrt(3);
+
+/**
+ * TASK-093 diagnostics (read by flythrough4 / `__cosmos`): last-frame octree tile
+ * frustum-cull counts. Mutated in place each PRIORITY_RENDER — zero alloc.
+ */
+export const frustumCullStats = {
+  kept: 0,
+  culled: 0,
+  skippedNoCamera: 0,
+};
+
+/**
+ * TASK-094 diagnostics: last-frame octree tiles hidden by the brightness/distance
+ * cull (frustum-kept tiles only). Mutated in place each PRIORITY_RENDER — zero alloc.
+ */
+export const brightnessCullStats = { culled: 0 };
+
 
 /**
  * Galaxy / streaming render tier (TASK-040, §5.8/§5.9). Subscribes to the policy's
@@ -157,6 +179,12 @@ interface Mount {
   readonly originPc: readonly [number, number, number];
   readonly batch: StarBatch;
   readonly objects: readonly THREE.Object3D[];
+  /**
+   * Brightest absolute magnitude in the batch (min absMag), scanned once at mount.
+   * `Number.NEGATIVE_INFINITY` for empty / procgen — poison value so a mis-read
+   * never brightness-culls the tile (TASK-094).
+   */
+  readonly minAbsMag: number;
   /** Last frame this mount was on the visible cut (hide stale mounts each frame). */
   seen: number;
   /**
@@ -178,6 +206,18 @@ interface Mount {
   dispose(): void;
 }
 
+/** Scan brightest absMag once at mount — zero per-frame cost (TASK-094). */
+function scanMinAbsMag(absMag: Float32Array): number {
+  let min = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < absMag.length; i++) {
+    const a = absMag[i]!;
+    // NaN entries fail `a < min` and are skipped automatically.
+    if (a < min) min = a;
+  }
+  // Empty (or all-NaN) ⇒ −∞ so the tile is never brightness-culled.
+  return min === Number.POSITIVE_INFINITY ? Number.NEGATIVE_INFINITY : min;
+}
+
 function makeOctreeMount(
   chunkId: string,
   batch: StarBatch,
@@ -195,6 +235,7 @@ function makeOctreeMount(
     originPc: batch.originPc,
     batch,
     objects: [points.object],
+    minAbsMag: scanMinAbsMag(batch.absMag),
     seen: 0,
     applyFrame(offsetPc, opacity, _lod, pcToUnits): void {
       points.object.visible = true;
@@ -266,6 +307,9 @@ function makeProcgenMount(
     originPc: batch.originPc,
     batch,
     objects: [impostor.object, lanes.object, cloud.object, hiiRegions.object],
+    // Poison: infinitely bright — procgen is never brightness-culled (gated on
+    // kind === 'octree' upstream); if misread, keep the tile (TASK-094).
+    minAbsMag: Number.NEGATIVE_INFINITY,
     seen: 0,
     applyFrame(offsetPc, opacity, lod, pcToUnits, drawFraction = 1): void {
       const cloudFactor = 1 - smoothstep(LOD_CLOUD_FULL, LOD_IMPOSTOR_FULL, lod);
@@ -353,6 +397,7 @@ const octreePickVisible: Mount[] = [];
 export function GalaxyScene({ streaming, origin, controllerRef }: GalaxySceneProps) {
   const size = useThree((s) => s.size);
   const dpr = useThree((s) => s.viewport.dpr);
+  const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera;
 
   // Quality tier drives the procgen draw-fraction cap (TASK-071). useQuality re-renders
   // only on a tier change (pattern copied from Overlays.tsx); the frame loop below is a
@@ -571,6 +616,15 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
     const { unitsToPc, pcToUnits } = pcScales(ctx);
     const streamingActive = ctx === 'universe' || ctx === 'galaxy';
     const visible = streaming.visible;
+    // TASK-093: live PerspectiveCamera fov/aspect (what the shader projects with) —
+    // NOT streaming's fixed STREAM_VERTICAL_FOV_RAD. Computed once per frame.
+    const tanY = Math.tan((camera.fov * Math.PI) / 360);
+    const tanX = tanY * camera.aspect;
+    const orientation = ctrl?.state.orientation ?? null;
+    let cullKept = 0;
+    let cullCulled = 0;
+    let cullSkipped = 0;
+    let brightnessCulled = 0;
     if (streamingActive) {
       for (let i = 0; i < visible.length; i++) {
         const v = visible[i]!;
@@ -586,7 +640,6 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
         // there. The NEW-tile mount throttle below (deferredOctree) still caps upload cost
         // mid-flight; we just no longer hide what is already on screen.
         // See docs/research/goto-galaxy-transit-black.md §6.
-        m.seen = tick;
         posScratch.context = m.context;
         posScratch.local[0] = m.originPc[0];
         posScratch.local[1] = m.originPc[1];
@@ -598,6 +651,47 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
         offScratch[0] *= unitsToPc;
         offScratch[1] *= unitsToPc;
         offScratch[2] *= unitsToPc;
+        // TASK-093: per-tile draw-time frustum cull (octree only). Hide without setting
+        // `seen` so the trailing hide pass and the octree-pick publish both treat it as
+        // off-cut. Tiles stay STREAMED/MOUNTED — only object.visible is gated. Skip the
+        // cull when no controller (draw as today — never cull without a camera).
+        // TASK-094: brightness/distance cull chains after the frustum-KEPT branch.
+        if (m.kind === 'octree') {
+          if (orientation === null) {
+            cullSkipped += 1;
+          } else if (
+            tileOutsideFrustum(
+              offScratch[0],
+              offScratch[1],
+              offScratch[2],
+              v.halfExtentPc * SQRT3,
+              orientation,
+              tanX,
+              tanY,
+            )
+          ) {
+            cullCulled += 1;
+            m.hide();
+            continue;
+          } else {
+            // Frustum-kept: count for TASK-093 diagnostic continuity, then optionally
+            // brightness-cull (TASK-094). Drawn-tile peak = kept − brightnessCulled.
+            cullKept += 1;
+            if (
+              tileBelowVisibilityFloor(
+                Math.hypot(offScratch[0], offScratch[1], offScratch[2]),
+                v.halfExtentPc * SQRT3,
+                m.minAbsMag,
+                exposure.current * GALAXY_FIELD_EXPOSURE_BOOST,
+              )
+            ) {
+              brightnessCulled += 1;
+              m.hide();
+              continue; // no m.seen = tick — same contract as frustum cull
+            }
+          }
+        }
+        m.seen = tick;
         if (m.kind === 'procgen') {
           // Near Sol (blend 0): hide the whole layer so the real catalog owns the view
           // with no procgen overdraw (R1, contract §6). Must hide() explicitly — m.seen
@@ -614,6 +708,10 @@ export function GalaxyScene({ streaming, origin, controllerRef }: GalaxyScenePro
         }
       }
     }
+    frustumCullStats.kept = cullKept;
+    frustumCullStats.culled = cullCulled;
+    frustumCullStats.skippedNoCamera = cullSkipped;
+    brightnessCullStats.culled = brightnessCulled;
     // Hide any mount not on the visible cut this frame (or whole layer faded out).
     const list = mountList.current;
     for (let i = 0; i < list.length; i++) {

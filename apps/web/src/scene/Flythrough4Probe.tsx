@@ -16,8 +16,9 @@ import {
   FLYTHROUGH3_START,
   type DescentPhase,
 } from './flythrough-descent';
-import { procgenOpacityHolder } from '../glue/test-hook';
+import { procgenOpacityHolder, monolithVisibleHolder } from '../glue/test-hook';
 import { buildProfileResult, type BreadcrumbProfileResult } from '../glue/frame-profiler';
+import { frustumCullStats, brightnessCullStats } from './GalaxyScene';
 
 /**
  * TASK-053 — the tier-unification budget probe (`?debug=flythrough4`, ADR-006 §5.4).
@@ -86,6 +87,29 @@ export interface SegmentStats {
    */
   readonly peakSceneDrawCalls: number;
   readonly peakScenePoints: number;
+  /**
+   * ATTRIBUTION (log-only): who was drawing in the frame that set `peakScenePoints`.
+   * `gl.info.render` is a single aggregate, so three tasks of octree culling could be
+   * (and were) aimed at a total the octree does not dominate: CI measured byte-identical
+   * 43 draws / 200,105 points BEFORE and AFTER TASK-093+094, with frustumCulled=0 and
+   * only 8 octree mounts present. This breaks the same frame's total down per drawn
+   * object so the number can be attributed instead of guessed. Sorted by points desc.
+   */
+  readonly peakScenePointsBreakdown: readonly { readonly kind: string; readonly points: number }[];
+  /**
+   * Was the HYG monolith drawing in that same peak frame? Read from the live scene flag
+   * StarScene publishes, so the §5.4 gate can assert the redundant layer is gone without
+   * hard-coding a catalog point count.
+   */
+  readonly peakFrameMonolithVisible: boolean;
+  /** TASK-093 diagnostics: peak octree tiles kept/culled by draw-time frustum test. */
+  readonly peakFrustumKept: number;
+  readonly peakFrustumCulled: number;
+  /** TASK-094 diagnostics: peak octree tiles culled by brightness/distance test. */
+  readonly peakBrightnessCulled: number;
+  /** TASK-095 diagnostics: peak covered descendants with a marked covered ancestor. */
+  readonly peakContainmentCandidates: number;
+  readonly peakContainmentCandidatePoints: number;
   /** Total tile requests issued while in this segment (streaming churn). */
   readonly requestsIssued: number;
   /** catalogCoverage range over the segment. */
@@ -146,6 +170,47 @@ function usedJSHeapSize(): number | null {
   return mem ? mem.usedJSHeapSize : null;
 }
 
+/**
+ * Structural view of a drawable node — avoids importing THREE types into the probe.
+ * `drawRange.count` is `Infinity` when the whole buffer draws.
+ */
+interface DrawableLike {
+  readonly visible: boolean;
+  readonly type: string;
+  readonly parent: DrawableLike | null;
+  readonly geometry?: {
+    readonly attributes?: { readonly position?: { readonly count: number } };
+    readonly drawRange: { readonly start: number; readonly count: number };
+  };
+}
+
+/**
+ * Attribute THIS frame's drawn points per object (log-only). `gl.info.render` is one
+ * aggregate; without this the near-Sol total can only be guessed at, which is exactly
+ * how TASK-093/094/095 came to aim at a total the octree does not dominate. Walks the
+ * live scene the same frame the peak was observed. Top 12 + a remainder bucket.
+ */
+function sceneDrawBreakdown(root: DrawableLike): { kind: string; points: number }[] {
+  const rows: { kind: string; points: number }[] = [];
+  const visit = (obj: DrawableLike): void => {
+    if (!obj.visible) return; // an invisible parent hides the whole subtree
+    const geom = obj.geometry;
+    if (geom !== undefined) {
+      const cap = geom.attributes?.position?.count ?? 0;
+      const range = geom.drawRange;
+      const drawn = Math.min(Number.isFinite(range.count) ? range.count : cap, cap);
+      if (drawn > 0) rows.push({ kind: obj.type, points: drawn });
+    }
+    const kids = (obj as unknown as { children?: readonly DrawableLike[] }).children;
+    if (kids !== undefined) for (const k of kids) visit(k);
+  };
+  visit(root);
+  rows.sort((a, b) => b.points - a.points);
+  if (rows.length <= 12) return rows;
+  const rest = rows.slice(12).reduce((n, r) => n + r.points, 0);
+  return [...rows.slice(0, 12), { kind: `rest(${rows.length - 12})`, points: rest }];
+}
+
 /** Mutable per-segment accumulator (pre-allocated; no per-frame realloc). */
 interface SegmentAccum {
   frameTimesMs: Float64Array;
@@ -158,6 +223,16 @@ interface SegmentAccum {
   peakLoadedChunks: number;
   peakSceneDrawCalls: number;
   peakScenePoints: number;
+  peakScenePointsBreakdown: { kind: string; points: number }[];
+  peakFrameMonolithVisible: boolean;
+  /** TASK-093: peak octree tiles kept / culled by draw-time frustum test this segment. */
+  peakFrustumKept: number;
+  peakFrustumCulled: number;
+  /** TASK-094: peak octree tiles culled by brightness/distance test this segment. */
+  peakBrightnessCulled: number;
+  /** TASK-095: peak covered descendants with a marked covered ancestor. */
+  peakContainmentCandidates: number;
+  peakContainmentCandidatePoints: number;
   requestsIssued: number;
   minCoverage: number;
   maxCoverage: number;
@@ -177,6 +252,13 @@ function newSegmentAccum(): SegmentAccum {
     peakLoadedChunks: 0,
     peakSceneDrawCalls: 0,
     peakScenePoints: 0,
+    peakScenePointsBreakdown: [],
+    peakFrameMonolithVisible: true,
+    peakFrustumKept: 0,
+    peakFrustumCulled: 0,
+    peakBrightnessCulled: 0,
+    peakContainmentCandidates: 0,
+    peakContainmentCandidatePoints: 0,
     requestsIssued: 0,
     minCoverage: Infinity,
     maxCoverage: 0,
@@ -200,6 +282,13 @@ function finalizeSegment(a: SegmentAccum): SegmentStats {
     peakLoadedChunks: a.peakLoadedChunks,
     peakSceneDrawCalls: a.peakSceneDrawCalls,
     peakScenePoints: a.peakScenePoints,
+    peakScenePointsBreakdown: a.peakScenePointsBreakdown,
+    peakFrameMonolithVisible: a.peakFrameMonolithVisible,
+    peakFrustumKept: a.peakFrustumKept,
+    peakFrustumCulled: a.peakFrustumCulled,
+    peakBrightnessCulled: a.peakBrightnessCulled,
+    peakContainmentCandidates: a.peakContainmentCandidates,
+    peakContainmentCandidatePoints: a.peakContainmentCandidatePoints,
     requestsIssued: a.requestsIssued,
     minCoverage: a.minCoverage === Infinity ? 0 : a.minCoverage,
     maxCoverage: a.maxCoverage,
@@ -298,7 +387,9 @@ export function Flythrough4Probe({
     const r = run.current;
     if (r.published) return;
 
-    // 1. Manual render (positive-priority useFrame disabled R3F auto-render).
+    // 1. Manual render (positive priority disables R3F auto-render and runs AFTER
+    // PRIORITY_RENDER subscribers — so GalaxyScene's draw-time frustum cull has
+    // already set object.visible for this frame before we measure gl.info.render).
     gl.render(scene, camera);
     // TOTAL scene draw work for THIS frame (gl.info.render auto-resets per render()).
     // Captures the whole composition — incl. the HYG monolith StarScene draws outside
@@ -370,7 +461,21 @@ export function Flythrough4Probe({
       a.peakInFlight = Math.max(a.peakInFlight, st.inFlight);
       a.peakLoadedChunks = Math.max(a.peakLoadedChunks, st.loadedChunks);
       a.peakSceneDrawCalls = Math.max(a.peakSceneDrawCalls, sceneDrawCalls);
-      a.peakScenePoints = Math.max(a.peakScenePoints, scenePoints);
+      if (scenePoints > a.peakScenePoints) {
+        a.peakScenePoints = scenePoints;
+        // Same frame as the peak — attribution must be co-timed or it describes a
+        // different composition than the number it explains.
+        a.peakScenePointsBreakdown = sceneDrawBreakdown(scene as unknown as DrawableLike);
+        a.peakFrameMonolithVisible = monolithVisibleHolder.current;
+      }
+      a.peakFrustumKept = Math.max(a.peakFrustumKept, frustumCullStats.kept);
+      a.peakFrustumCulled = Math.max(a.peakFrustumCulled, frustumCullStats.culled);
+      a.peakBrightnessCulled = Math.max(a.peakBrightnessCulled, brightnessCullStats.culled);
+      a.peakContainmentCandidates = Math.max(a.peakContainmentCandidates, st.containmentCandidates);
+      a.peakContainmentCandidatePoints = Math.max(
+        a.peakContainmentCandidatePoints,
+        st.containmentCandidatePoints,
+      );
       a.requestsIssued += st.requestsThisFrame;
       a.minCoverage = Math.min(a.minCoverage, coverage);
       a.maxCoverage = Math.max(a.maxCoverage, coverage);

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeAll } from 'vitest';
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -9,13 +9,15 @@ import {
   MAX_POINTS_PER_TILE,
   INTERNAL_TILE_POINTS,
 } from '@cosmos/core-types';
-import { loadOctreePack } from '@cosmos/data';
+import { loadOctreePack, loadGaiaReverseLookup } from '@cosmos/data';
 import {
   convertGaiaRow,
   isHygDuplicate,
   ingestGaia,
   buildGaiaPack,
   assertAttribution,
+  writeSourceIdIndexFromPack,
+  SOURCE_ID_INDEX_RECORD_BYTES,
   type GaiaSourceRow,
   type HygStar,
 } from '../src/gaia-ingest';
@@ -272,5 +274,108 @@ describe('gaia pack build', () => {
     expect(batch.idPrefix).toBe('gaia');
     expect(batch.count).toBeGreaterThan(0);
     expect(batch.positionsPc.length).toBe(batch.count * 3);
+  });
+
+  // ── TASK-070: reverse source_id → position index ────────────────────────────
+  it('emits gaia-sourceids-index.bin: one 16-byte record per source, sorted by source_id', () => {
+    const idx = readFileSync(join(buildDir, 'gaia-sourceids-index.bin'));
+    const sidecar = readFileSync(join(buildDir, 'gaia-sourceids.bin'));
+    const count = sidecar.byteLength / 8;
+    expect(idx.byteLength).toBe(count * SOURCE_ID_INDEX_RECORD_BYTES);
+
+    let prev: bigint | null = null;
+    for (let i = 0; i < count; i++) {
+      const sid = idx.readBigInt64LE(i * SOURCE_ID_INDEX_RECORD_BYTES);
+      if (prev !== null) expect(sid > prev).toBe(true); // strictly ascending
+      prev = sid;
+    }
+  });
+
+  it('index writer is deterministic (byte-identical across two builds)', () => {
+    const other = mkdtempSync(join(tmpdir(), 'cosmos-gaia-idx-'));
+    buildGaiaPack({
+      snapshotPath: SNAPSHOT,
+      hygPackDir: HYG_PACK,
+      outDir: other,
+      attributionsPath: ATTRIBUTIONS,
+      sample: true,
+    });
+    const a = readFileSync(join(buildDir, 'gaia-sourceids-index.bin'));
+    const b = readFileSync(join(other, 'gaia-sourceids-index.bin'));
+    expect(a.equals(b)).toBe(true);
+    rmSync(other, { recursive: true, force: true });
+  });
+
+  it('the committed sample carries the index file too', () => {
+    expect(() => readFileSync(join(SAMPLE, 'gaia-sourceids-index.bin'))).not.toThrow();
+  });
+
+  it('writeSourceIdIndexFromPack (backfill) derives a byte-identical index from an existing pack', () => {
+    // Copy the freshly-built pack WITHOUT its index, re-derive the index from the tiles alone,
+    // and assert it matches the buildGaiaPack-emitted one byte-for-byte (the on-disk tiles are
+    // the runtime's ground truth, so the two paths must agree).
+    const copy = mkdtempSync(join(tmpdir(), 'cosmos-gaia-backfill-'));
+    const manifest = JSON.parse(readFileSync(join(buildDir, 'octree.json'), 'utf8')) as {
+      tiles: { binUrl: string }[];
+    };
+    mkdirSync(join(copy, 'tiles'), { recursive: true });
+    writeFileSync(join(copy, 'octree.json'), readFileSync(join(buildDir, 'octree.json')));
+    writeFileSync(join(copy, 'gaia-sourceids.bin'), readFileSync(join(buildDir, 'gaia-sourceids.bin')));
+    for (const t of manifest.tiles) {
+      writeFileSync(join(copy, t.binUrl), readFileSync(join(buildDir, t.binUrl)));
+    }
+
+    const count = writeSourceIdIndexFromPack(copy);
+    const built = readFileSync(join(buildDir, 'gaia-sourceids-index.bin'));
+    const derived = readFileSync(join(copy, 'gaia-sourceids-index.bin'));
+    expect(count).toBe(built.byteLength / SOURCE_ID_INDEX_RECORD_BYTES);
+    expect(derived.equals(built)).toBe(true);
+    rmSync(copy, { recursive: true, force: true });
+  });
+
+  /**
+   * Full-stack acceptance (Task Acceptance #2): the runtime reverse lookup, run against the
+   * REAL freshly-built sample pack, resolves a known source_id to the star's exact position.
+   * The expected position is reconstructed INDEPENDENTLY from the sidecar (catalogId→source_id)
+   * + the leaf tile (slot→position) — never hardcoded — so this validates the writer AND reader
+   * end-to-end. fileFetch ignores Range headers (returns 200), so this also exercises the
+   * full-fetch fallback path of `loadGaiaReverseLookup`.
+   */
+  it('loadGaiaReverseLookup resolves a known source_id to its exact position; unknown → null', async () => {
+    const manifestUrl = `file:///${buildDir.replace(/\\/g, '/')}/octree.json`;
+
+    // Independent expected map: catalogId → (source_id, absolute position) from sidecar + tile.
+    const sidecar = readFileSync(join(buildDir, 'gaia-sourceids.bin'));
+    const manifest = JSON.parse(readFileSync(join(buildDir, 'octree.json'), 'utf8'));
+    // Sample is a single leaf, so slot === catalogId; assert that so the cross-check is sound.
+    expect(manifest.tiles).toHaveLength(1);
+    const tile = manifest.tiles[0];
+    const tileBin = readFileSync(join(buildDir, tile.binUrl));
+    const tbuf = tileBin.buffer.slice(tileBin.byteOffset, tileBin.byteOffset + tileBin.byteLength);
+    const pos = new Float32Array(tbuf, tile.buffers.positionsPc.byteOffset, tile.pointCount * 3);
+    const [cx, cy, cz] = tile.centerUnits;
+
+    const lookup = loadGaiaReverseLookup(manifestUrl, { fetchImpl: fileFetch() });
+
+    // Probe a spread of catalogIds (first, middle, last) so binary search depth is exercised.
+    for (const catalogId of [0, Math.floor(tile.pointCount / 2), tile.pointCount - 1]) {
+      const sid = sidecar.readBigInt64LE(catalogId * 8);
+      const expected: [number, number, number] = [
+        cx + pos[catalogId * 3]!,
+        cy + pos[catalogId * 3 + 1]!,
+        cz + pos[catalogId * 3 + 2]!,
+      ];
+      const hit = await lookup.resolve(sid);
+      // Log chosen input + measured (CLAUDE.md rule 6): CI-only failure triagable from here.
+      console.log(`reverse: catalogId=${catalogId} sid=${sid} -> ${JSON.stringify(hit?.positionPc)}`);
+      expect(hit).not.toBeNull();
+      expect(hit!.sourceId).toBe(sid); // bigint echoed, no Number() truncation (all ids > 2^53)
+      expect(hit!.positionPc[0]).toBeCloseTo(expected[0], 4);
+      expect(hit!.positionPc[1]).toBeCloseTo(expected[1], 4);
+      expect(hit!.positionPc[2]).toBeCloseTo(expected[2], 4);
+    }
+
+    // An id absent from the sample resolves to a miss.
+    expect(await lookup.resolve(999999999999999999n)).toBeNull();
   });
 });

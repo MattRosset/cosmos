@@ -32,3 +32,6 @@ export {
 
 export { LruClock, selectLruVictims } from './lru.js';
 export type { LruQuery } from './lru.js';
+
+export { hasMarkedAncestor } from './lod-coverage-antichain.js';
+export type { MortonKeyPredicate, MortonParentLookup } from './lod-coverage-antichain.js';

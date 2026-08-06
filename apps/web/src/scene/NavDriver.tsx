@@ -1,4 +1,6 @@
 import { useEffect, useMemo } from 'react';
+import { createBudgetMonitor } from '@cosmos/diagnostics';
+import { sampleNavBudget, type NavBudgetCtx } from '../glue/nav-budget';
 import type { GalaxyRecord, UniversePosition } from '@cosmos/core-types';
 import { CONTEXT_UNIT_METERS } from '@cosmos/core-types';
 import type { OriginManager, ScaleFrameTree } from '@cosmos/coords';
@@ -36,6 +38,15 @@ const MIN_SURFACE_DISTANCE_PC = 1e-7;
  * far outside the field, so we must short-circuit before calling it (see below).
  */
 const HYG_GRID_REACH_PC = 200 * 25;
+/**
+ * HYG monolith is Sol-local. Past this distance from Sol the expanding-shell search
+ * walks empty rings toward the catalog bubble (~90 ms/frame at a Gaia mid-disk park
+ * ~2.8 kpc — same mechanism as TASK-040 breadcrumb freeze, but AFTER goTo ends so
+ * the goToActive short-circuit no longer applies). Beyond this, feed the speed law
+ * from streaming's nearest loaded chunk (Gaia/HYG octree) instead.
+ * See docs/research/gaia-far-fly-quality-collapse.md §9.
+ */
+const HYG_SEARCH_MAX_FROM_SOL_PC = 500;
 /** Distance floor (AU) for the system-context surface feed. */
 const MIN_SURFACE_DISTANCE_AU = 1e-9;
 /** Distance floor (Mpc) for the universe-context streaming surface feed. */
@@ -49,6 +60,20 @@ const ANCHOR_SCAN_MS = 100;
  * to taste — higher = faster traversal, lower = tighter control.
  */
 const MAX_FREE_FLIGHT_SPEED = 10;
+
+/**
+ * Nav surface-feed budget (ms) for the always-on tripwire (TASK-090). The feed is
+ * pure array math — system (~scene body count), galaxy near-Sol (HYG grid, measured
+ * 0.001–0.002 ms in hyg-void-nearest-robust-fix.md). 4 ms is ~1000× headroom over
+ * normal even on a slow shared runner, and ~20× under the ~90 ms HYG void cliff this
+ * alarm exists to catch. If CI ever false-fires, RAISE this (log the measured spanMs),
+ * never delete the alarm. See docs/agent-tasks/TASK-090-nav-frame-budget-tripwire.md.
+ */
+const NAV_FEED_BUDGET_MS = 4;
+/** Consecutive over-budget frames before the alarm fires (~0.5 s at 60 fps). A single
+ *  slow frame (GC, tab wakeup, machine hitch) must NOT alarm — the real cliff is
+ *  sustained. Do not reduce to 1 (see memory/dont-gate-peak-of-per-frame-sample). */
+const NAV_FEED_SUSTAINED_FRAMES = 30;
 
 interface NavDriverProps {
   readonly origin: OriginManager;
@@ -65,6 +90,10 @@ interface NavDriverProps {
   onController(controller: FlightController): void;
   /** Forwarded galaxy⇄system context switches (mounts/unmounts the system scene). */
   onContextSwitch(event: ContextSwitchEvent): void;
+  /** Injected clock for the nav-feed budget bracket (TASK-090). Defaults to
+   *  `performance.now`; a test stubs it to drive a deterministic over-budget span
+   *  without WebGL/real work. */
+  now?: () => number;
 }
 
 /**
@@ -86,6 +115,7 @@ export function NavDriver({
   milkyWay,
   onController,
   onContextSwitch,
+  now = () => performance.now(),
 }: NavDriverProps) {
   const flight = useFlightController({
     origin,
@@ -121,11 +151,32 @@ export function NavDriver({
     };
   }, [stars]);
 
+  // Always-on tripwire for the nav surface feed (TASK-090). ONE monitor + ONE
+  // reused scratch context, both created once (never per frame). The monitor stays
+  // generic; nav is just its first consumer.
+  const navBudget = useMemo(
+    () =>
+      createBudgetMonitor({
+        label: 'nav.surfaceFeed',
+        budgetMs: NAV_FEED_BUDGET_MS,
+        sustainedFrames: NAV_FEED_SUSTAINED_FRAMES,
+      }),
+    [],
+  );
+  const navScratch = useMemo<NavBudgetCtx>(
+    () => ({ span: 'nav.surfaceFeed', context: '', distFromSolPc: -1, distToField: -1, spanMs: 0 }),
+    [],
+  );
+
   useEffect(() => {
     onController(flight);
   }, [flight, onController]);
 
   useEffect(() => flight.onContextSwitch(onContextSwitch), [flight, onContextSwitch]);
+
+  // Re-arm the tripwire on context switch: galaxy↔system↔universe have different
+  // feed regimes, so a partial breach must not carry a stale consecutiveOver across.
+  useEffect(() => flight.onContextSwitch(() => navBudget.reset()), [flight, navBudget]);
 
   // Anchor scan — galaxy context only (the guard that prevents evicting the
   // system the camera is inside, §5.8).
@@ -153,9 +204,16 @@ export function NavDriver({
   }, [flight, tree, milkyWay]);
 
   useFrameContext(() => {
+    // TASK-090: bracket the WHOLE feed (callback ms, not frame interval) so the
+    // tripwire measures real work, immune to idle-rAF/occlusion throttling.
+    const t0 = now();
     profileSpan('nav.surfaceFeed', () => {
     const [cx, cy, cz] = flight.state.position.local;
+    navScratch.context = flight.contextId; // set once; every branch below shares it
     if (flight.contextId === 'system') {
+      // Distances are galaxy-frame concepts; not meaningful here.
+      navScratch.distFromSolPc = -1;
+      navScratch.distToField = -1;
       if (!systemFeed.active) return; // scene not built yet — keep last value
       let best = Infinity;
       const n = systemFeed.count;
@@ -171,6 +229,8 @@ export function NavDriver({
     }
 
     if (flight.contextId === 'universe') {
+      navScratch.distFromSolPc = -1;
+      navScratch.distToField = -1;
       // Universe context (M3) — streaming's nearest loaded-chunk distance, meters
       // → Mpc. The galaxy/system feeds below stay exactly as M2 (the streaming
       // scalar is tile-bounds based and collapses to ~0 inside the galaxy octree,
@@ -183,18 +243,42 @@ export function NavDriver({
       return;
     }
 
-    // Galaxy context — HYG nearest-star distance (M1 unchanged near the field).
-    // Short-circuit when the camera is beyond the grid's reach from the field, OR
-    // during an animated goTo (breadcrumbs): both cases skip nearestStarIndex.
-    // The expanding-shell search scans up to 200 empty rings (~1.7 s/frame) when
-    // the camera is in the inter-arm void (3–20 kpc) where HYG has no cells — see
-    // docs/research/TASK-040-breadcrumb-freeze.md.
+    // Galaxy context — HYG nearest-star distance near Sol; streaming elsewhere.
+    // Short-circuit nearestStarIndex when:
+    //  - animated goTo (breadcrumb freeze — TASK-040),
+    //  - camera beyond grid reach outside the HYG bounding sphere, OR
+    //  - camera far from Sol (Gaia search park ~2.8 kpc): HYG has no cells there,
+    //    so the expanding shell walks empty rings (~90 ms/frame → ~11 fps) even
+    //    though the scene only shows one Gaia star. goToActive is already false
+    //    once parked, so the flight-only guard is not enough.
+    // See docs/research/TASK-040-breadcrumb-freeze.md and
+    // docs/research/gaia-far-fly-quality-collapse.md §9.
     const ddx = cx - hygBounds.cx;
     const ddy = cy - hygBounds.cy;
     const ddz = cz - hygBounds.cz;
     const distToField = Math.hypot(ddx, ddy, ddz) - hygBounds.radius;
-    if (flight.goToActive || distToField > HYG_GRID_REACH_PC) {
-      flight.setDistanceToNearestSurface(Math.max(distToField, MIN_SURFACE_DISTANCE_PC));
+    const distFromSolPc = Math.hypot(cx, cy, cz);
+    // Both galaxy sub-paths (short-circuit + nearestStarIndex) share these; set once
+    // here so whichever branch returns, the tripwire report carries them.
+    navScratch.distFromSolPc = distFromSolPc;
+    navScratch.distToField = distToField;
+    if (
+      flight.goToActive ||
+      distToField > HYG_GRID_REACH_PC ||
+      distFromSolPc > HYG_SEARCH_MAX_FROM_SOL_PC
+    ) {
+      const dM = streaming?.nearestBodyDistanceM ?? Infinity;
+      if (Number.isFinite(dM)) {
+        // Real octree chunk under/near the camera (Gaia park, far field).
+        flight.setDistanceToNearestSurface(
+          Math.max(dM / CONTEXT_UNIT_METERS.galaxy, MIN_SURFACE_DISTANCE_PC),
+        );
+      } else {
+        // No streaming yet — HYG-sphere lower bound (may be negative inside it).
+        flight.setDistanceToNearestSurface(
+          Math.max(distToField, MIN_SURFACE_DISTANCE_PC),
+        );
+      }
       return;
     }
     profileSpan('nav.hyg.nearestStarIndex', () => {
@@ -209,6 +293,9 @@ export function NavDriver({
       );
     });
     });
+    // Measure the whole feed and feed the tripwire. Stable-message report on a
+    // sustained breach; zero allocation on the normal path (scratch is reused).
+    sampleNavBudget(navBudget, navScratch, now() - t0);
   }, PRIORITY_NAV - 1);
 
   return null;

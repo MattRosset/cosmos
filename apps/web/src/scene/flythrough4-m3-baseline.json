@@ -1,20 +1,21 @@
 {
-  "_comment": "TASK-053 / ADR-006 §5.4 — committed M3 baseline for the near-Sol tier-unification budget gate. Recorded by running the SAME probe in baseline mode (?debug=flythrough4&baseline=m3) against the M3 tier (HYG-only octree + ALWAYS-ON HYG monolith + procgen) on the identical committed flythrough3 path. The M4a run (combined HYG+Gaia octree, monolith culled once the octree covers the cut, coverage-faded procgen) must come in AT OR BELOW these near-Sol TOTAL-SCENE numbers — proving fewer redundant layers (ADR-006 §5.4 rule 4).",
+  "_comment": "TASK-053 / ADR-006 \u00a75.4 \u2014 committed M3 baseline for the near-Sol tier-unification budget gate. Recorded by running the SAME probe in baseline mode (?debug=flythrough4&baseline=m3) against the M3 tier (HYG-only octree + ALWAYS-ON HYG monolith + procgen) on the identical committed flythrough3 path. The M4a run (combined HYG+Gaia octree, monolith culled once the octree covers the cut, coverage-faded procgen) must come in AT OR BELOW these near-Sol TOTAL-SCENE numbers \u2014 proving fewer redundant layers (ADR-006 \u00a75.4 rule 4).",
   "_metric": "nearSol is TOTAL scene work (gl.info.render: calls + points), NOT the streaming-only stats. The redundant layer the unification removes is the HYG monolith, which StarScene draws OUTSIDE the streaming policy; the streaming-only renderedPoints/drawCalls cannot see it (M4a would even read slightly HIGHER, by the 135-star Gaia sample the combined octree adds). gl.info.render captures the whole composition, so M3 (monolith on) reads above M4a (monolith culled near Sol).",
-  "_howToRecord": "Rebuild web (pnpm --filter @cosmos/web build), then run the probe in baseline mode against the preview build with SwiftShader and read window.__flythrough4Result. Copy max(segments.toSol, segments.toEarth) of peakSceneDrawCalls and peakScenePoints into nearSol below and set _recorded=true. NOTE: scene draw/point counts are GL-backend-independent (they are three.js JS counters), so a real-GPU browser records the same numbers as SwiftShader — only frame timing differs by backend.",
+  "_howToRecord": "Rebuild web (pnpm --filter @cosmos/web build), then run the probe in baseline mode against the preview build with SwiftShader and read window.__flythrough4Result. Copy max(segments.toSol, segments.toEarth) of peakSceneDrawCalls and peakScenePoints into nearSol below and set _recorded=true. NOTE: scene draw/point counts are GL-backend-independent (they are three.js JS counters), so a real-GPU browser records the same numbers as SwiftShader \u2014 only frame timing differs by backend.",
   "path": "flythrough3-path.json",
   "epochJD": 2451545.0,
   "_recorded": true,
-  "_recordedNote": "Re-recorded 2026-06-24 on chromium via ?debug=flythrough4&baseline=m3 with BUG-6 fixed and the gl.info.render scene metric. M3 toSol: sceneDraws=40, scenePts=109,971 (the always-on HYG monolith dominates scenePts). M4a toSol for comparison: sceneDraws=39, scenePts=572 — the monolith is culled once the octree covers the cut, a clean drop on both metrics. The prior baseline (1000000 pts / 1 draw, 2026-06-22) was degenerate (BUG-6 present + streaming-only metric blind to the monolith) and is retired.",
+  "_recordedNote": "Re-recorded 2026-06-24 on chromium via ?debug=flythrough4&baseline=m3 with BUG-6 fixed and the gl.info.render scene metric. M3 toSol: sceneDraws=40, scenePts=109,971 (the always-on HYG monolith dominates scenePts). M4a toSol for comparison: sceneDraws=39, scenePts=572 \u2014 the monolith is culled once the octree covers the cut, a clean drop on both metrics. The prior baseline (1000000 pts / 1 draw, 2026-06-22) was degenerate (BUG-6 present + streaming-only metric blind to the monolith) and is retired.",
   "nearSol": {
-    "_comment": "the toSol (galaxy-context) approach segment — where the monolith coverage-gate fires. TOTAL scene work (gl.info.render). NOT max(toSol,toEarth): toEarth is system context and redraws the monolith in both tiers, washing the win out.",
+    "_comment": "the toSol (galaxy-context) approach segment \u2014 where the monolith coverage-gate fires. TOTAL scene work (gl.info.render). NOT max(toSol,toEarth): toEarth is system context and redraws the monolith in both tiers, washing the win out.",
     "peakSceneDrawCalls": 40,
     "peakScenePoints": 109971
   },
   "caps": {
-    "_comment": "Inherited §5.8 hard caps — these gate the streaming budget regardless of the relative comparison and never relax (TASK-053 forbidden actions).",
+    "_comment": "Inherited \u00a75.8 hard caps \u2014 these gate the streaming budget regardless of the relative comparison and never relax (TASK-053 forbidden actions).",
     "inFlightMax": 6,
     "renderedPointsMax": 2000000,
     "drawCallsMax": 300
-  }
+  },
+  "_SUPERSEDED": "2026-08-05 \u2014 NO LONGER READ BY THE GATE. e2e/tests/flythrough4.spec.ts now measures the M3 control live in the same run and asserts the RELATION (M4a <= M3), because this recorded absolute stopped describing M3: re-run on the production pack the same day, the same probe in the same mode reported 44 draws / 309,369 points against the 40 / 109,971 recorded here - the control failed its own threshold by 2.8x. Composition drifted underneath it (procgen LOD rework, combined HYG+Gaia octree) and nothing caught it, because a recorded control is never re-run. Kept for history. See docs/research/near-sol-gate-stale-baseline-and-real-gap.md."
 }

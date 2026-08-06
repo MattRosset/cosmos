@@ -24,6 +24,19 @@ export interface StarData {
   readonly hipId: number;
 }
 
+/**
+ * Where a star's full record lives in the on-disk octree (TASK-070): the LEAF tile
+ * that holds it (index into `manifest.tiles`, on-disk BFS order) and its slot within
+ * that tile's point arrays. Emitted only when `buildOctree` is passed a `placementsOut`
+ * sink; used by `writeSourceIdIndex` to build the reverse source_id → position index.
+ */
+export interface StarPlacement {
+  /** Index into `manifest.tiles` (BFS order) of the LEAF holding this star. */
+  readonly tileIndex: number;
+  /** Slot of the star within that leaf tile's point arrays. */
+  readonly indexInTile: number;
+}
+
 export interface BuildOptions {
   /** Root cube half-extent in context units (must be power of two). Default: 65536. */
   rootHalfExtent?: number;
@@ -65,6 +78,12 @@ export function buildOctree(
   stars: StarData[],
   outDir: string,
   options: BuildOptions = {},
+  /**
+   * Optional sink (TASK-070): when provided, filled with each star's leaf-tile
+   * placement, indexed by the star's position in `stars`. Purely additive — it does
+   * not affect any written file, so the determinism gate stays byte-identical.
+   */
+  placementsOut?: StarPlacement[],
 ): OctreeManifest {
   const rootHalfExtent = options.rootHalfExtent ?? 65536;
   const source = options.source ?? 'hyg-v41-octree';
@@ -167,8 +186,18 @@ export function buildOctree(
 
   const tileMans: OctreeTileManifest[] = [];
   for (const node of allNodes) {
+    const tileIndex = tileMans.length; // BFS position === index into manifest.tiles
     const key = encodeMortonKey(node.cell);
     const isLeaf = !node.children;
+
+    // TASK-070: record where each star's full record lives. Only leaves carry a
+    // star's complete record (internal tiles are decimated), and every star is in
+    // exactly one leaf, so this populates `placementsOut` fully and unambiguously.
+    if (placementsOut && isLeaf) {
+      for (let j = 0; j < node.tileIndices.length; j++) {
+        placementsOut[node.tileIndices[j]!] = { tileIndex, indexInTile: j };
+      }
+    }
     let childMask = 0;
     if (node.children) {
       for (let c = 0; c < 8; c++) {
