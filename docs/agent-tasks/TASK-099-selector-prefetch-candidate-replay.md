@@ -5,10 +5,13 @@
 **Class:** bounded research/prototype with independent GO/STOP verdicts  
 **Depends on:** TASK-098 (hard block), full local Gaia pack (present — see below)
 
-**NOT on the critical path to a new pack (re-sequenced 2026-08-06).** Every candidate here is a
-**runtime** selection change: it reads the same v1 tiles and changes no byte on disk. Re-packing
-and hosting the 4.7M pack are gated by TASK-101 (pack format), not by this task. P1 (subtree
-`minAbsMag`) moved to TASK-101 for the same reason — a manifest field is a format change.
+**Runtime only.** Every candidate here changes what the selector *fetches*, never what the pack
+*stores*: same v1 tiles, no byte changed on disk. So this task neither gates nor is gated by
+re-packing. P1 (subtree `minAbsMag`) moved to TASK-101 for the mirror-image reason — a manifest
+field is a format change.
+
+Both this task and TASK-101 sit behind the value work (TASK-097, TASK-100, the Survey mode) and
+behind a measurement of what the full pack actually costs on the floor device.
 
 **Current checkout status: NOT blocked.** The full pack is present locally at
 `apps/web/public/packs/octree-gaia/octree.json` (1,267 tiles / 1,093 leaves, 1,267 binaries in

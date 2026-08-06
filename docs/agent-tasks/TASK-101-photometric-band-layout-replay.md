@@ -5,12 +5,16 @@
 **Class:** bounded research with a single GO/STOP verdict
 **Depends on:** TASK-097 (hard block — the photometry oracle). **NOT** TASK-099.
 
-**Re-sequenced 2026-08-06.** This is now the **critical path to a new pack**. The decision that
-gates re-packing and hosting the 4.7M pack is a *pack-format* question, and pack format is the
-only thing this task measures. TASK-099's spatial candidates (frustum margins, best-first
-frontier, prefetch) are **runtime** — they read the same v1 tiles and change no byte on disk, so
-they do not block re-packing and were taken off this path. Consequently P1 (subtree `minAbsMag`)
-moved here from TASK-099: it is a manifest field, i.e. a format change.
+**Dependency corrected 2026-08-06:** this no longer waits on TASK-099. Pack format and runtime
+selection are independent questions — TASK-099's candidates (frustum margins, best-first
+frontier, prefetch) read the same v1 tiles and change no byte on disk, so nothing they conclude
+changes what this task measures. P1 (subtree `minAbsMag`) moved here from TASK-099 for the same
+reason: a manifest field is a format change.
+
+**Not scheduled next.** Briefly planned as the critical path when re-packing was to precede
+hosting the 4.7M pack; that ordering was dropped the same day. Run this when the pack-format
+question is actually the next thing worth answering — after the value work (TASK-097, TASK-100,
+the Survey mode) and after the cost of the full pack has been measured on the floor device.
 
 ## Goal
 
