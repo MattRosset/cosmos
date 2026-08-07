@@ -8,6 +8,7 @@ import {
 import type { ErrorCounts } from '@cosmos/diagnostics';
 import { getErrorCounts } from '@cosmos/diagnostics';
 import type { FlightController } from '@cosmos/nav';
+import type { GoToCoordinator } from './goto';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import { useOverlayStore, useSettingsStore, useTourStore } from '@cosmos/app-state';
 import { systemFeed, systemPickGroup } from './system-feed';
@@ -115,6 +116,22 @@ export interface CosmosTestHook {
   projectToScreen(
     localPos: readonly [number, number, number],
   ): { x: number; y: number } | null;
+  /**
+   * TASK-091 — the last galaxy-context nearest-surface scalar NavDriver fed the speed
+   * law (pc). Mirrors `surfaceFeedHolder`, a zero-alloc primitive NavDriver writes each
+   * frame (the `FlightController` exposes only the SETTER, so there is no controller
+   * getter to read). The gaia-park speed-law gate asserts this is a cruising distance
+   * (> 100 pc) at a far park — the WASD-unstuck proof (the old streaming-AABB feed made
+   * it ~0). 1 before the first galaxy frame (the controller's own default).
+   */
+  readonly distanceToNearestSurfacePc: number;
+  /**
+   * TASK-091 — fly to a raw galaxy-frame position (parsecs, Sol-origin), the same path
+   * search fly-to uses. Delegates to the live `goto` coordinator via `gotoHolder`; a
+   * safe no-op before StarApp wires it. Lets the speed-law e2e park at arbitrary coords
+   * without a UI drive.
+   */
+  goToPosition(positionPc: readonly [number, number, number]): void;
   /**
    * One-shot framebuffer statistic for scale-regression gates (TASK-085). Reads the live
    * drawing buffer from a rAF registered OUTSIDE three's loop, so it runs after three's
@@ -263,6 +280,12 @@ export const testHook: CosmosTestHook = {
   ): { x: number; y: number } | null {
     return pickProbeHolder.current?.projectToScreen(localPos) ?? null;
   },
+  get distanceToNearestSurfacePc(): number {
+    return surfaceFeedHolder.current;
+  },
+  goToPosition(positionPc: readonly [number, number, number]): void {
+    gotoHolder.current?.goToPosition(positionPc);
+  },
   readFrameStats,
   systemBody(bodyId: BodyId) {
     if (!systemFeed.active) return null;
@@ -364,6 +387,23 @@ export function mirrorOverlayState(): void {
  * reach it through this holder at low frequency only.
  */
 export const controllerHolder: { current: FlightController | null } = {
+  current: null,
+};
+
+/**
+ * TASK-091 — last galaxy nearest-surface scalar NavDriver fed the speed law (pc). A
+ * zero-alloc primitive written each galaxy frame (same pattern as `procgenOpacityHolder`);
+ * the `distanceToNearestSurfacePc` hook getter reads it. Init 1 = the controller's own
+ * `distanceToNearestSurface` default before the first frame feeds it.
+ */
+export const surfaceFeedHolder: { current: number } = { current: 1 };
+
+/**
+ * TASK-091 — live `goToPosition` command for the speed-law e2e park. Set in StarApp
+ * where the goto coordinator is created; the `goToPosition` hook command delegates to it
+ * (a safe no-op before wiring). Only the one method the hook needs is exposed.
+ */
+export const gotoHolder: { current: Pick<GoToCoordinator, 'goToPosition'> | null } = {
   current: null,
 };
 

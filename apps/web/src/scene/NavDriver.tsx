@@ -15,6 +15,9 @@ import {
 import { systemFeed } from '../glue/system-feed';
 import { startGalaxyAnchorScan } from '../glue/local-group';
 import { profileSpan } from '../glue/frame-profiler';
+import { computeHygFieldBounds } from '../glue/hyg-field';
+import { galaxyFarFieldSurfacePc } from '../glue/nav-speed-law';
+import { surfaceFeedHolder } from '../glue/test-hook';
 
 /**
  * Initial camera: in the galaxy star field, ~0.06 pc from Sol — just OUTSIDE the
@@ -31,22 +34,16 @@ export const INITIAL_CAMERA: UniversePosition = {
 /** Distance floor (pc): avoids the Sol-at-zero-distance trap (TASK-015). */
 const MIN_SURFACE_DISTANCE_PC = 1e-7;
 /**
- * Reach (pc) of the HYG spatial-grid nearest-star search: 200 rings × 25 pc cells
- * (see `@cosmos/data` grid.ts). Beyond this from the star field, the expanding-shell
- * search finds nothing yet still scans every ring (~2.7 M empty cells) — a multi-
- * hundred-ms-per-frame stall. The "Milky Way" vantage (~49 kpc out, TASK-040) sits
- * far outside the field, so we must short-circuit before calling it (see below).
+ * Hysteresis band (pc) around the HYG point cloud's true boundary — two 25 pc grid
+ * cells. Outside `maxRadiusPc + margin` the speed law uses the O(1) distance-to-cloud
+ * (large → controllable cruise, no grid walk); inside, it runs the HYG grid nearest-
+ * star. The margin keeps the branch from flapping frame-to-frame exactly at the
+ * surface (both branches give ~equal scalars there). This replaces the TASK-070
+ * magic-500 + `streaming.nearestBodyDistanceM` guard, whose tile-AABB distance
+ * collapsed to 0 inside a covered Gaia tile → immobilized flight (the WASD "wall").
+ * See docs/research/gaia-park-navigation-open.md §1 and TASK-091.
  */
-const HYG_GRID_REACH_PC = 200 * 25;
-/**
- * HYG monolith is Sol-local. Past this distance from Sol the expanding-shell search
- * walks empty rings toward the catalog bubble (~90 ms/frame at a Gaia mid-disk park
- * ~2.8 kpc — same mechanism as TASK-040 breadcrumb freeze, but AFTER goTo ends so
- * the goToActive short-circuit no longer applies). Beyond this, feed the speed law
- * from streaming's nearest loaded chunk (Gaia/HYG octree) instead.
- * See docs/research/gaia-far-fly-quality-collapse.md §9.
- */
-const HYG_SEARCH_MAX_FROM_SOL_PC = 500;
+const HYG_FIELD_MARGIN_PC = 50;
 /** Distance floor (AU) for the system-context surface feed. */
 const MIN_SURFACE_DISTANCE_AU = 1e-9;
 /** Distance floor (Mpc) for the universe-context streaming surface feed. */
@@ -128,27 +125,15 @@ export function NavDriver({
     maxSpeedUnitsPerS: MAX_FREE_FLIGHT_SPEED,
   });
 
-  // Bounding sphere of the HYG field (absolute pc), computed once. Used to skip the
-  // O(rings³) grid nearest-star search when the camera is too far out for it to find
-  // anything (TASK-040: the "Milky Way" vantage is ~49 kpc beyond the field).
+  // True-radius bounds of the HYG point cloud (absolute pc), computed once. The
+  // galaxy speed law uses the distance to this cloud to skip the O(rings³) grid
+  // nearest-star search when the camera is outside it (TASK-040: the "Milky Way"
+  // vantage is ~49 kpc beyond the field; TASK-091: the far Gaia park ~2.8 kpc out).
+  // `maxRadiusPc` is the TRUE point radius, NOT the AABB half-diagonal — the diagonal
+  // is ~√3× larger and would leave a shell where the grid still walks empty rings.
   const hygBounds = useMemo(() => {
     const { positionsPc, originPc, count } = stars.batch;
-    if (count === 0) return { cx: originPc[0], cy: originPc[1], cz: originPc[2], radius: 0 };
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < count; i++) {
-      const x = positionsPc[i * 3]!, y = positionsPc[i * 3 + 1]!, z = positionsPc[i * 3 + 2]!;
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    }
-    const hx = (maxX - minX) / 2, hy = (maxY - minY) / 2, hz = (maxZ - minZ) / 2;
-    return {
-      cx: originPc[0] + (minX + maxX) / 2,
-      cy: originPc[1] + (minY + maxY) / 2,
-      cz: originPc[2] + (minZ + maxZ) / 2,
-      radius: Math.hypot(hx, hy, hz),
-    };
+    return computeHygFieldBounds(positionsPc, originPc, count);
   }, [stars]);
 
   // Always-on tripwire for the nav surface feed (TASK-090). ONE monitor + ONE
@@ -243,42 +228,34 @@ export function NavDriver({
       return;
     }
 
-    // Galaxy context — HYG nearest-star distance near Sol; streaming elsewhere.
-    // Short-circuit nearestStarIndex when:
-    //  - animated goTo (breadcrumb freeze — TASK-040),
-    //  - camera beyond grid reach outside the HYG bounding sphere, OR
-    //  - camera far from Sol (Gaia search park ~2.8 kpc): HYG has no cells there,
-    //    so the expanding shell walks empty rings (~90 ms/frame → ~11 fps) even
-    //    though the scene only shows one Gaia star. goToActive is already false
-    //    once parked, so the flight-only guard is not enough.
-    // See docs/research/TASK-040-breadcrumb-freeze.md and
-    // docs/research/gaia-far-fly-quality-collapse.md §9.
-    const ddx = cx - hygBounds.cx;
-    const ddy = cy - hygBounds.cy;
-    const ddz = cz - hygBounds.cz;
-    const distToField = Math.hypot(ddx, ddy, ddz) - hygBounds.radius;
+    // Galaxy context — the free-flight speed law's nearest-surface scalar (TASK-091).
+    // Outside the HYG point cloud (or during an animated goTo — TASK-040 breadcrumb
+    // freeze), feed the O(1) distance-to-cloud: large → controllable cruise, and the
+    // grid nearest-star search is skipped so a void never walks empty rings (~90 ms/
+    // frame). Inside/near the cloud, run the fast HYG grid nearest-star. This replaces
+    // the TASK-070 magic-500 + `streaming.nearestBodyDistanceM` guard (the tile-AABB
+    // distance collapsed to 0 inside a covered Gaia tile → WASD "wall"). See
+    // docs/research/gaia-park-navigation-open.md §1 and TASK-091.
     const distFromSolPc = Math.hypot(cx, cy, cz);
-    // Both galaxy sub-paths (short-circuit + nearestStarIndex) share these; set once
-    // here so whichever branch returns, the tripwire report carries them.
+    const distToCloud =
+      Math.hypot(cx - hygBounds.cx, cy - hygBounds.cy, cz - hygBounds.cz) -
+      hygBounds.maxRadiusPc;
+    // Both galaxy sub-paths share these; set once so whichever branch returns, the
+    // tripwire report carries them.
     navScratch.distFromSolPc = distFromSolPc;
-    navScratch.distToField = distToField;
-    if (
-      flight.goToActive ||
-      distToField > HYG_GRID_REACH_PC ||
-      distFromSolPc > HYG_SEARCH_MAX_FROM_SOL_PC
-    ) {
-      const dM = streaming?.nearestBodyDistanceM ?? Infinity;
-      if (Number.isFinite(dM)) {
-        // Real octree chunk under/near the camera (Gaia park, far field).
-        flight.setDistanceToNearestSurface(
-          Math.max(dM / CONTEXT_UNIT_METERS.galaxy, MIN_SURFACE_DISTANCE_PC),
-        );
-      } else {
-        // No streaming yet — HYG-sphere lower bound (may be negative inside it).
-        flight.setDistanceToNearestSurface(
-          Math.max(distToField, MIN_SURFACE_DISTANCE_PC),
-        );
-      }
+    navScratch.distToField = distToCloud;
+    const far = galaxyFarFieldSurfacePc(
+      cx,
+      cy,
+      cz,
+      hygBounds,
+      flight.goToActive,
+      HYG_FIELD_MARGIN_PC,
+      MIN_SURFACE_DISTANCE_PC,
+    );
+    if (!Number.isNaN(far)) {
+      flight.setDistanceToNearestSurface(far);
+      surfaceFeedHolder.current = far;
       return;
     }
     profileSpan('nav.hyg.nearestStarIndex', () => {
@@ -288,9 +265,9 @@ export function NavDriver({
       const dx = originPc[0] + positionsPc[i * 3]! - cx;
       const dy = originPc[1] + positionsPc[i * 3 + 1]! - cy;
       const dz = originPc[2] + positionsPc[i * 3 + 2]! - cz;
-      flight.setDistanceToNearestSurface(
-        Math.max(Math.hypot(dx, dy, dz), MIN_SURFACE_DISTANCE_PC),
-      );
+      const surfacePc = Math.max(Math.hypot(dx, dy, dz), MIN_SURFACE_DISTANCE_PC);
+      flight.setDistanceToNearestSurface(surfacePc);
+      surfaceFeedHolder.current = surfacePc;
     });
     });
     // Measure the whole feed and feed the tripwire. Stable-message report on a

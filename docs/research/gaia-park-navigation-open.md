@@ -8,12 +8,20 @@ Two distinct gaps reported when parked at a far Gaia star (search →
 
 ---
 
-## 1. Free-flight feels “off” / stuck (WASD)
+## 1. Free-flight feels “off” / stuck (WASD) — ✅ RESOLVED (TASK-091, 2026-08-07)
+
+**Resolution:** the plausible mechanism below was **confirmed by measurement** (speed = 0 at
+513 pc from Sol on the dense pack; `distanceToNearestSurface` ≈ 0) and fixed by TASK-091:
+the galaxy speed law no longer uses the magic-500 guard or `streaming.nearestBodyDistanceM`
+(the tile-AABB distance that collapses to 0 inside a covered tile). It now uses the true HYG
+field-boundary precondition (`galaxyFarFieldSurfacePc` + `computeHygFieldBounds`). Post-fix
+live: parked 2844 pc out, W+SHIFT cruises ~82 pc/s, surface feed ~1850 pc. Full writeup:
+`docs/research/gaia-500pc-speed-wall.md`. Original analysis kept below for provenance.
 
 **Symptom:** After arrival you can look around, but translational travel feels dead or
 unusable — cannot cruise away from the star.
 
-**Plausible mechanism (unconfirmed — needs measurement):**
+**Plausible mechanism (CONFIRMED 2026-08-07 — was: unconfirmed):**
 
 Speed law is `speed ∝ distanceToNearestSurface`. The FPS hot-fix feeds that scalar from
 `streaming.nearestBodyDistanceM` (distance to **chunk AABB**, not to the star). Parked
