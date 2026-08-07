@@ -9,10 +9,15 @@ import type { FlightController } from '@cosmos/nav';
 import type { StreamingPolicy } from '@cosmos/streaming';
 import type { ContextId } from '@cosmos/core-types';
 import { useSelectionStore, useSettingsStore } from '@cosmos/app-state';
-import { createStarPoints, pickStar, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
+import { createStarPoints, type StarPoints, type StarPickHit } from '@cosmos/render-stars';
 import { PRIORITY_RENDER, useFrameContext } from '@cosmos/scene-host';
 import { pickNearestGalaxy } from '@cosmos/nav';
-import { effectiveStarExposure, NATURAL_VISIBILITY_PROFILE } from '@cosmos/photometry';
+import {
+  effectiveStarExposure,
+  NATURAL_VISIBILITY_PROFILE,
+  type StarVisibilityProfile,
+} from '@cosmos/photometry';
+import { pickNearestVisibleStar } from '../glue/star-pick';
 import { profileSpan } from '../glue/frame-profiler';
 import { systemPickGroup } from '../glue/system-feed';
 import { localGroupPickHolder } from '../glue/local-group-feed';
@@ -299,7 +304,14 @@ export function StarScene({
         local[1] * unitsToPc,
         local[2] * unitsToPc,
       ];
-      const starHit = pickNearestStar(hygBatch, exoBatch, combined, p, dir);
+      // TASK-103: read the exposure slider ONCE at click time and reuse it for both pick paths
+      // (HYG/exo below and the Gaia branch further down). Natural is hard-selected: `useSettingsStore`
+      // has no `mode` field until VIS-05 (TASK-102), so the mode-aware `VISIBILITY_PROFILES[mode]`
+      // branch would be dead code. HYG/exo multiplier is 1 in both profiles, so this is
+      // behavior-identical to Survey; when 102 lands, switch this one line and both picks follow.
+      const sliderExposure = useSettingsStore.getState().exposure;
+      const profile: StarVisibilityProfile = NATURAL_VISIBILITY_PROFILE;
+      const starHit = pickNearestStar(hygBatch, exoBatch, combined, p, dir, profile, sliderExposure);
 
       // Octree Gaia branch (TASK-088 D3) — strictly ADDITIVE. Scan the currently-visible Gaia
       // octree tiles (published by GalaxyScene) for the nearest gaia star, reusing the SAME
@@ -314,15 +326,11 @@ export function StarScene({
           tiles.push({ batch: m.batch, ranges: octreeCombined.prefixRangesFor(m.chunkId) });
         }
         // TASK-100: gate candidates on the SAME perceptibility predicate the renderer and tile
-        // cull use, so the pick can only claim a star the frame draws. Natural is hard-selected
-        // until VIS-05; when mode state lands, this one call switches profile and the pick
-        // follows automatically. Read the slider at click time (`GalaxyScene` mounts draw with
-        // this exact effective exposure).
-        const octreeExposure = effectiveStarExposure(
-          NATURAL_VISIBILITY_PROFILE,
-          'galaxy-octree',
-          useSettingsStore.getState().exposure,
-        );
+        // cull use, so the pick can only claim a star the frame draws. Reuses the `profile` and
+        // `sliderExposure` hoisted above (Natural until VIS-05; `GalaxyScene` mounts draw with
+        // this exact effective exposure). When mode state lands, that one hoisted line switches
+        // the profile and both picks follow automatically.
+        const octreeExposure = effectiveStarExposure(profile, 'galaxy-octree', sliderExposure);
         gaiaHit = pickNearestGaia(tiles, p, dir, PICK_MAX_ANGLE_RAD, octreeExposure);
       }
 
@@ -465,13 +473,26 @@ function pickNearestStar(
   combined: CombinedSource,
   cameraLocalPc: readonly [number, number, number],
   dir: readonly [number, number, number],
+  profile: StarVisibilityProfile,
+  sliderExposure: number,
 ): { id: BodyId; angleRad: number } | null {
+  // TASK-103: gate each candidate on the SAME perceptibility predicate the renderer and tile cull
+  // use, so the pick can only claim a star the frame draws. HYG and exoplanet both have exposure
+  // multiplier 1 in every profile (ADR-007 §8), but route the raw slider through
+  // `effectiveStarExposure` anyway — one source of truth, so the seam is ready if a future profile
+  // ever gives HYG/exo a non-1 multiplier. Do NOT hardcode "exposure = slider".
   const hygOrigin: readonly [number, number, number] = [
     cameraLocalPc[0] - hygBatch.originPc[0],
     cameraLocalPc[1] - hygBatch.originPc[1],
     cameraLocalPc[2] - hygBatch.originPc[2],
   ];
-  const hygHit = pickStar(hygBatch, hygOrigin, dir, PICK_MAX_ANGLE_RAD);
+  const hygHit = pickNearestVisibleStar(
+    hygBatch,
+    hygOrigin,
+    dir,
+    PICK_MAX_ANGLE_RAD,
+    effectiveStarExposure(profile, 'hyg', sliderExposure),
+  );
 
   let exoHit: StarPickHit | null = null;
   if (exoBatch !== null) {
@@ -480,7 +501,13 @@ function pickNearestStar(
       cameraLocalPc[1] - exoBatch.originPc[1],
       cameraLocalPc[2] - exoBatch.originPc[2],
     ];
-    exoHit = pickStar(exoBatch, exoOrigin, dir, PICK_MAX_ANGLE_RAD);
+    exoHit = pickNearestVisibleStar(
+      exoBatch,
+      exoOrigin,
+      dir,
+      PICK_MAX_ANGLE_RAD,
+      effectiveStarExposure(profile, 'exoplanet', sliderExposure),
+    );
   }
 
   const exoWins = exoHit !== null && (hygHit === null || exoHit.angleRad < hygHit.angleRad);
