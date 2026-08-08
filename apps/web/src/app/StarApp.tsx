@@ -23,7 +23,7 @@ import { ErrorBoundary, WebGLUnsupportedCard } from '../ErrorBoundary';
 import { isWebGL2Available } from '../glue/report-error';
 import { clock, epochProvider, installTimeGlue, syncClockToNow } from '../glue/time';
 import { createGoToCoordinator } from '../glue/goto';
-import { testHook, controllerHolder, mirrorControllerState, streamingHolder } from '../glue/test-hook';
+import { testHook, controllerHolder, mirrorControllerState, streamingHolder, gotoHolder } from '../glue/test-hook';
 import { makeLocalGroup, MILKY_WAY_STAR_COUNT } from '../glue/local-group';
 import { getCosmosPool, createMilkyWayStreaming } from '../glue/streaming';
 import { wireQuality } from '../glue/quality';
@@ -322,6 +322,14 @@ export function StarApp() {
     [sources, tree],
   );
   useEffect(() => goto?.start(), [goto]);
+  // TASK-091 — expose goToPosition to the test hook so the speed-law e2e can park at
+  // arbitrary galaxy coords without a UI drive (mirrors controllerHolder wiring).
+  useEffect(() => {
+    gotoHolder.current = goto;
+    return () => {
+      gotoHolder.current = null;
+    };
+  }, [goto]);
 
   const handleGoTo = useCallback(
     (id: BodyId) => {
