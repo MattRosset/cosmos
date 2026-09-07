@@ -133,6 +133,7 @@ export function M3App() {
     <SceneHost
       epochProvider={epochProvider}
       initialQualityTier="high"
+      postProcessing={false}
       onQualityController={handleQc}
     >
       <color attach="background" args={['#02030a']} />
