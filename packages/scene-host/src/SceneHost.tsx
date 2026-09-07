@@ -14,7 +14,7 @@ import {
   type FrameCallback,
 } from './frame-loop.js';
 import { computeEffectivePixelRatio, QualityControllerImpl, type QualityController } from './quality.js';
-import { PostChain } from './PostChain.js';
+import { PostChain, PostChainErrorBoundary } from './PostChain.js';
 import { QualityContext } from './use-quality.js';
 
 export interface SceneHostProps {
@@ -170,7 +170,9 @@ function QualityRoot({
       <PerformanceMonitor onDecline={handleDecline} onIncline={handleIncline}>
         {frameLoopRoot}
       </PerformanceMonitor>
-      <PostChain enabled={postProcessing} />
+      <PostChainErrorBoundary>
+        <PostChain enabled={postProcessing} />
+      </PostChainErrorBoundary>
     </QualityContext.Provider>
   );
 }

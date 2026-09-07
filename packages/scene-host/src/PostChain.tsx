@@ -2,7 +2,7 @@ import { EffectComposer, ToneMapping } from '@react-three/postprocessing';
 import { useThree } from '@react-three/fiber';
 import { ToneMappingMode } from 'postprocessing';
 import { UnsignedByteType } from 'three';
-import { useRef } from 'react';
+import { Component, useRef, type ReactNode } from 'react';
 import {
   ACESFilmicToneMapping,
   AgXToneMapping,
@@ -41,6 +41,50 @@ export function toneMappingModeFor(operator: number): ToneMappingMode | null {
     default:
       // CustomToneMapping (or any future/unknown operator): not reproducible 1:1.
       return null;
+  }
+}
+
+/**
+ * Isolates the post-processing composer so a throw inside it can NEVER take down the
+ * app (or the sibling context-lost overlay). The composer is an optional, non-essential
+ * enhancement — degrading it to "no post-processing" is always safer than crashing.
+ *
+ * The concrete trigger this exists for: on WebGL context loss, R3F re-runs the
+ * `EffectComposer` constructor `useMemo`, which calls `renderer.getContext()
+ * .getContextAttributes().alpha` — but `getContextAttributes()` returns `null` once the
+ * context is lost, so it throws "Cannot read properties of null (reading 'alpha')"
+ * during React's RENDER phase (postprocessing@6.39.4 EffectComposer.setRenderer/addPass).
+ * PostChain is mounted OUTSIDE the app's `<ErrorBoundary context="scene">`, so without
+ * this the throw escaped to the app-root boundary and replaced the dedicated
+ * "Graphics context lost — reload" overlay with the generic crash card (context-loss.spec
+ * went red on linux CI). Catching it here renders `null` (composer gone) and leaves the
+ * rest of the tree — including the context-lost overlay — intact.
+ *
+ * It reports loudly (`console.error`, never a silent swallow): a composer throw for any
+ * OTHER reason (e.g. a real bug in a future bloom effect) must still be impossible to
+ * miss, it just must not crash the whole app. There is no reset — a lost context needs a
+ * reload anyway, which is exactly what the overlay this protects tells the user to do.
+ */
+export class PostChainErrorBoundary extends Component<
+  { children: ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override componentDidCatch(error: unknown): void {
+    console.error(
+      '[post-chain] composer threw and was isolated (post-processing disabled for this ' +
+        'session; a lost WebGL context is the expected trigger — reload to recover):',
+      error,
+    );
+  }
+
+  override render(): ReactNode {
+    return this.state.failed ? null : this.props.children;
   }
 }
 

@@ -15,7 +15,7 @@ import {
 } from 'three';
 import type { QualityController } from '../src/index';
 import { SceneHost } from '../src/SceneHost';
-import { toneMappingModeFor } from '../src/PostChain';
+import { toneMappingModeFor, PostChainErrorBoundary } from '../src/PostChain';
 import type { PostChainComposerTracker } from './setup-postprocessing';
 
 // --- Deterministic tier-gate coverage for the post-processing chain (TASK-104 §Acceptance 1).
@@ -186,6 +186,39 @@ describe('PostChain tier gate (post-processing chain foundation)', () => {
     // Scene content must not remount/re-render on the gate flip — only PostChain
     // (the useQuality consumer) re-renders. This is the §5.1 Canvas-isolation guarantee.
     expect(sceneRenderCount).toBe(countAfterMount);
+
+    await renderer.unmount();
+  });
+});
+
+// The isolation constraint: a throw inside the composer (the concrete case is R3F re-running
+// the EffectComposer constructor on WebGL context loss, where postprocessing dereferences the
+// now-null getContextAttributs() → "reading 'alpha'") must be caught here and degrade to "no
+// post-processing", NEVER propagate to the app-root boundary and replace the context-lost
+// overlay with the generic crash card (context-loss.spec regression, linux CI). Deterministic
+// proxy for that integration behavior: the boundary catches a throwing child, renders null, and
+// still reports the error loudly.
+describe('PostChainErrorBoundary — isolates a composer throw', () => {
+  it('catches a throwing child, renders null, and reports instead of propagating', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    function Boom(): null {
+      throw new Error("Cannot read properties of null (reading 'alpha')");
+    }
+
+    // Must RESOLVE (not reject): a propagating throw would reject this create() call.
+    const renderer = await create(
+      <PostChainErrorBoundary>
+        <Boom />
+      </PostChainErrorBoundary>,
+    );
+
+    // Fallback is null → the composer subtree is gone, the rest of the tree is untouched.
+    expect(renderer.scene.children.length).toBe(0);
+    // Loud, never silent: our componentDidCatch tagged the report.
+    expect(
+      errSpy.mock.calls.some((c) => String(c[0]).includes('[post-chain]')),
+    ).toBe(true);
 
     await renderer.unmount();
   });

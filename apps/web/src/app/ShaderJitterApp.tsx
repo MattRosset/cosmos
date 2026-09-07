@@ -8,11 +8,19 @@ import type { ShaderJitterResult } from '../scene/ShaderJitterProbe';
  * synthetic star, orbits it at 1 AU, and reads back the on-screen centroid. Results
  * land on `window.__shaderJitterResult` (the e2e gate) AND on a fixed DOM overlay, so
  * the A/B bench on an M1/phone is readable without DevTools. No pack, no HUD.
+ *
+ * `postProcessing={false}` — this is a manual drawing-buffer readback probe: it reads
+ * the default framebuffer straight out with `gl.readPixels` (ShaderJitterProbe). At the
+ * SceneHost default tier `high` the composer would otherwise leave its 8-bit identity
+ * COMPOSITE on that buffer, and the faint single star drops below the readback floor on
+ * some SwiftShader builds (linux CI lost 207/300 frames; win32 passed) — a false red.
+ * Same probe-conflict class as the six manual-render probe apps (docs/research/
+ * post-chain-probe-render-conflict.md); ShaderJitterProbe was missed by that analysis.
  */
 export function ShaderJitterApp() {
   return (
     <>
-      <SceneHost>
+      <SceneHost postProcessing={false}>
         <color attach="background" args={['#02030a']} />
         <ShaderJitterProbe />
       </SceneHost>

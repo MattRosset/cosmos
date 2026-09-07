@@ -148,3 +148,51 @@ the direct path's precision is REQUIRED for identity on this HDR-additive scene.
   all PASS.** error-gate = zero WebGL errors (the research doc's one residual risk — clean). m3 caps hold
   (renderedPoints=1113495 ≤ high cap, drawCalls=10). No threshold relaxed; no probe pinned to `low`.
 
+
+## Post-merge CI e2e triage (PR #49, run 34140334148) — two composer regressions found + fixed
+
+The interim triage above missed two deterministic specs that went red on **linux CI** (both
+GREEN on this win32 box — a SwiftShader-build difference, the CLAUDE.md-documented class). Both
+trace to the composer now being in the real-app pipeline. Root-caused from the CI Playwright
+report DOM snapshots (the win32 box cannot reproduce either):
+
+1. **`shader-jitter.spec.ts` — 207/300 frames "lost"** (star below the readback floor).
+   ShaderJitterProbe is a manual drawing-buffer readback probe at tier `high`, so the 8-bit
+   identity COMPOSITE sat on the default framebuffer it reads, and the faint single star dropped
+   below `LUM_FLOOR` on linux SwiftShader. **This app was overlooked by
+   `post-chain-probe-render-conflict.md`** — its manual-render probe list (CLAIM 3) never
+   included ShaderJitterProbe. Fix: `ShaderJitterApp` now passes `postProcessing={false}`, the
+   same documented opt-out the six sibling probe apps already carry. → **spec/task bug** (the
+   probe-conflict analysis enumerated the wrong set; a manual-readback probe is the same conflict
+   class as a manual-render one and should have been in it).
+
+2. **`context-loss.spec.ts` — dedicated overlay replaced by the generic crash card.** On WebGL
+   context loss, R3F re-runs the `EffectComposer` constructor `useMemo`; postprocessing@6.39.4
+   calls `renderer.getContext().getContextAttributes().alpha`, but `getContextAttributes()`
+   returns `null` once the context is lost → "Cannot read properties of null (reading 'alpha')"
+   thrown in React's RENDER phase. PostChain is mounted OUTSIDE the app's
+   `<ErrorBoundary context="scene">`, so the throw escaped to the app-root boundary and swapped
+   the "Graphics context lost — reload" overlay for the generic ErrorCard (CI DOM snapshot:
+   `alert > "Something went wrong" / "Cannot read properties of null (reading 'alpha')" / Reload`).
+   Fix: `PostChainErrorBoundary` in scene-host wraps `<PostChain>` — a composer throw now degrades
+   to "no post-processing" (renders null) and is reported loudly (`console.error`), never crashes
+   the app. Deterministic proxy added to `post-chain.test.tsx` (boundary catches a throwing child,
+   renders null, reports). → **doctrine/analysis gap** (the probe-conflict doc considered only the
+   probe collision, never the composer's resilience to a lost context in the real app; the always-
+   on tooth is the new unit test, not the linux-only e2e).
+
+**Judgment calls (this fix):**
+- *Error boundary vs. gating PostChain off on `contextLost`:* chose the boundary. The gate is
+  narrower but timing-fragile (depends on our state flipping before R3F re-runs the composer
+  useMemo, and the win32 box can't verify the ordering); the boundary is robust to the exact
+  trigger and also protects future effects (bloom). It reports loudly, so it is degrade-and-report,
+  NOT a silent swallow (rules 3/5).
+- *`console.error` vs. the app's `reportError` sink:* scene-host is a package and must not depend
+  on the app; `console.error` is the package-level loud channel.
+- *Left `Flythrough4ProbeApp` untouched* though it also does manual readback with no opt-out flag:
+  it pins tier `low` (`bloomEnabled=false` ⇒ no composer), so it is safe — confirmed by CLAIM 2 and
+  its green flythrough4 run.
+- **Verification honesty (rule 4):** both specs are GREEN on this win32 box with AND without the
+  fix — win32 SwiftShader never reproduced either failure. Local green proves "no regression", not
+  "fixed". The reproducible teeth are the scene-host unit test (context-loss) and the documented
+  opt-out matching six passing siblings (shader-jitter). Real confirmation is the linux CI re-run.
