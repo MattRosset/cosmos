@@ -14,6 +14,7 @@ import {
   type FrameCallback,
 } from './frame-loop.js';
 import { computeEffectivePixelRatio, QualityControllerImpl, type QualityController } from './quality.js';
+import { PostChain, PostChainErrorBoundary } from './PostChain.js';
 import { QualityContext } from './use-quality.js';
 
 export interface SceneHostProps {
@@ -34,6 +35,13 @@ export interface SceneHostProps {
   readonly onQualityController?: (qc: QualityController) => void;
   /** Disable automatic adaptation (tests / forced-tier demos). Default false. */
   readonly disableAutoQuality?: boolean;
+  /** Mount the tier-gated post-processing chain (identity composite; TASK-104).
+   *  Default `true`. Apps that drive their own manual `gl.render` loop (the
+   *  manual-render probe apps) MUST pass `false`: a manual render pass and an
+   *  `EffectComposer` are mutually-exclusive render owners (probe-conflict
+   *  decision, 2026-09-07). The composer still only mounts when the current tier
+   *  has `bloomEnabled` (high/medium), so `low`-tier apps are unaffected either way. */
+  readonly postProcessing?: boolean;
 }
 
 function FrameContextUpdater({
@@ -124,12 +132,14 @@ function QualityApplier({ qc }: { qc: QualityControllerImpl }): null {
 function QualityRoot({
   qc,
   disableAutoQuality,
+  postProcessing,
   children,
   onFrame,
   epochProvider,
 }: {
   qc: QualityControllerImpl;
   disableAutoQuality: boolean;
+  postProcessing: boolean;
   children?: ReactNode;
   onFrame?: FrameCallback;
   epochProvider?: EpochProvider;
@@ -160,6 +170,9 @@ function QualityRoot({
       <PerformanceMonitor onDecline={handleDecline} onIncline={handleIncline}>
         {frameLoopRoot}
       </PerformanceMonitor>
+      <PostChainErrorBoundary>
+        <PostChain enabled={postProcessing} />
+      </PostChainErrorBoundary>
     </QualityContext.Provider>
   );
 }
@@ -173,6 +186,7 @@ export function SceneHost({
   initialQualityTier = 'high',
   onQualityController,
   disableAutoQuality = false,
+  postProcessing = true,
 }: SceneHostProps): React.JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -204,6 +218,7 @@ export function SceneHost({
       <QualityRoot
         qc={qc}
         disableAutoQuality={disableAutoQuality}
+        postProcessing={postProcessing}
         {...(onFrame !== undefined ? { onFrame } : {})}
         {...(epochProvider !== undefined ? { epochProvider } : {})}
       >

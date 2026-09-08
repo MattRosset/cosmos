@@ -83,7 +83,7 @@ export function CtxSwitchApp() {
   if (pack.status !== 'ready') return null;
 
   return (
-    <SceneHost epochProvider={epochProvider}>
+    <SceneHost epochProvider={epochProvider} postProcessing={false}>
       <color attach="background" args={['#02030a']} />
       <CtxSwitchProbe
         origin={origin}

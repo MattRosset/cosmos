@@ -159,6 +159,7 @@ export function Soak4ProbeApp(): React.JSX.Element | null {
     <SceneHost
       epochProvider={epochProvider}
       initialQualityTier="high"
+      postProcessing={false}
       onQualityController={handleQc}
     >
       <color attach="background" args={['#02030a']} />

@@ -92,20 +92,16 @@ function App() {
       initialQualityTier="high"
       onQualityController={handleQc}
     >
-      <PostChain />
+      <Starfield />
     </SceneHost>
   );
 }
 
-// Inside the Canvas tree — re-renders only on tier change:
-function PostChain() {
-  const { bloomEnabled, atmosphereEnabled } = useQuality();
-  return (
-    <>
-      {bloomEnabled && <Bloom />}
-      {atmosphereEnabled && <Atmosphere />}
-    </>
-  );
+// Any Canvas-tree component can read the tier — re-renders only on tier change.
+// (The post-processing chain does this internally; see "Post chain" below.)
+function Atmosphere() {
+  const { atmosphereEnabled } = useQuality();
+  return atmosphereEnabled ? <AtmosphereShell /> : null;
 }
 ```
 
@@ -131,12 +127,30 @@ qc.setTier(null);    // resume automatic adaptation
 Pass `disableAutoQuality` to `<SceneHost>` to ignore `PerformanceMonitor`
 callbacks entirely (forced-tier demos and tests).
 
+## Post chain (foundation — TASK-104)
+
+`SceneHost` mounts a tier-gated `@react-three/postprocessing` `<EffectComposer>` via the
+internal `PostChain` leaf. **Step 1 is an identity composite: it adds NO visible effect** —
+antialiasing (TASK-105) and selective bloom (TASK-106) mount into this composer later.
+
+- **Tier gate:** the composer mounts only when the current tier has `bloomEnabled` (high/medium),
+  isolated in the `PostChain` leaf so a tier change re-renders only it, never the scene content.
+- **`postProcessing?: boolean`** (SceneHostProps, default `true`): the one additive API field.
+  An app that drives its own manual `gl.render` loop (the manual-render **probe apps**) MUST pass
+  `postProcessing={false}` — a manual render pass and an `EffectComposer` are mutually-exclusive
+  render owners.
+- **Identity:** a single `<ToneMapping>` reproduces the renderer's tone-mapping operator
+  (`ACESFilmicToneMapping` → `ACES_FILMIC`), and the composer uses `multisampling={0}` +
+  `frameBufferType={UnsignedByteType}` (8-bit) so additive star sprites clamp exactly as the direct
+  path — a true visual no-op. (TASK-106 switches to a HalfFloat HDR target when bloom needs
+  headroom.) See `docs/research/post-chain-identity-hdr-target.md`.
+
 ## Extension points (later tasks)
 
 - Coords rebase: subscribe at `PRIORITY_COORDS`, shift root render groups on
   `RebaseEvent`.
 - Streaming: subscribe at `PRIORITY_STREAMING` for tile visibility.
-- Post chain: mount inside `SceneHost`; consume `useQuality()` for bloom/atmosphere.
+- Post chain: `PostChain` mounts inside `SceneHost` (above); TASK-105/106 add AA + bloom effects.
 
 ## EpochProvider
 
@@ -175,4 +189,7 @@ const epochProvider: EpochProvider = (dtMs) => {
 ## Testing
 
 `pnpm --filter @cosmos/scene-host test` — priority ordering, dt clamp, epoch
-stub, epoch provider, unmount cleanup (@react-three/test-renderer + Vitest).
+stub, epoch provider, unmount cleanup, and the post-chain tier gate + no-leak +
+Canvas-isolation + tone-mapping identity map (@react-three/test-renderer + Vitest).
+The real WebGL composer can't run under the mock GL, so it is stubbed package-wide
+(`test/setup-postprocessing.ts`); the real composer is covered by the web build + e2e.

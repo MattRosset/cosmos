@@ -132,6 +132,7 @@ export function StreamingProbeApp({ kind }: { kind: 'flythrough3' | 'soak3' }): 
     <SceneHost
       epochProvider={epochProvider}
       initialQualityTier="high"
+      postProcessing={false}
       onQualityController={handleQc}
     >
       <color attach="background" args={['#02030a']} />
